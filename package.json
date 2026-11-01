@@ -1,0 +1,35 @@
+{
+  "name": "hameau",
+  "version": "1.0.0",
+  "description": "Suivi du temps de travail gamifié : chaque minute de concentration fait grandir un village.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "test": "TZ=Europe/Paris node --test \"tests/*.test.ts\"",
+    "verif": "tsc --noEmit && eslint . && npm test && vite build",
+    "verif:sql": "scripts/verifier-migration.sh",
+    "icones": "node scripts/icones.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "typescript": "6.0",
+    "typescript-eslint": "^8.72.1",
+    "vite": "^8.3.5"
+  },
+  "private": true,
+  "type": "module"
+}

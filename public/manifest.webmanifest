@@ -1,0 +1,17 @@
+{
+  "name": "Hameau — temps de concentration",
+  "short_name": "Hameau",
+  "description": "Suivi du temps de travail, qui fait grandir un petit village.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1b2340",
+  "theme_color": "#1b2340",
+  "lang": "fr",
+  "icons": [
+    { "src": "icone-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icone-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icone.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
