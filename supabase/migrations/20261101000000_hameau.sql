@@ -147,7 +147,9 @@ begin
 end;
 $$;
 
-revoke all on function public.hameau_nouveau_jeton() from public;
+-- Supabase accorde d'office l'exécution des nouvelles fonctions à anon : le
+-- « from public » ne suffit pas, il faut le retirer nommément.
+revoke all on function public.hameau_nouveau_jeton() from public, anon;
 revoke all on function public.hameau_raccourci(text, text, text, text) from public;
 grant execute on function public.hameau_nouveau_jeton() to authenticated;
 -- anon : le raccourci appelle sans être connecté ; le jeton fait office d'identité.

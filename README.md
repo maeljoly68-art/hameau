@@ -32,25 +32,24 @@ seule session peut être ouverte à la fois (la base l’impose).
 
 ## Mise en place
 
-### 1. Supabase (synchronisation entre appareils)
+### Supabase
 
-Sans Supabase, l’app marche en **mode local** (données sur un seul appareil).
+Projet `hameau` (région Paris). L'URL et la clé publiable sont dans
+`src/data/config.ts` — publiques par conception, la sécurité repose sur les
+règles RLS. La migration est dans `supabase/migrations/` (rejouable).
 
-1. Crée un projet sur [supabase.com](https://supabase.com) (l’offre gratuite suffit).
-2. SQL Editor → colle et exécute `supabase/migrations/20261101000000_hameau.sql`
-   (rejouable sans risque).
-3. Authentication → Sign In / Providers → Email : laisse activé. Pour un usage
-   perso, tu peux désactiver *Confirm email*.
-4. Project Settings → API : note l’**URL** et la clé **publishable** (ou *anon*).
+Authentication → URL Configuration : **Site URL** =
+`https://maeljoly68-art.github.io/hameau/` (sinon les emails de confirmation
+renvoient vers `localhost`).
 
-### 2. GitHub Pages (hébergement gratuit)
+Le projet gratuit se met en pause après une semaine sans aucune activité ; il
+se relance d'un clic depuis le tableau de bord Supabase.
 
-1. Settings → Pages → Source : **GitHub Actions**.
-2. Settings → Secrets and variables → Actions → onglet **Variables** :
-   `VITE_SUPABASE_URL` et `VITE_SUPABASE_PUBLISHABLE_KEY`. Ce sont des valeurs
-   publiques par conception (la sécurité repose sur les règles RLS) ; ne mets
-   **jamais** la clé `service_role` ici.
-3. Pousse sur `main` : l’app est publiée sur `https://<toi>.github.io/hameau/`.
+### Hébergement
+
+GitHub Pages (dépôt public, Settings → Pages → Source : GitHub Actions).
+Chaque poussée sur `main` vérifie puis publie sur
+https://maeljoly68-art.github.io/hameau/.
 
 ### Développer
 

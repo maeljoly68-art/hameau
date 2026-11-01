@@ -81,6 +81,12 @@ do $$ begin
   raise exception 'ÉCHEC : action inconnue acceptée';
 exception when invalid_parameter_value then null; end $$;
 
+-- anon ne peut pas fabriquer de jeton.
+do $$ begin
+  perform public.hameau_nouveau_jeton();
+  raise exception 'ÉCHEC : anon exécute hameau_nouveau_jeton';
+exception when insufficient_privilege then null; end $$;
+
 -- anon ne lit pas les tables directement.
 do $$ begin
   perform * from public.sessions;

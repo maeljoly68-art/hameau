@@ -13,3 +13,5 @@ grant execute on function auth.uid() to anon, authenticated;
 grant usage on schema public to anon, authenticated;
 create publication supabase_realtime;
 alter default privileges in schema public grant all on tables to anon, authenticated;
+-- Comme Supabase : les nouvelles fonctions sont exécutables par anon et authenticated.
+alter default privileges in schema public grant execute on functions to anon, authenticated;

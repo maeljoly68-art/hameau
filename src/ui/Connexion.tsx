@@ -16,7 +16,12 @@ export function Connexion({ sb, surSansCompte }: { sb: SupabaseClient; surSansCo
   const envoyer = async () => {
     setOccupe(true);
     setMessage(null);
-    const r = mode === 'connexion' ? await sb.auth.signInWithPassword({ email, password: motDePasse }) : await sb.auth.signUp({ email, password: motDePasse });
+    const r = mode === 'connexion' ? await sb.auth.signInWithPassword({ email, password: motDePasse }) : await sb.auth.signUp({
+            email,
+            password: motDePasse,
+            // Le lien de confirmation ramène à l'app, pas à l'adresse par défaut du projet.
+            options: { emailRedirectTo: new URL(import.meta.env.BASE_URL, location.origin).href },
+          });
     setOccupe(false);
     if (r.error) setMessage(r.error.message);
     else if (mode === 'inscription' && !r.data.session) setMessage('Compte créé. Confirme ton adresse via l’email reçu, puis connecte-toi ici.');
