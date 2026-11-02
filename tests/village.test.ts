@@ -40,3 +40,11 @@ test('catalogue : identifiants uniques, chaque bâtiment est atteignable', () =>
   assert.equal(new Set(ids).size, ids.length);
   assert.ok(CATALOGUE.some((b) => b.niveauRequis === 1), 'il faut pouvoir construire dès le début');
 });
+
+import { population } from '../src/core/village.ts';
+
+test('population : seuls les toits logent des habitants', () => {
+  assert.equal(population([]), 1);
+  assert.equal(population([construction('arbre', 0, 0, 15), construction('fleurs', 1, 0, 10)]), 1);
+  assert.equal(population([construction('cabane', 0, 0, 40), construction('maison', 1, 0, 90)]), 4);
+});

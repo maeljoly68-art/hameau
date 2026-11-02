@@ -8,7 +8,17 @@ export interface Session {
   categorie: string;
   /** Appareil qui a lancé la session (« iPhone », « PC »…), pour mémoire. */
   appareil: string;
+  /** Durée visée en minutes (25, 50…), ou null pour une session libre. */
+  objectif: number | null;
 }
+
+export interface Profil {
+  nomHameau: string;
+  /** Minutes de concentration visées par jour. */
+  objectifJour: number;
+}
+
+export const PROFIL_DEFAUT: Profil = { nomHameau: 'Mon hameau', objectifJour: 120 };
 
 export interface Construction {
   id: string;

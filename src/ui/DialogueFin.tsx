@@ -44,6 +44,11 @@ export function DialogueFin({
     <div className="voile" role="dialog" aria-modal="true" aria-labelledby="titre-fin">
       <form
         className="fenetre"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') surAnnuler();
+          // Ctrl/Cmd + Entrée valide depuis la zone de texte, sans la souris.
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.requestSubmit();
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           if (!finIso || finAvantDebut) return;
@@ -51,6 +56,7 @@ export function DialogueFin({
         }}
       >
         <h2 id="titre-fin">Qu’as-tu fait pendant cette session ?</h2>
+        <p className="aide">Une ligne suffit : c’est ce qui rend l’historique utile dans trois semaines.</p>
         <textarea autoFocus rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex. : relu le chapitre 4, corrigé le bug de connexion…" />
         <label>
           Catégorie
@@ -74,8 +80,14 @@ export function DialogueFin({
         ) : (
           minutes !== null && (
             <p className="bilan">
-              {formatDuree(minutes)} de concentration → <strong>+{pointsSession(minutes)} points</strong>
-              {pointsSession(minutes) === 0 && <small> (5 minutes minimum)</small>}
+              <span className="bilan-duree">{formatDuree(minutes)}</span>
+              <strong className="bilan-points">+{pointsSession(minutes)} points</strong>
+              {pointsSession(minutes) === 0 && <small>5 minutes minimum pour gagner des points</small>}
+              {session.objectif !== null && (
+                <small className={minutes >= session.objectif ? 'reussi' : undefined}>
+                  {minutes >= session.objectif ? `Objectif de ${session.objectif} min atteint` : `Objectif de ${session.objectif} min non atteint — pas grave, tout compte`}
+                </small>
+              )}
             </p>
           )
         )}

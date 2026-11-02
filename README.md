@@ -13,15 +13,23 @@ développeur Apple, rien à télécharger sur Windows.
 | | |
 |---|---|
 | **Points** | 1 point par minute, +5 par bloc ininterrompu de 25 min. Rien sous 5 min. Plafond à 4 h par session (un chrono oublié la nuit ne rapporte pas 600 points). |
+| **Objectif de session** | Libre, 25, 50 ou 90 min : le chrono monte, l'anneau se remplit vers l'objectif avec le compte à rebours, et un carillon (plus une notification si activée) annonce la fin. En session libre, l'anneau suit le prochain bonus de 25 min. |
+| **Objectif du jour** | Réglable (30 min à 6 h). Il sert d'échelle à l'anneau « Aujourd'hui » et au calendrier de régularité. |
 | **Niveaux** | Calculés sur les points *gagnés* (dépenser ne fait jamais reculer). Chaque niveau demande ~1 h de plus que le précédent. |
-| **Village** | Le terrain s’agrandit de 5×5 à 11×11 avec les niveaux. 13 bâtiments, du parterre de fleurs (10 pts) au château (niveau 14). Démolir rend les points : c’est aussi comme ça qu’on déplace. |
-| **Vivant** | Pendant une session, le feu de camp s’embrase, le villageois lit, le moulin tourne, la forge fume. Le ciel suit l’heure (jour, soir, nuit étoilée). |
-| **Série** | Jours d’affilée avec au moins 25 min. La série d’hier tient tant que la journée n’est pas finie. |
+| **Village** | Le terrain s'agrandit de 5×5 à 11×11 avec les niveaux. 16 bâtiments, du parterre de fleurs (10 pts) au château (niveau 14). Démolir rend les points : c'est aussi comme ça qu'on déplace. Tu peux nommer ton hameau. |
+| **Vivant** | Les habitants vont et viennent entre leur maison et le feu, les nuages passent, les lucioles sortent la nuit. Pendant une session, le feu s'embrase, le moulin tourne, la forge fume, les abeilles bourdonnent. Le ciel suit l'heure (aube, jour, soir, nuit). |
+| **Succès** | 14 succès déduits de l'historique (séries, heures cumulées, marathon, lève-tôt…). Rien n'est stocké : supprimer une session retire honnêtement ce qu'elle avait donné. |
+| **Série** | Jours d'affilée avec au moins 25 min. La série d'hier tient tant que la journée n'est pas finie ; le record est gardé. |
+
+## Raccourcis clavier (ordinateur)
+
+<kbd>Espace</kbd> lance ou termine une session · <kbd>F</kbd> mode focus · <kbd>Échap</kbd> quitte · <kbd>Ctrl</kbd>+<kbd>Entrée</kbd> enregistre la fin de session.
 
 ## Voir le chrono partout
 
 | Appareil | Comment |
 |---|---|
+| **Mode focus** | Plein écran, grand anneau, et l'écran reste allumé (pratique pour un iPad posé sur le bureau). |
 | **Windows** | Edge ou Chrome → *Installer l’application*. Pendant une session, **⧉ Mini-chrono** ouvre une petite fenêtre toujours au premier plan. Le chrono s’affiche aussi dans le titre de la fenêtre / barre des tâches. |
 | **iPhone / iPad** | Safari → Partager → *Sur l’écran d’accueil*. L’app s’ouvre en plein écran. |
 | **Écran verrouillé iOS** | Une app web ne peut pas créer d’« activité en direct » (réservé à l’App Store). Le **raccourci Apple** contourne ça : il démarre la session *et* le minuteur de l’Horloge, qui, lui, s’affiche sur l’écran verrouillé et dans la Dynamic Island. Guide pas à pas dans l’app, onglet Réglages. |
@@ -69,9 +77,16 @@ npm run verif:sql             # migration à neuf, rejouée, scénario (PostgreS
 ## Organisation
 
 ```
-src/core/      calculs purs (points, niveaux, série, village) — testés dans tests/
+src/core/      calculs purs (points, objectifs, niveaux, séries, succès, village) — testés dans tests/
 src/data/      stockage : local (localStorage) ou Supabase, même interface
-src/ui/        React : village SVG, chrono, mini-chrono, pages
+src/ui/        React : village SVG, chrono en anneau, mode focus, mini-chrono, pages (chargées à la demande)
 supabase/      migration : tables, RLS, fonctions des raccourcis
 tests/sql/     scénario joué sur un vrai PostgreSQL
 ```
+
+## Performances
+
+- La bibliothèque Supabase (la moitié du poids de l'app) n'est chargée qu'après le premier affichage.
+- Le dernier état connu est gardé sur l'appareil : le village s'affiche aussitôt à l'ouverture, puis se met à jour.
+- Le village n'est pas redessiné quand le chrono avance : seul le chrono l'est.
+- Historique, statistiques et réglages ne sont téléchargés qu'à leur première ouverture.

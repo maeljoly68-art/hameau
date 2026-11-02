@@ -15,6 +15,8 @@ export const CATALOGUE: readonly Batiment[] = [
   { id: 'fleurs', nom: 'Parterre de fleurs', cout: 10, niveauRequis: 1, description: 'Un peu de couleur.' },
   { id: 'arbre', nom: 'Chêne', cout: 15, niveauRequis: 1, description: 'Il pousse pendant que tu bosses.' },
   { id: 'cabane', nom: 'Cabane', cout: 40, niveauRequis: 1, description: 'Le premier toit du hameau.' },
+  { id: 'lanterne', nom: 'Lanterne', cout: 20, niveauRequis: 2, description: 'Elle s’allume à la nuit tombée.' },
+  { id: 'ruche', nom: 'Ruche', cout: 35, niveauRequis: 2, description: 'Les abeilles bourdonnent quand tu bosses.' },
   { id: 'potager', nom: 'Potager', cout: 50, niveauRequis: 2, description: 'Ce qu’on sème finit par pousser.' },
   { id: 'puits', nom: 'Puits', cout: 60, niveauRequis: 2, description: 'Une source fiable.' },
   { id: 'maison', nom: 'Maison', cout: 90, niveauRequis: 3, description: 'Un villageois s’installe.' },
@@ -22,10 +24,21 @@ export const CATALOGUE: readonly Batiment[] = [
   { id: 'moulin', nom: 'Moulin', cout: 200, niveauRequis: 4, description: 'Le travail régulier fait tourner les ailes.' },
   { id: 'forge', nom: 'Forge', cout: 250, niveauRequis: 5, description: 'On y façonne ce qui dure.' },
   { id: 'bibliotheque', nom: 'Bibliothèque', cout: 300, niveauRequis: 6, description: 'Tout ce que tu as appris.' },
+  { id: 'marche', nom: 'Marché', cout: 350, niveauRequis: 7, description: 'Le hameau commerce avec ses voisins.' },
   { id: 'tour', nom: 'Tour de guet', cout: 450, niveauRequis: 8, description: 'On voit loin.' },
   { id: 'observatoire', nom: 'Observatoire', cout: 800, niveauRequis: 10, description: 'Pour les longues nuits de travail.' },
   { id: 'chateau', nom: 'Château', cout: 1500, niveauRequis: 14, description: 'Le hameau est devenu une ville.' },
 ];
+
+/** Habitants logés par bâtiment : seuls les toits comptent. */
+const HABITANTS: Readonly<Record<string, number>> = { cabane: 1, maison: 2, forge: 1, moulin: 1, bibliotheque: 1, marche: 2, chateau: 4 };
+
+/** Population du hameau : le gardien du feu, plus les habitants logés. */
+export function population(constructions: readonly Construction[]): number {
+  let n = 1;
+  for (const c of constructions) n += HABITANTS[c.batiment] ?? 0;
+  return n;
+}
 
 export function batiment(id: string): Batiment | undefined {
   return CATALOGUE.find((b) => b.id === id);

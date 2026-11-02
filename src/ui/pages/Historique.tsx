@@ -1,0 +1,216 @@
+import { useMemo, useState } from 'react';
+import { pointsSession } from '../../core/points.ts';
+import { cleJour, dureeMinutes, formatDuree } from '../../core/temps.ts';
+import type { Session } from '../../core/types.ts';
+import { depuisChampLocal, versChampLocal } from '../DialogueFin.tsx';
+
+const PAR_PAGE = 60;
+
+export default function Historique({
+  sessions,
+  categories,
+  surModifier,
+  surSupprimer,
+  surAjouter,
+}: {
+  sessions: Session[];
+  categories: string[];
+  surModifier: (id: string, champs: Partial<Session>) => void;
+  surSupprimer: (id: string) => void;
+  surAjouter: (s: Omit<Session, 'id'>) => void;
+}) {
+  const [edition, setEdition] = useState<string | null>(null);
+  const [ajout, setAjout] = useState<Omit<Session, 'id'> | null>(null);
+  const [filtre, setFiltre] = useState<string | null>(null);
+  const [limite, setLimite] = useState(PAR_PAGE);
+
+  const closes = useMemo(() => sessions.filter((s) => s.fin !== null).sort((a, b) => b.debut.localeCompare(a.debut)), [sessions]);
+  const presentes = useMemo(() => [...new Set(closes.map((s) => s.categorie.trim() || 'Sans catégorie'))], [closes]);
+  const visibles = closes.filter((s) => filtre === null || (s.categorie.trim() || 'Sans catégorie') === filtre);
+
+  // Regroupe par jour local, avec le total du jour en tête de groupe.
+  const groupes = useMemo(() => {
+    const g: { cle: string; titre: string; total: number; sessions: Session[] }[] = [];
+    for (const s of visibles.slice(0, limite)) {
+      const k = cleJour(new Date(s.debut));
+      let dernier = g[g.length - 1];
+      if (!dernier || dernier.cle !== k) {
+        dernier = { cle: k, titre: new Date(s.debut).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }), total: 0, sessions: [] };
+        g.push(dernier);
+      }
+      dernier.sessions.push(s);
+      dernier.total += dureeMinutes(s.debut, s.fin) ?? 0;
+    }
+    return g;
+  }, [visibles, limite]);
+
+  return (
+    <section className="carte">
+      <div className="entete">
+        <h2>Historique</h2>
+        <button
+          className="bouton petit"
+          onClick={() => {
+            const fin = new Date();
+            setAjout({ debut: new Date(fin.getTime() - 3_600_000).toISOString(), fin: fin.toISOString(), description: '', categorie: '', appareil: 'Ajout manuel', objectif: null });
+          }}
+        >
+          + Session oubliée
+        </button>
+      </div>
+      {presentes.length > 1 && (
+        <div className="puces" role="group" aria-label="Filtrer par catégorie">
+          <button className={filtre === null ? 'puce choisie' : 'puce'} onClick={() => setFiltre(null)}>
+            Tout
+          </button>
+          {presentes.map((c) => (
+            <button key={c} className={filtre === c ? 'puce choisie' : 'puce'} onClick={() => setFiltre(filtre === c ? null : c)}>
+              {c}
+            </button>
+          ))}
+        </div>
+      )}
+      {ajout && (
+        <FormulaireSession
+          categories={categories}
+          initial={ajout}
+          surValider={(s) => {
+            surAjouter(s);
+            setAjout(null);
+          }}
+          surAnnuler={() => setAjout(null)}
+        />
+      )}
+      {closes.length === 0 && <p className="vide">Aucune session terminée pour l’instant. Lance ta première depuis le village.</p>}
+      {groupes.map((g) => (
+        <div key={g.cle} className="groupe-jour">
+          <h3 className="jour">
+            <span>{g.titre}</span>
+            <span className="jour-total">{formatDuree(g.total)}</span>
+          </h3>
+          <ul className="historique">
+            {g.sessions.map((s) => {
+              const minutes = dureeMinutes(s.debut, s.fin);
+              const atteint = s.objectif !== null && minutes !== null && minutes >= s.objectif;
+              return (
+                <li key={s.id}>
+                  {edition === s.id ? (
+                    <FormulaireSession
+                      categories={categories}
+                      initial={s}
+                      surValider={(champs) => {
+                        surModifier(s.id, champs);
+                        setEdition(null);
+                      }}
+                      surAnnuler={() => setEdition(null)}
+                      surSupprimer={() => {
+                        if (confirm('Supprimer cette session ? Ses points seront retirés.')) {
+                          surSupprimer(s.id);
+                          setEdition(null);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <button className="ligne" onClick={() => setEdition(s.id)}>
+                      <span className="ligne-heure">{new Date(s.debut).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="ligne-texte">
+                        <strong>{s.categorie || 'Session'}</strong>
+                        {s.description ? <span className="ligne-desc">{s.description}</span> : <span className="ligne-desc discret">sans description</span>}
+                        <span className="ligne-meta">
+                          {s.appareil && <span className="etiquette">{s.appareil}</span>}
+                          {s.objectif !== null && <span className={atteint ? 'etiquette reussie' : 'etiquette'}>{atteint ? '✓ ' : ''}objectif {s.objectif} min</span>}
+                        </span>
+                      </span>
+                      <span className="ligne-duree">
+                        {minutes !== null ? formatDuree(minutes) : '—'}
+                        <small>+{pointsSession(minutes)}</small>
+                      </span>
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+      {visibles.length > limite && (
+        <button className="bouton discret" onClick={() => setLimite(limite + PAR_PAGE)}>
+          Voir plus ancien
+        </button>
+      )}
+    </section>
+  );
+}
+
+function FormulaireSession({
+  initial,
+  categories,
+  surValider,
+  surAnnuler,
+  surSupprimer,
+}: {
+  initial: Omit<Session, 'id'>;
+  categories: string[];
+  surValider: (s: Omit<Session, 'id'>) => void;
+  surAnnuler: () => void;
+  surSupprimer?: () => void;
+}) {
+  const [debut, setDebut] = useState(versChampLocal(initial.debut));
+  const [fin, setFin] = useState(initial.fin ? versChampLocal(initial.fin) : '');
+  const [description, setDescription] = useState(initial.description);
+  const [categorie, setCategorie] = useState(initial.categorie);
+  const d = depuisChampLocal(debut);
+  const f = depuisChampLocal(fin);
+  const valide = d !== null && f !== null && Date.parse(f) >= Date.parse(d);
+
+  return (
+    <form
+      className="formulaire"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!valide) return;
+        // On repart de TOUTE la session d'origine et on ne remplace que ce que
+        // le formulaire édite : un champ ajouté plus tard survit à l'édition.
+        surValider({ ...initial, debut: d, fin: f, description: description.trim(), categorie: categorie.trim() });
+      }}
+    >
+      <div className="deux">
+        <label>
+          Début
+          <input type="datetime-local" value={debut} onChange={(e) => setDebut(e.target.value)} />
+        </label>
+        <label>
+          Fin
+          <input type="datetime-local" value={fin} onChange={(e) => setFin(e.target.value)} />
+        </label>
+      </div>
+      <label>
+        Catégorie
+        <input list="categories-hist" value={categorie} onChange={(e) => setCategorie(e.target.value)} />
+        <datalist id="categories-hist">
+          {categories.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+      </label>
+      <label>
+        Ce que tu as fait
+        <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+      </label>
+      {!valide && <p className="alerte">Vérifie les dates : la fin doit suivre le début.</p>}
+      <div className="actions">
+        {surSupprimer && (
+          <button type="button" className="bouton danger" onClick={surSupprimer}>
+            Supprimer
+          </button>
+        )}
+        <button type="button" className="bouton discret" onClick={surAnnuler}>
+          Annuler
+        </button>
+        <button type="submit" className="bouton" disabled={!valide}>
+          Enregistrer
+        </button>
+      </div>
+    </form>
+  );
+}

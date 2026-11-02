@@ -1,44 +1,50 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { niveauPour } from '../core/points.ts';
 import { pointsGagnes, solde } from '../core/village.ts';
-import type { Depot, Donnees } from '../data/depot.ts';
+import { ecrireCache, lireCache, type Depot, type Donnees } from '../data/depot.ts';
 
-/** État du hameau, rechargé à chaque changement venu d'ici ou d'ailleurs. */
+/** État du hameau : peint depuis le cache, puis rechargé à chaque changement. */
 export function useHameau(depot: Depot) {
-  const [donnees, setDonnees] = useState<Donnees | null>(null);
+  const [donnees, setDonnees] = useState<Donnees | null>(() => lireCache(depot.cleCache));
+  const [frais, setFrais] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
+  const enVol = useRef<Promise<void> | null>(null);
+  const encore = useRef(false);
 
-  const recharger = useCallback(async () => {
-    try {
-      setDonnees(await depot.charger());
-      setErreur(null);
-    } catch (e) {
-      setErreur(e instanceof Error ? e.message : String(e));
+  // Un seul chargement à la fois : le temps réel envoie un événement par ligne
+  // touchée, et dix rechargements complets en rafale saturaient le téléphone.
+  const recharger = useCallback((): Promise<void> => {
+    if (enVol.current) {
+      encore.current = true;
+      return enVol.current;
     }
+    const tour = (async () => {
+      do {
+        encore.current = false;
+        try {
+          const d = await depot.charger();
+          setDonnees(d);
+          setFrais(true);
+          setErreur(null);
+          ecrireCache(depot.cleCache, d);
+        } catch (e) {
+          setErreur(e instanceof Error ? e.message : String(e));
+        }
+      } while (encore.current);
+      enVol.current = null;
+    })();
+    enVol.current = tour;
+    return tour;
   }, [depot]);
 
   useEffect(() => {
-    // « vivant » : une réponse arrivée après le changement de compte ne doit
-    // pas écraser les données du nouveau.
-    let vivant = true;
-    const charger = () =>
-      depot.charger().then(
-        (d) => {
-          if (!vivant) return;
-          setDonnees(d);
-          setErreur(null);
-        },
-        (e: unknown) => {
-          if (vivant) setErreur(e instanceof Error ? e.message : String(e));
-        },
-      );
-    void charger();
-    const arreter = depot.ecouter(() => void charger());
+    const t = window.setTimeout(() => void recharger(), 0);
+    const arreter = depot.ecouter(() => void recharger());
     return () => {
-      vivant = false;
+      window.clearTimeout(t);
       arreter();
     };
-  }, [depot]);
+  }, [depot, recharger]);
 
   const derive = useMemo(() => {
     if (!donnees) return null;
@@ -67,7 +73,7 @@ export function useHameau(depot: Depot) {
     [recharger],
   );
 
-  return { donnees, derive, erreur, setErreur, agir, recharger };
+  return { donnees, frais, derive, erreur, setErreur, agir };
 }
 
 /** Heure courante, rafraîchie à l'intervalle demandé. */

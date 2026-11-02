@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 // Adresse du projet et clé PUBLIABLE : elles sont faites pour être livrées au
 // navigateur, la sécurité repose sur les politiques RLS de la base. Elles
@@ -12,18 +12,43 @@ const PROJET = {
 
 // Pour développer contre un autre projet : VITE_SUPABASE_URL et
 // VITE_SUPABASE_PUBLISHABLE_KEY dans .env.local. Chaîne vide = non réglé.
-const URL_SUPABASE = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || PROJET.url;
-const CLE_PUBLIQUE = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) || PROJET.cle;
+export const urlSupabase = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || PROJET.url;
+export const clePublique = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) || PROJET.cle;
 
-export const urlSupabase = URL_SUPABASE;
-export const clePublique = CLE_PUBLIQUE;
+let promesse: Promise<SupabaseClient> | null = null;
 
-let client: SupabaseClient | null = null;
+/**
+ * Client Supabase, chargé à la demande. La bibliothèque pèse plus que tout le
+ * reste de l'app réuni : l'importer d'emblée retarderait le premier affichage
+ * du village, alors que le cache suffit à le peindre.
+ */
+export function client(): Promise<SupabaseClient> {
+  promesse ??= import('@supabase/supabase-js').then(({ createClient }) =>
+    createClient(urlSupabase, clePublique, { auth: { persistSession: true, autoRefreshToken: true } }),
+  );
+  return promesse;
+}
 
-export function supabase(): SupabaseClient | null {
-  if (!URL_SUPABASE || !CLE_PUBLIQUE) return null;
-  client ??= createClient(URL_SUPABASE, CLE_PUBLIQUE, {
-    auth: { persistSession: true, autoRefreshToken: true },
-  });
-  return client;
+/** Clé sous laquelle supabase-js range la connexion dans localStorage. */
+const CLE_AUTH = `sb-${new URL(urlSupabase).hostname.split('.')[0]}-auth-token`;
+
+export interface CompteLocal {
+  id: string;
+  email: string | null;
+}
+
+/**
+ * Le compte connecté, lu SANS charger la bibliothèque : de quoi afficher le
+ * bon hameau tout de suite. Ce n'est qu'un indice — la bibliothèque, une fois
+ * chargée, confirme ou déconnecte.
+ */
+export function compteLocal(): CompteLocal | null {
+  try {
+    const brut = localStorage.getItem(CLE_AUTH);
+    if (!brut) return null;
+    const u = (JSON.parse(brut) as { user?: { id?: string; email?: string } }).user;
+    return u?.id ? { id: u.id, email: u.email ?? null } : null;
+  } catch {
+    return null;
+  }
 }

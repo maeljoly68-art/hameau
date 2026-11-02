@@ -106,10 +106,57 @@ do $$ begin
   end if;
 end $$;
 
+-- Migration 2 : une seule signature du raccourci, sinon les appels sans
+-- p_objectif deviennent ambigus.
+do $$ begin
+  if (select count(*) from pg_proc where proname = 'hameau_raccourci') <> 1 then
+    raise exception 'ÉCHEC : plusieurs signatures de hameau_raccourci';
+  end if;
+end $$;
+
+-- Objectif de session : borné, et transmis par le raccourci.
+do $$ begin
+  update public.sessions set objectif_minutes = 0 where fin is null;
+  raise exception 'ÉCHEC : objectif de 0 minute accepté';
+exception when check_violation then null; end $$;
+
+set role anon;
+select public.hameau_raccourci(current_setting('test.jeton'), 'arreter') \gset ignore_
+select public.hameau_raccourci(current_setting('test.jeton'), 'demarrer', '', 'Code', 50)->>'objectif' as o \gset
+select :'o' = '50' as ok \gset
+\if :ok \else \echo 'ÉCHEC : objectif du raccourci' \quit 3 \endif
+select public.hameau_raccourci(current_setting('test.jeton'), 'etat')->>'message' as m \gset
+select :'m' like '%avant l''objectif%' as ok \gset
+\if :ok \else \echo 'ÉCHEC : message d''état avec objectif' \quit 3 \endif
+-- Un objectif absurde est ignoré plutôt que de faire échouer le raccourci.
+select public.hameau_raccourci(current_setting('test.jeton'), 'arreter') \gset ignore_
+select public.hameau_raccourci(current_setting('test.jeton'), 'demarrer', '', '', 5000)->>'etat' as e \gset
+select :'e' = 'en_cours' as ok \gset
+\if :ok \else \echo 'ÉCHEC : objectif absurde' \quit 3 \endif
+-- Les anciens appels à 4 paramètres marchent toujours.
+select public.hameau_raccourci(current_setting('test.jeton'), 'arreter', 'fin', 'Code')->>'etat' as e \gset
+select :'e' = 'terminee' as ok \gset
+\if :ok \else \echo 'ÉCHEC : appel sans p_objectif' \quit 3 \endif
+reset role;
+
+-- Profils : chacun le sien.
+set role authenticated;
+select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false) \gset
+insert into public.profils (nom_hameau, objectif_jour) values ('Bourg', 90);
+do $$ begin
+  update public.profils set objectif_jour = 0;
+  raise exception 'ÉCHEC : objectif quotidien de 0 accepté';
+exception when check_violation then null; end $$;
+select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false) \gset
+do $$ begin
+  if (select count(*) from public.profils) <> 0 then raise exception 'ÉCHEC : RLS profils'; end if;
+end $$;
+reset role;
+
 -- Supprimer le compte emporte tout.
 delete from auth.users where id = '11111111-1111-1111-1111-111111111111';
 do $$ begin
-  if (select count(*) from public.sessions) + (select count(*) from public.constructions) + (select count(*) from public.jetons_raccourci) <> 0 then
+  if (select count(*) from public.sessions) + (select count(*) from public.constructions) + (select count(*) from public.jetons_raccourci) + (select count(*) from public.profils) <> 0 then
     raise exception 'ÉCHEC : cascade';
   end if;
 end $$;

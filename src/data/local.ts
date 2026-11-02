@@ -1,20 +1,30 @@
-import type { Construction, Session } from '../core/types.ts';
+import { objectifValide } from '../core/objectif.ts';
+import { PROFIL_DEFAUT, type Construction, type Session } from '../core/types.ts';
 import { nomAppareil, nouvelId, type Depot, type Donnees } from './depot.ts';
 
 const CLE = 'hameau.v1';
 
-function lire(): Donnees {
+/** Remet d'aplomb une session lue : les anciennes versions n'avaient pas d'objectif. */
+function normaliser(s: Session): Session {
+  return { ...s, objectif: objectifValide(s.objectif) };
+}
+
+export function lireLocal(): Donnees {
   try {
     const brut = localStorage.getItem(CLE);
     if (brut) {
       const d = JSON.parse(brut) as Partial<Donnees>;
-      return { sessions: d.sessions ?? [], constructions: d.constructions ?? [] };
+      return {
+        sessions: (d.sessions ?? []).map(normaliser),
+        constructions: d.constructions ?? [],
+        profil: { ...PROFIL_DEFAUT, ...d.profil },
+      };
     }
   } catch {
     // Stockage illisible ou bloqué (navigation privée) : on repart à vide
     // plutôt que de rendre l'application inutilisable.
   }
-  return { sessions: [], constructions: [] };
+  return { sessions: [], constructions: [], profil: PROFIL_DEFAUT };
 }
 
 function ecrire(d: Donnees): void {
@@ -26,7 +36,7 @@ export function depotLocal(): Depot {
   const auditeurs = new Set<() => void>();
   const prevenir = () => auditeurs.forEach((f) => f());
   const modifier = (f: (d: Donnees) => void) => {
-    const d = lire();
+    const d = lireLocal();
     f(d);
     ecrire(d);
     prevenir();
@@ -34,14 +44,15 @@ export function depotLocal(): Depot {
 
   return {
     synchronise: false,
+    cleCache: 'hameau.cache.local',
     async charger() {
-      return lire();
+      return lireLocal();
     },
-    async demarrer(categorie) {
-      const d = lire();
+    async demarrer(categorie, objectif) {
+      const d = lireLocal();
       const ouverte = d.sessions.find((s) => s.fin === null);
       if (ouverte) return ouverte;
-      const s: Session = { id: nouvelId(), debut: new Date().toISOString(), fin: null, description: '', categorie, appareil: nomAppareil() };
+      const s: Session = { id: nouvelId(), debut: new Date().toISOString(), fin: null, description: '', categorie, appareil: nomAppareil(), objectif: objectifValide(objectif) };
       d.sessions.push(s);
       ecrire(d);
       prevenir();
@@ -74,6 +85,9 @@ export function depotLocal(): Depot {
     },
     async demolir(id) {
       modifier((d) => void (d.constructions = d.constructions.filter((c) => c.id !== id)));
+    },
+    async enregistrerProfil(p) {
+      modifier((d) => void (d.profil = p));
     },
     ecouter(rappel) {
       auditeurs.add(rappel);
