@@ -22,16 +22,21 @@ export function DialogueFin({
   session,
   sessions,
   categories,
+  tache,
   surValider,
   surAnnuler,
 }: {
   session: Session;
   sessions: Session[];
   categories: string[];
-  surValider: (champs: { fin: string; description: string; categorie: string }) => void;
+  /** Tâche Sillage sur laquelle la session a été lancée, s'il y en a une. */
+  tache: { titre: string } | null;
+  surValider: (champs: { fin: string; description: string; categorie: string }, options: { tacheFaite: boolean }) => void;
   surAnnuler: () => void;
 }) {
-  const [description, setDescription] = useState('');
+  // Lancée depuis une tâche : son titre est déjà la meilleure description.
+  const [description, setDescription] = useState(tache?.titre ?? '');
+  const [tacheFaite, setTacheFaite] = useState(false);
   const [categorie, setCategorie] = useState(session.categorie);
   // L'instant exact du clic est gardé tant que le champ n'est pas touché : le
   // champ s'arrête à la minute, et repartir de lui ferait perdre jusqu'à 59 s
@@ -61,7 +66,7 @@ export function DialogueFin({
         onSubmit={(e) => {
           e.preventDefault();
           if (!finIso || finAvantDebut) return;
-          surValider({ fin: finIso, description: description.trim(), categorie: categorie.trim() });
+          surValider({ fin: finIso, description: description.trim(), categorie: categorie.trim() }, { tacheFaite: tache !== null && tacheFaite });
         }}
       >
         <h2 id="titre-fin">Qu’as-tu fait pendant cette session ?</h2>
@@ -86,6 +91,12 @@ export function DialogueFin({
               </button>
             ))}
           </div>
+        )}
+        {tache && (
+          <label className="case-inline">
+            <input type="checkbox" checked={tacheFaite} onChange={(e) => setTacheFaite(e.target.checked)} />
+            Marquer « {tache.titre} » comme faite dans Sillage
+          </label>
         )}
         <label>
           Catégorie

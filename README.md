@@ -24,7 +24,16 @@ développeur Apple, rien à télécharger sur Windows.
 | **Stats** | Calendrier de régularité (un an sur ordinateur), 14 derniers jours avec la ligne d'objectif, comparaison à la semaine précédente au même jour, et « quand es-tu le plus concentré » : la durée MOYENNE des sessions par moment de la journée, à partir de 3 sessions — pas le total, qui désignerait seulement le moment le plus fréquent. |
 | **Série** | Jours d'affilée avec au moins 25 min. La série d'hier tient tant que la journée n'est pas finie ; le record est gardé. |
 
-## Confort
+## Sillage
+
+L'onglet **Tâches** relie Hameau à [Sillage](https://maeljoly68-art-jdtpromaelfx.maeljoly68.workers.dev), avec le compte Sillage de la personne (une connexion par appareil, le mot de passe n'est pas gardé). Hameau n'a aucun droit de plus que dans Sillage : ce sont les règles d'accès de Sillage qui s'appliquent.
+
+- **Habitudes du jour** (les tâches récurrentes de Sillage) : celles attendues aujourd'hui, à cocher — mêmes règles que Sillage (jours prévus, ou « n fois par semaine »).
+- **Tâches** : dans l'ordre de Sillage (retard, échéance, importance). Ajouter une tâche ici l'ajoute dans Sillage ; la cocher la marque faite.
+- **Lancer une session sur une tâche** : son estimation devient l'objectif, et la fin de session propose de la marquer faite.
+- **Temps de travail** : chaque session close part dans `focus_externe` (source `hameau`), le circuit que le portail de Sillage lit déjà. L'envoi se fait par différences : une session corrigée ou supprimée ici l'est aussi là-bas.
+
+
 
 - **Premiers pas** : une liste qui se coche toute seule d'après tes données (première session, premier bâtiment, nom du hameau, installation, raccourci).
 - **Fin de session** : les dernières descriptions de la même catégorie sont proposées en un toucher.
@@ -55,6 +64,9 @@ seule session peut être ouverte à la fois (la base l’impose).
 ## Mise en place
 
 ### Supabase
+
+Pour mettre la base à jour à la main : ouvrir `supabase/A-COLLER-DANS-SUPABASE.sql`, le coller dans l'éditeur SQL du projet `hameau`, « Run ». Il est engendré depuis les migrations (`scripts/fichier-a-coller.sh`) et rejouable sans risque.
+
 
 Projet `hameau` (région Paris). L'URL et la clé publiable sont dans
 `src/data/config.ts` — publiques par conception, la sécurité repose sur les

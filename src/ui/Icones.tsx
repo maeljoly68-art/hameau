@@ -92,3 +92,9 @@ export const IconeCoche = ({ taille = 16 }: { taille?: number }) => (
     <path d="m5 12.5 4.5 4.5L19 7.5" />
   </svg>
 );
+export const IconeTaches = () => (
+  <svg {...base}>
+    <rect x="4" y="4" width="16" height="16" rx="3" />
+    <path d="m8.5 12 2.5 2.5 4.5-5" />
+  </svg>
+);

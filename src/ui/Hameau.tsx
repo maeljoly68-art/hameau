@@ -9,11 +9,14 @@ import { cleJour, formatChrono, formatDuree } from '../core/temps.ts';
 import type { Construction, Session } from '../core/types.ts';
 import { batiment, refusConstruction, tailleTerrain, type Batiment } from '../core/village.ts';
 import type { Depot } from '../data/depot.ts';
+import { lireLocal } from '../data/local.ts';
+import { lienSillage, marquerTache, synchroniser, type LienSillage } from '../data/sillage.ts';
+import type { TacheSillage } from '../core/sillage.ts';
 import { useAlerteObjectif } from './alertes.ts';
 import { Boutique } from './Boutique.tsx';
 import { Anneau, CATEGORIES_PROPOSEES, Chrono, ecrirePreference, etatChrono, lirePreference } from './Chrono.tsx';
 import { DialogueFin } from './DialogueFin.tsx';
-import { IconeCoche, IconeEtincelle, IconeFenetre, IconeFlamme, IconeHistorique, IconeMarteau, IconeReglages, IconeStats, IconeVillage } from './Icones.tsx';
+import { IconeCoche, IconeEtincelle, IconeFenetre, IconeFlamme, IconeHistorique, IconeMarteau, IconeReglages, IconeStats, IconeTaches, IconeVillage } from './Icones.tsx';
 import { miniChronoDisponible, useMiniChrono } from './MiniChrono.tsx';
 import { ModeFocus } from './ModeFocus.tsx';
 import { useHameau, useMaintenant } from './useHameau.ts';
@@ -24,14 +27,17 @@ import { CadreVillage, phasePour } from './Village.tsx';
 const chargerHistorique = () => import('./pages/Historique.tsx');
 const chargerStatistiques = () => import('./pages/Statistiques.tsx');
 const chargerReglages = () => import('./pages/Reglages.tsx');
+const chargerTaches = () => import('./pages/Taches.tsx');
 const Historique = lazy(chargerHistorique);
 const Statistiques = lazy(chargerStatistiques);
 const Reglages = lazy(chargerReglages);
+const Taches = lazy(chargerTaches);
 
-type Onglet = 'village' | 'historique' | 'stats' | 'reglages';
+type Onglet = 'village' | 'taches' | 'historique' | 'stats' | 'reglages';
 
 const ONGLETS: { id: Onglet; nom: string; Icone: () => React.ReactElement }[] = [
   { id: 'village', nom: 'Village', Icone: IconeVillage },
+  { id: 'taches', nom: 'Tâches', Icone: IconeTaches },
   { id: 'historique', nom: 'Historique', Icone: IconeHistorique },
   { id: 'stats', nom: 'Stats', Icone: IconeStats },
   { id: 'reglages', nom: 'Réglages', Icone: IconeReglages },
@@ -42,6 +48,12 @@ interface Toast {
   texte: string;
   type?: 'succes';
   action?: { libelle: string; faire: () => void };
+}
+
+/** La tâche Sillage sur laquelle cette session a été lancée, si c'est le cas sur cet appareil. */
+function tacheDe(s: Session): { tacheId: string; titre: string } | null {
+  const t = lirePreference<{ session: string; tacheId: string; titre: string } | null>('hameau.tache-en-cours', null);
+  return t && t.session === s.id ? t : null;
 }
 
 /** L'app tourne-t-elle installée (écran d'accueil, fenêtre d'app) sur cet appareil ? */
@@ -140,6 +152,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [pasMasques, setPasMasques] = useState(() => lirePreference('hameau.premiers-pas-masques', false));
   const [installee] = useState(estInstallee);
+  const [lien, setLien] = useState<LienSillage | null>(lienSillage);
   const mini = useMiniChrono();
 
   const enCours = derive?.enCours ?? null;
@@ -172,11 +185,35 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       void chargerHistorique();
       void chargerStatistiques();
       void chargerReglages();
+      void chargerTaches();
     };
     const w = window as unknown as { requestIdleCallback?: (f: () => void, o: { timeout: number }) => number };
     if (w.requestIdleCallback) w.requestIdleCallback(precharger, { timeout: 6000 });
     else window.setTimeout(precharger, 3000);
   }, []);
+
+  // Le temps part vers Sillage après chaque changement venu de la base (pas
+  // depuis le cache, qui peut être en retard), regroupé : une rafale de
+  // modifications ne fait qu'un envoi.
+  const erreurSynchroSignalee = useRef(false);
+  useEffect(() => {
+    if (!lien || !frais || !donnees) return;
+    const id = window.setTimeout(() => {
+      // Le module est léger ; c'est la bibliothèque Supabase, qu'il charge à
+      // la demande, qui pèse — et elle n'est demandée qu'une fois relié.
+      synchroniser(lien.profilId, donnees.sessions).then(
+          () => {
+            erreurSynchroSignalee.current = false;
+          },
+          (e: unknown) => {
+            if (erreurSynchroSignalee.current) return;
+            erreurSynchroSignalee.current = true;
+            toast(`Sillage : ${e instanceof Error ? e.message : String(e)}`);
+          },
+        );
+    }, 3000);
+    return () => window.clearTimeout(id);
+  }, [lien, frais, donnees, toast]);
 
   const listeSucces = useMemo(
     () => (donnees ? calculerSucces(donnees.sessions, donnees.constructions, donnees.profil.objectifJour) : null),
@@ -215,6 +252,23 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
   }, [aConstruire, derive, donnees]);
 
   const demarrer = useCallback((categorie: string, objectif: number | null) => void agir(() => depot.demarrer(categorie, objectif)), [agir, depot]);
+
+  // Lancer une session SUR une tâche Sillage : l'estimation de la tâche
+  // devient l'objectif, et le lien est retenu pour proposer de la marquer
+  // faite à la fin. Retenu sur l'appareil seulement : c'est un pense-bête de
+  // fin de session, pas une donnée à synchroniser.
+  const lancerTache = useCallback(
+    (t: TacheSillage) =>
+      void agir(async () => {
+        const objectif = t.estimate_min !== null && t.estimate_min > 0 ? Math.min(600, t.estimate_min) : lirePreference<number | null>('hameau.objectif', 50);
+        const s = await depot.demarrer(lirePreference('hameau.categorie', ''), objectif);
+        ecrirePreference('hameau.tache-en-cours', { session: s.id, tacheId: t.id, titre: t.title });
+      }).then(() => {
+        setOnglet('village');
+        toast(`Session lancée sur « ${t.title} »`);
+      }),
+    [agir, depot, toast],
+  );
   const demarrerRapide = useCallback(() => demarrer(lirePreference('hameau.categorie', ''), lirePreference<number | null>('hameau.objectif', 50)), [demarrer]);
   const pause = useCallback(() => enCours && void agir(() => depot.pause(enCours.id)), [agir, depot, enCours]);
   const reprise = useCallback(() => enCours && void agir(() => depot.reprendre(enCours.id)), [agir, depot, enCours]);
@@ -439,6 +493,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
             </div>
           )}
           <Suspense fallback={<div className="carte aide">Chargement…</div>}>
+            {onglet === 'taches' && <Taches emailSuggere={email} sessionEnCours={enCours !== null} surLancer={lancerTache} surLien={setLien} />}
             {onglet === 'historique' && (
               <Historique
                 sessions={donnees.sessions}
@@ -459,7 +514,6 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                 surImporter={
                   depot.synchronise
                     ? async () => {
-                        const { lireLocal } = await import('../data/local.ts');
                         const locales = lireLocal();
                         const closes = locales.sessions.filter((s) => s.fin !== null);
                         if (closes.length + locales.constructions.length === 0) return toast('Rien à importer sur cet appareil.');
@@ -499,12 +553,22 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
           session={enCours}
           sessions={donnees.sessions}
           categories={categories}
+          tache={tacheDe(enCours)}
           surAnnuler={() => setFinEnCours(false)}
-          surValider={(champs) => {
+          surValider={(champs, { tacheFaite }) => {
             setFinEnCours(false);
+            const tache = tacheDe(enCours);
             // Le gain affiché est celui que la base retiendra : pauses déduites.
             const gain = pointsSession(dureeSession(clore(enCours, champs.fin)));
-            void agir(() => depot.terminer(enCours.id, champs)).then(() => toast(gain > 0 ? `+${gain} points de concentration` : 'Session enregistrée.'));
+            void agir(() => depot.terminer(enCours.id, champs)).then(() => {
+              toast(gain > 0 ? `+${gain} points de concentration` : 'Session enregistrée.');
+              ecrirePreference('hameau.tache-en-cours', null);
+              if (tache && tacheFaite)
+                marquerTache(tache.tacheId, true).then(
+                    () => toast(`« ${tache.titre} » faite dans Sillage`, { type: 'succes' }),
+                    (e: unknown) => toast(`Sillage : ${e instanceof Error ? e.message : String(e)}`),
+                  );
+            });
           }}
         />
       )}

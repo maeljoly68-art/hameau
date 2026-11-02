@@ -15,6 +15,18 @@ const PROJET = {
 export const urlSupabase = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || PROJET.url;
 export const clePublique = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) || PROJET.cle;
 
+/**
+ * Sillage, l'autre application : son adresse et sa clé PUBLIABLE (publique
+ * par conception, comme celle de Hameau). Hameau s'y connecte avec le compte
+ * Sillage de la personne, et ses règles d'accès s'appliquent telles quelles :
+ * aucun droit de plus que dans Sillage même.
+ */
+export const SILLAGE = {
+  url: 'https://rabdbdchtyogqitppsao.supabase.co',
+  cle: 'sb_publishable_PnitE2JdCXhDlg1X2D7g6w_CM0id3p7',
+  app: 'https://maeljoly68-art-jdtpromaelfx.maeljoly68.workers.dev',
+} as const;
+
 let promesse: Promise<SupabaseClient> | null = null;
 
 /**
