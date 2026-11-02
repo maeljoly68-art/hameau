@@ -49,6 +49,8 @@ export function useMiniChrono() {
       }
     }
     w.document.body.className = 'mini';
+    // Même thème que la fenêtre principale : il est porté par <html>.
+    w.document.documentElement.dataset.theme = document.documentElement.dataset.theme ?? 'auto';
     setFenetre(w);
   };
 

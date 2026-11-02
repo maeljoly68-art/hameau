@@ -1,8 +1,48 @@
 import { useState } from 'react';
+import { versCsv } from '../../core/export.ts';
 import { PROFIL_DEFAUT, type Profil } from '../../core/types.ts';
 import { client, clePublique, urlSupabase } from '../../data/config.ts';
 import type { Donnees } from '../../data/depot.ts';
 import { carillon } from '../alertes.ts';
+import { appliquerTheme, lireTheme, type Theme } from '../theme.ts';
+
+function telecharger(nom: string, contenu: string, type: string) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([contenu], { type }));
+  a.download = nom;
+  a.click();
+  window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function Apparence() {
+  const [theme, setTheme] = useState<Theme>(lireTheme);
+  const choix: { id: Theme; nom: string }[] = [
+    { id: 'auto', nom: 'Automatique' },
+    { id: 'sombre', nom: 'Sombre' },
+    { id: 'clair', nom: 'Clair' },
+  ];
+  return (
+    <section className="carte">
+      <h2>Apparence</h2>
+      <div className="puces" role="group" aria-label="Thème">
+        {choix.map((c) => (
+          <button
+            key={c.id}
+            className={theme === c.id ? 'puce choisie' : 'puce'}
+            aria-pressed={theme === c.id}
+            onClick={() => {
+              setTheme(c.id);
+              appliquerTheme(c.id, true);
+            }}
+          >
+            {c.nom}
+          </button>
+        ))}
+      </div>
+      <p className="aide">« Automatique » suit le réglage clair ou sombre de l’appareil. Le village, lui, suit l’heure et la saison.</p>
+    </section>
+  );
+}
 
 function Copier({ texte }: { texte: string }) {
   const [fait, setFait] = useState(false);
@@ -120,20 +160,17 @@ export default function Reglages({
     else setJeton(r.data as string);
   };
 
-  const exporter = () => {
-    const blob = new Blob([JSON.stringify(donnees, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `hameau-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
+  const jour = new Date().toISOString().slice(0, 10);
+  const exporterJson = () => telecharger(`hameau-${jour}.json`, JSON.stringify(donnees, null, 2), 'application/json');
+  // Le BOM fait reconnaître l'UTF-8 à Excel : sans lui, « Études » s'affiche « Ã‰tudes ».
+  const exporterCsv = () => telecharger(`hameau-${jour}.csv`, '\ufeff' + versCsv(donnees.sessions), 'text/csv;charset=utf-8');
 
   const urlRpc = `${urlSupabase}/rest/v1/rpc/hameau_raccourci`;
 
   return (
     <div className="pile">
       <FormulaireProfil key={`${donnees.profil.nomHameau}|${donnees.profil.objectifJour}`} profil={donnees.profil} surEnregistrer={surProfil} />
+      <Apparence />
       <Notifications />
 
       <section className="carte">
@@ -199,6 +236,12 @@ export default function Reglages({
               </ul>
             </details>
             <details>
+              <summary>« Pause » et « Reprise »</summary>
+              <p>
+                <code>p_action</code> = <code>pause</code> ou <code>reprendre</code>. Le temps de pause est déduit de la session, et donc des points. Arrêter pendant une pause est permis : la pause s’arrête avec la session.
+              </p>
+            </details>
+            <details>
               <summary>« Où j’en suis » — le temps écoulé</summary>
               <p>
                 <code>p_action</code> = <code>etat</code>. Réponse : « En session depuis 37 min, encore 13 min avant l’objectif. » Pratique avec Siri ou en widget.
@@ -250,8 +293,11 @@ export default function Reglages({
               Importer les données locales de cet appareil
             </button>
           )}
-          <button className="bouton discret" onClick={exporter}>
-            Exporter (JSON)
+          <button className="bouton discret" onClick={exporterCsv}>
+            Exporter pour Excel (CSV)
+          </button>
+          <button className="bouton discret" onClick={exporterJson}>
+            Sauvegarde complète (JSON)
           </button>
         </div>
       </section>

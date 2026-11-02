@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { saisonPour } from '../core/saison.ts';
 import type { Construction } from '../core/types.ts';
 import { client } from '../data/config.ts';
 import { phasePour, Village } from './Village.tsx';
@@ -26,6 +27,7 @@ export function Connexion({ surSansCompte }: { surSansCompte: () => void }) {
   const [message, setMessage] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
   const [phase] = useState(() => phasePour(new Date().getHours()));
+  const [saison] = useState(() => saisonPour(new Date()));
 
   const envoyer = async () => {
     setOccupe(true);
@@ -53,7 +55,7 @@ export function Connexion({ surSansCompte }: { surSansCompte: () => void }) {
   return (
     <main className="connexion">
       <div className="connexion-scene">
-        <Village niveau={1} constructions={VITRINE} actif phase={phase} />
+        <Village niveau={1} constructions={VITRINE} actif phase={phase} saison={saison} />
       </div>
       <div className="connexion-corps">
         <h1>Hameau</h1>

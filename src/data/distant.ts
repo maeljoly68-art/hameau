@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { objectifValide } from '../core/objectif.ts';
+import { pauseValide } from '../core/session.ts';
 import { PROFIL_DEFAUT, type Construction, type Profil, type Session } from '../core/types.ts';
 import { nomAppareil, type Depot } from './depot.ts';
 
@@ -11,6 +12,8 @@ interface LigneSession {
   categorie: string;
   appareil: string;
   objectif_minutes: number | null;
+  pause_secondes: number;
+  pause_depuis: string | null;
 }
 interface LigneConstruction {
   id: string;
@@ -33,6 +36,10 @@ const versSession = (l: LigneSession): Session => ({
   categorie: l.categorie,
   appareil: l.appareil,
   objectif: objectifValide(l.objectif_minutes),
+  // Colonnes absentes tant que la migration des pauses n'est pas passée :
+  // « pas de pause », pas une erreur.
+  pauseSecondes: pauseValide(l.pause_secondes),
+  pauseDepuis: l.pause_depuis ?? null,
 });
 
 /**
@@ -48,6 +55,9 @@ function versLigne(champs: Partial<Omit<Session, 'id'>>): Partial<Omit<LigneSess
   if (champs.categorie !== undefined) l.categorie = champs.categorie;
   if (champs.appareil !== undefined) l.appareil = champs.appareil;
   if (champs.objectif !== undefined) l.objectif_minutes = objectifValide(champs.objectif);
+  if (champs.pauseSecondes !== undefined) l.pause_secondes = pauseValide(champs.pauseSecondes);
+  // pause_depuis n'est jamais écrit par le client : seules les fonctions de
+  // pause et de reprise, à l'heure du serveur, y touchent.
   return l;
 }
 
@@ -114,6 +124,14 @@ export function depotDistant(obtenir: () => Promise<SupabaseClient>, userId: str
     async terminer(id, champs) {
       const sb = await obtenir();
       echec(await sb.from('sessions').update(versLigne(champs)).eq('id', id));
+    },
+    async pause(id) {
+      const sb = await obtenir();
+      echec(await sb.rpc('hameau_pause', { p_session: id }));
+    },
+    async reprendre(id) {
+      const sb = await obtenir();
+      echec(await sb.rpc('hameau_reprise', { p_session: id }));
     },
     async ajouterSession(s) {
       const sb = await obtenir();

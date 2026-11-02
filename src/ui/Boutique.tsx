@@ -1,6 +1,7 @@
+import type { Saison } from '../core/saison.ts';
 import { CATALOGUE, type Batiment } from '../core/village.ts';
 import { IconeCadenas, IconeEtincelle } from './Icones.tsx';
-import { Dessin } from './village/dessins.tsx';
+import { Dessin, SaisonContexte } from './village/dessins.tsx';
 
 /** Aperçu dessiné d'un bâtiment, le même trait que dans le village. */
 function Apercu({ id }: { id: string }) {
@@ -12,8 +13,9 @@ function Apercu({ id }: { id: string }) {
   );
 }
 
-export function Boutique({ niveau, solde, surChoisir }: { niveau: number; solde: number; surChoisir: (b: Batiment) => void }) {
+export function Boutique({ niveau, solde, saison, surChoisir }: { niveau: number; solde: number; saison: Saison; surChoisir: (b: Batiment) => void }) {
   return (
+    <SaisonContexte.Provider value={saison}>
     <section className="carte">
       <div className="entete">
         <h2>Construire</h2>
@@ -40,5 +42,6 @@ export function Boutique({ niveau, solde, surChoisir }: { niveau: number; solde:
         })}
       </ul>
     </section>
+    </SaisonContexte.Provider>
   );
 }

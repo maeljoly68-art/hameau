@@ -15,6 +15,10 @@ export interface Depot {
   /** Démarre une session, ou rend celle qui tourne déjà (lancée ailleurs, peut-être). */
   demarrer(categorie: string, objectif: number | null): Promise<Session>;
   terminer(id: string, champs: { fin: string; description: string; categorie: string }): Promise<void>;
+  /** Met la session en pause ; sans effet si elle l'est déjà. */
+  pause(id: string): Promise<void>;
+  /** Reprend après une pause ; sans effet si la session n'est pas en pause. */
+  reprendre(id: string): Promise<void>;
   ajouterSession(s: Omit<Session, 'id'>): Promise<void>;
   modifierSession(id: string, champs: Partial<Omit<Session, 'id'>>): Promise<void>;
   supprimerSession(id: string): Promise<void>;

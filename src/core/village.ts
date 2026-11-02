@@ -1,6 +1,6 @@
 // Règles du village : catalogue, taille du terrain, solde, placement. Pur.
 import { pointsSession } from './points.ts';
-import { dureeMinutes } from './temps.ts';
+import { dureeSession } from './session.ts';
 import type { Construction, Session } from './types.ts';
 
 export interface Batiment {
@@ -54,7 +54,7 @@ export const FEU = { x: 2, y: 2 } as const;
 
 export function pointsGagnes(sessions: readonly Session[]): number {
   let total = 0;
-  for (const s of sessions) total += pointsSession(dureeMinutes(s.debut, s.fin));
+  for (const s of sessions) total += pointsSession(dureeSession(s));
   return total;
 }
 

@@ -1,4 +1,12 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
+import type { Saison } from '../../core/saison.ts';
+
+/**
+ * Saison du dessin, partagée par contexte : la passer en paramètre à chacun
+ * des seize dessins pour qu'elle atteigne trois arbres et quelques toits
+ * aurait encombré toutes les signatures.
+ */
+export const SaisonContexte = createContext<Saison>('ete');
 
 // Rendu isométrique : une case fait 64 × 32 px à l'écran.
 export const DX = 32;
@@ -32,12 +40,22 @@ function Toit({ e, h, r, clair, sombre }: { e: number; h: number; r: number; cla
   const d: Pt = [DX * e, -h];
   const t: Pt = [0, -DY * e - h];
   const sommet: Pt = [0, -h - r];
+  const neige = useContext(SaisonContexte) === 'hiver';
+  // Neige sur le haut du toit : de la base vers le sommet, au-delà de 40 %.
+  const vers = (p: Pt, k: number): Pt => [p[0] + (sommet[0] - p[0]) * k, p[1] + (sommet[1] - p[1]) * k];
   return (
     <g>
       <polygon points={pts([t, d, sommet])} fill={sombre} />
       <polygon points={pts([g, t, sommet])} fill={clair} />
       <polygon points={pts([g, b, sommet])} fill={clair} />
       <polygon points={pts([b, d, sommet])} fill={sombre} />
+      {neige && (
+        <>
+          <polygon points={pts([vers(g, 0.4), vers(b, 0.4), sommet])} fill="#f4f8ff" />
+          <polygon points={pts([vers(b, 0.4), vers(d, 0.4), sommet])} fill="#d9e3f0" />
+          <path d={`M ${vers(g, 0.4)[0]} ${vers(g, 0.4)[1]} q 3 4 6 1 q 3 4 6 0`} stroke="#f4f8ff" strokeWidth={2} fill="none" strokeLinecap="round" />
+        </>
+      )}
     </g>
   );
 }
@@ -46,13 +64,37 @@ const Fenetre = ({ x, y, nuit }: { x: number; y: number; nuit: boolean }) => (
   <rect x={x} y={y} width={4} height={5} rx={1} fill={nuit ? '#ffd76a' : '#5a7fa8'} />
 );
 
+const FEUILLAGE: Record<Saison, [string, string, string]> = {
+  printemps: ['#4fae55', '#43a04a', '#6cc46c'],
+  ete: ['#3f8f4a', '#367d41', '#4fa95b'],
+  automne: ['#d9822b', '#c0582a', '#efb441'],
+  hiver: ['#5f7f6c', '#557563', '#6f8f7b'],
+};
+
 function Arbre({ dy = 0 }: { dy?: number }) {
+  const saison = useContext(SaisonContexte);
+  const [a, b, c] = FEUILLAGE[saison];
   return (
     <g transform={`translate(0 ${dy})`}>
       <Boite e={0.08} h={12} gauche="#6b4a2b" droite="#5a3d22" dessus="#7a5634" />
-      <circle cx={0} cy={-22} r={13} fill="#3f8f4a" />
-      <circle cx={-6} cy={-17} r={9} fill="#367d41" />
-      <circle cx={6} cy={-27} r={8} fill="#4fa95b" />
+      <circle cx={0} cy={-22} r={13} fill={a} />
+      <circle cx={-6} cy={-17} r={9} fill={b} />
+      <circle cx={6} cy={-27} r={8} fill={c} />
+      {saison === 'printemps' && (
+        <g fill="#ffd3e2">
+          <circle cx={-5} cy={-26} r={1.8} />
+          <circle cx={5} cy={-19} r={1.8} />
+          <circle cx={-1} cy={-31} r={1.6} />
+          <circle cx={8} cy={-28} r={1.5} />
+        </g>
+      )}
+      {saison === 'hiver' && (
+        <g fill="#f4f8ff">
+          <ellipse cx={0} cy={-33} rx={8} ry={3.2} />
+          <ellipse cx={6} cy={-33.5} rx={5} ry={2.4} />
+          <ellipse cx={-7} cy={-24} rx={5} ry={2.2} />
+        </g>
+      )}
     </g>
   );
 }

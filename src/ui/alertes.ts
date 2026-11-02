@@ -47,8 +47,10 @@ export async function notifier(titre: string, corps: string) {
 export function useAlerteObjectif(session: Session | null, prevenir: (message: string) => void) {
   const annoncee = useRef<string | null>(null);
   useEffect(() => {
-    if (!session || session.objectif === null) return;
-    const echeance = Date.parse(session.debut) + session.objectif * 60_000;
+    // En pause, l'échéance recule à chaque seconde : rien à programmer.
+    if (!session || session.objectif === null || session.pauseDepuis !== null) return;
+    // Les pauses terminées repoussent l'échéance d'autant.
+    const echeance = Date.parse(session.debut) + session.objectif * 60_000 + session.pauseSecondes * 1000;
     const reste = echeance - Date.now();
     // Objectif dépassé depuis longtemps (app rouverte bien après) : on ne
     // sonne pas pour un événement passé.

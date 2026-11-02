@@ -153,6 +153,90 @@ do $$ begin
 end $$;
 reset role;
 
+-- Migration 3 : pauses, déduites et closes avec la session.
+set role authenticated;
+select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false) \gset
+insert into public.sessions (categorie, debut) values ('Pause', now() - interval '60 minutes') returning id as sid \gset
+select set_config('test.sid', :'sid', false) \gset
+select public.hameau_pause(:'sid') \gset ignore_
+do $$ begin
+  if (select pause_depuis from public.sessions where id = current_setting('test.sid')::uuid) is null then
+    raise exception 'ÉCHEC : hameau_pause sans effet';
+  end if;
+end $$;
+-- Une deuxième pause ne repousse pas la première.
+update public.sessions set pause_depuis = now() - interval '20 minutes' where id = :'sid';
+select public.hameau_pause(:'sid') \gset ignore_
+select public.hameau_reprise(:'sid') \gset ignore_
+do $$ declare v int; begin
+  select pause_secondes into v from public.sessions where id = current_setting('test.sid')::uuid;
+  if v not between 1195 and 1205 then raise exception 'ÉCHEC : reprise, pause de % s au lieu de 1200', v; end if;
+  if (select pause_depuis from public.sessions where id = current_setting('test.sid')::uuid) is not null then
+    raise exception 'ÉCHEC : reprise sans effacer la pause';
+  end if;
+end $$;
+-- Une pause ne commence pas avant la session.
+do $$ begin
+  update public.sessions set pause_depuis = debut - interval '1 minute' where id = current_setting('test.sid')::uuid;
+  raise exception 'ÉCHEC : pause antérieure au début acceptée';
+exception when check_violation then null; end $$;
+-- Terminer pendant une pause : la pause s'arrête à la fin.
+update public.sessions set pause_depuis = now() - interval '5 minutes' where id = :'sid';
+update public.sessions set fin = now() where id = :'sid';
+do $$ declare v int; begin
+  select pause_secondes into v from public.sessions where id = current_setting('test.sid')::uuid;
+  if v not between 1495 and 1505 then raise exception 'ÉCHEC : clôture en pause, % s au lieu de 1500', v; end if;
+  if (select pause_depuis from public.sessions where id = current_setting('test.sid')::uuid) is not null then
+    raise exception 'ÉCHEC : session close restée en pause';
+  end if;
+end $$;
+-- Le cumul ne dépasse jamais la durée : une fin corrigée plus tôt le borne.
+update public.sessions set fin = debut + interval '10 minutes' where id = :'sid';
+do $$ begin
+  if (select pause_secondes from public.sessions where id = current_setting('test.sid')::uuid) <> 600 then
+    raise exception 'ÉCHEC : cumul de pause supérieur à la durée';
+  end if;
+end $$;
+-- Un autre compte ne met pas en pause les sessions des autres.
+insert into public.sessions (categorie) values ('Autre') returning id as sid2 \gset
+select set_config('test.sid2', :'sid2', false) \gset
+select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false) \gset
+select public.hameau_pause(:'sid2') \gset ignore_
+select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false) \gset
+do $$ begin
+  if (select pause_depuis from public.sessions where id = current_setting('test.sid2')::uuid) is not null then
+    raise exception 'ÉCHEC : pause posée par un autre compte';
+  end if;
+end $$;
+update public.sessions set fin = now() where id = :'sid2';
+reset role;
+set role anon;
+do $$ begin
+  perform public.hameau_pause(current_setting('test.sid2')::uuid);
+  raise exception 'ÉCHEC : anon exécute hameau_pause';
+exception when insufficient_privilege then null; end $$;
+-- Le raccourci : pause, état, reprise, arrêt avec durée effective.
+select public.hameau_raccourci(current_setting('test.jeton'), 'demarrer')->>'etat' as e \gset
+reset role;
+update public.sessions set debut = now() - interval '60 minutes', pause_secondes = 600 where fin is null and user_id = '11111111-1111-1111-1111-111111111111';
+set role anon;
+select public.hameau_raccourci(current_setting('test.jeton'), 'pause')->>'message' as m \gset
+select :'m' like 'Pause après 50 min%' as ok \gset
+\if :ok \else \echo 'ÉCHEC : raccourci pause' :'m' \quit 3 \endif
+select public.hameau_raccourci(current_setting('test.jeton'), 'pause')->>'message' as m \gset
+select :'m' like 'Déjà en pause%' as ok \gset
+\if :ok \else \echo 'ÉCHEC : double pause par raccourci' \quit 3 \endif
+select public.hameau_raccourci(current_setting('test.jeton'), 'etat')->>'etat' as e \gset
+select :'e' = 'en_pause' as ok \gset
+\if :ok \else \echo 'ÉCHEC : état en pause' \quit 3 \endif
+select public.hameau_raccourci(current_setting('test.jeton'), 'reprendre')->>'etat' as e \gset
+select :'e' = 'en_cours' as ok \gset
+\if :ok \else \echo 'ÉCHEC : reprise par raccourci' \quit 3 \endif
+select public.hameau_raccourci(current_setting('test.jeton'), 'arreter')->>'minutes' as mn \gset
+select :'mn' = '50' as ok \gset
+\if :ok \else \echo 'ÉCHEC : durée effective du raccourci' :'mn' \quit 3 \endif
+reset role;
+
 -- Supprimer le compte emporte tout.
 delete from auth.users where id = '11111111-1111-1111-1111-111111111111';
 do $$ begin

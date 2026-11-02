@@ -107,3 +107,44 @@ test('bilan : moyenne absente sans session, jamais 0', () => {
   const b = bilan([session('2026-11-01T08:00:00+01:00', 30), session('2026-11-01T09:00:00+01:00', 60), session('2026-11-01T11:00:00+01:00', null)]);
   assert.deepEqual(b, { sessions: 2, totalMinutes: 90, moyenne: 45, plusLongue: 60 });
 });
+
+import { concentrationParMoment, momentPour } from '../src/core/stats.ts';
+
+test('moments de la journée', () => {
+  assert.equal(momentPour(4), 'nuit');
+  assert.equal(momentPour(5), 'matin');
+  assert.equal(momentPour(12), 'apres-midi');
+  assert.equal(momentPour(18), 'soir');
+  assert.equal(momentPour(22), 'nuit');
+});
+
+test('meilleur moment : la durée MOYENNE, pas le total', () => {
+  const s = [
+    // Après-midi : beaucoup de sessions courtes (plus gros total).
+    ...['01', '02', '03', '04', '05', '06'].map((j) => session(`2026-10-${j}T14:00:00+02:00`, 20)),
+    // Matin : moins de sessions, mais longues.
+    ...['01', '02', '03'].map((j) => session(`2026-10-${j}T08:00:00+02:00`, 35)),
+  ];
+  const r = concentrationParMoment(s);
+  assert.equal(r.meilleur, 'matin');
+  assert.equal(r.lignes.find((l) => l.moment === 'apres-midi')!.moyenne, 20);
+});
+
+test('meilleur moment : pas de moyenne sur un échantillon trop petit', () => {
+  const s = [session('2026-10-01T23:00:00+02:00', 200), ...['01', '02', '03'].map((j) => session(`2026-10-${j}T09:00:00+02:00`, 30))];
+  const r = concentrationParMoment(s);
+  assert.equal(r.lignes.find((l) => l.moment === 'nuit')!.moyenne, null, 'un marathon isolé ne fait pas une moyenne');
+  assert.equal(r.meilleur, 'matin');
+});
+
+test('meilleur moment : faux départs et sessions en cours exclus', () => {
+  const s = [...['01', '02', '03'].map((j) => session(`2026-10-${j}T09:00:00+02:00`, 30)), session('2026-10-04T09:00:00+02:00', 2), session('2026-10-05T09:00:00+02:00', null)];
+  const m = concentrationParMoment(s).lignes.find((l) => l.moment === 'matin')!;
+  assert.equal(m.sessions, 3);
+  assert.equal(m.moyenne, 30);
+});
+
+test('pauses déduites dans les statistiques', () => {
+  const s = [{ ...session('2026-11-01T08:00:00+01:00', 60), pauseSecondes: 1800 }];
+  assert.equal(minutesAujourdhui(s, maintenant), 30);
+});

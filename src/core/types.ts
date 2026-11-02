@@ -10,6 +10,10 @@ export interface Session {
   appareil: string;
   /** Durée visée en minutes (25, 50…), ou null pour une session libre. */
   objectif: number | null;
+  /** Secondes de pause déjà terminées, à déduire de la durée. */
+  pauseSecondes: number;
+  /** Début de la pause en cours, ou null quand la session avance. */
+  pauseDepuis: string | null;
 }
 
 export interface Profil {

@@ -1,5 +1,6 @@
 // Statistiques de travail. Pur : « maintenant » est toujours un paramètre.
-import { cleJour, decalerJours, dureeMinutes, lundi } from './temps.ts';
+import { dureeSession } from './session.ts';
+import { cleJour, decalerJours, lundi } from './temps.ts';
 import type { Session } from './types.ts';
 
 /** Minutes à atteindre dans la journée pour qu'elle compte dans la série. */
@@ -9,7 +10,7 @@ export const SEUIL_SERIE_MINUTES = 25;
 export function minutesParJour(sessions: readonly Session[]): Map<string, number> {
   const m = new Map<string, number>();
   for (const s of sessions) {
-    const d = dureeMinutes(s.debut, s.fin);
+    const d = dureeSession(s);
     // Une session en cours n'a pas de durée : l'ignorer plutôt que la compter
     // pour zéro, ce qui créerait un jour « travaillé » vide.
     if (d === null) continue;
@@ -68,7 +69,7 @@ export function parCategorie(sessions: readonly Session[], maintenant: Date, n: 
   const depuis = cleJour(decalerJours(maintenant, -(n - 1)));
   const m = new Map<string, number>();
   for (const s of sessions) {
-    const d = dureeMinutes(s.debut, s.fin);
+    const d = dureeSession(s);
     if (d === null) continue;
     if (cleJour(new Date(s.debut)) < depuis) continue;
     const c = s.categorie.trim() || 'Sans catégorie';
@@ -151,11 +152,71 @@ export function bilan(sessions: readonly Session[]): Bilan {
   let total = 0;
   let max: number | null = null;
   for (const s of sessions) {
-    const d = dureeMinutes(s.debut, s.fin);
+    const d = dureeSession(s);
     if (d === null) continue;
     n++;
     total += d;
     max = max === null ? d : Math.max(max, d);
   }
   return { sessions: n, totalMinutes: total, moyenne: n ? total / n : null, plusLongue: max };
+}
+
+export type Moment = 'matin' | 'apres-midi' | 'soir' | 'nuit';
+
+export const MOMENTS: readonly { id: Moment; nom: string; plage: string; complement: string }[] = [
+  { id: 'matin', nom: 'Matin', plage: '5 h – 12 h', complement: 'du matin' },
+  { id: 'apres-midi', nom: 'Après-midi', plage: '12 h – 18 h', complement: 'de l’après-midi' },
+  { id: 'soir', nom: 'Soir', plage: '18 h – 22 h', complement: 'du soir' },
+  { id: 'nuit', nom: 'Nuit', plage: '22 h – 5 h', complement: 'de la nuit' },
+];
+
+export function momentPour(heure: number): Moment {
+  if (heure >= 5 && heure < 12) return 'matin';
+  if (heure >= 12 && heure < 18) return 'apres-midi';
+  if (heure >= 18 && heure < 22) return 'soir';
+  return 'nuit';
+}
+
+/** Sessions nécessaires dans un moment avant d'en tirer une moyenne. */
+export const ECHANTILLON_MINIMUM = 3;
+
+export interface Concentration {
+  moment: Moment;
+  sessions: number;
+  /** Durée moyenne d'une session ; null sous l'échantillon minimum. */
+  moyenne: number | null;
+}
+
+/**
+ * Quand es-tu le plus concentré ? La question n'est pas « quand travailles-tu
+ * le plus » — classer par total désignerait toujours le moment le plus
+ * fréquent — mais « quand tiens-tu le plus longtemps » : on compare la durée
+ * MOYENNE d'une session. Les sessions de moins de 5 minutes (faux départs) en
+ * sont exclues, et une moyenne sur une ou deux sessions n'est pas affichée :
+ * un seul marathon désignerait sinon le « meilleur » moment à tort.
+ */
+export function concentrationParMoment(sessions: readonly Session[], minimumSessions = ECHANTILLON_MINIMUM) {
+  const acc = new Map<Moment, { n: number; total: number }>();
+  for (const s of sessions) {
+    const d = dureeSession(s);
+    if (d === null || d < 5) continue;
+    const m = momentPour(new Date(s.debut).getHours());
+    const a = acc.get(m) ?? { n: 0, total: 0 };
+    a.n++;
+    a.total += d;
+    acc.set(m, a);
+  }
+  const lignes: Concentration[] = MOMENTS.map(({ id }) => {
+    const a = acc.get(id);
+    return { moment: id, sessions: a?.n ?? 0, moyenne: a && a.n >= minimumSessions ? a.total / a.n : null };
+  });
+  let meilleur: Moment | null = null;
+  let record = -1;
+  for (const l of lignes) {
+    if (l.moyenne !== null && l.moyenne > record) {
+      record = l.moyenne;
+      meilleur = l.moment;
+    }
+  }
+  return { lignes, meilleur };
 }

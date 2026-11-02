@@ -1,10 +1,26 @@
-import { bilan, calendrier, derniersJours, intensite, meilleureSerie, minutesAujourdhui, minutesSemaine, minutesSemainePrecedenteAuMemeJour, parCategorie, serie } from '../../core/stats.ts';
+import {
+  bilan,
+  calendrier,
+  concentrationParMoment,
+  derniersJours,
+  ECHANTILLON_MINIMUM,
+  intensite,
+  meilleureSerie,
+  minutesAujourdhui,
+  minutesSemaine,
+  minutesSemainePrecedenteAuMemeJour,
+  MOMENTS,
+  parCategorie,
+  serie,
+} from '../../core/stats.ts';
 import type { Succes } from '../../core/succes.ts';
 import { formatDuree } from '../../core/temps.ts';
 import type { Session } from '../../core/types.ts';
+import { styleTeinte } from '../couleurs.ts';
 import { IconeEtincelle } from '../Icones.tsx';
 
-const SEMAINES = 20;
+/** Sur grand écran, une année entière tient : 20 semaines y laissaient un grand vide. */
+const semainesAffichees = () => (window.matchMedia?.('(min-width: 960px)').matches ? 52 : 20);
 const JOURS_COURTS = ['L', '', 'M', '', 'V', '', 'D'];
 
 export default function Statistiques({ sessions, succes, objectifJour, maintenant }: { sessions: Session[]; succes: Succes[]; objectifJour: number; maintenant: number }) {
@@ -20,8 +36,12 @@ export default function Statistiques({ sessions, succes, objectifJour, maintenan
   const echelle = Math.max(objectifJour * 1.5, 30);
   const cats = parCategorie(sessions, m, 30);
   const totalCats = cats.reduce((a, c) => a + c.minutes, 0);
-  const cal = calendrier(sessions, m, SEMAINES);
+  const semaines = semainesAffichees();
+  const cal = calendrier(sessions, m, semaines);
   const obtenus = succes.filter((s) => s.obtenu).length;
+  const conc = concentrationParMoment(sessions);
+  const plusLongueMoyenne = Math.max(1, ...conc.lignes.map((l) => l.moyenne ?? 0));
+  const meilleur = conc.meilleur ? MOMENTS.find((x) => x.id === conc.meilleur)! : null;
 
   return (
     <div className="pile">
@@ -50,7 +70,7 @@ export default function Statistiques({ sessions, succes, objectifJour, maintenan
       <section className="carte">
         <div className="entete">
           <h2>Régularité</h2>
-          <span className="aide">{SEMAINES} dernières semaines</span>
+          <span className="aide">{semaines === 52 ? 'les 12 derniers mois' : `${semaines} dernières semaines`}</span>
         </div>
         <div className="calendrier-cadre">
           <div className="calendrier">
@@ -91,11 +111,38 @@ export default function Statistiques({ sessions, succes, objectifJour, maintenan
       </section>
 
       <section className="carte">
+        <h2>Quand es-tu le plus concentré ?</h2>
+        <p className="aide">Durée moyenne d’une session selon le moment où tu la commences — pas le temps total, qui désignerait juste le moment où tu travailles le plus souvent.</p>
+        <ul className="moments">
+          {conc.lignes.map((l) => {
+            const info = MOMENTS.find((x) => x.id === l.moment)!;
+            return (
+              <li key={l.moment} className={l.moment === conc.meilleur ? 'meilleur' : undefined}>
+                <span className="moment-nom">
+                  <strong>{info.nom}</strong>
+                  <span className="aide">{info.plage}</span>
+                </span>
+                <span className="jauge">
+                  <span style={{ width: `${((l.moyenne ?? 0) / plusLongueMoyenne) * 100}%` }} />
+                </span>
+                <span className="nombre">{l.moyenne === null ? (l.sessions > 0 ? `${l.sessions}/${ECHANTILLON_MINIMUM}` : '—') : formatDuree(l.moyenne)}</span>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="aide">
+          {meilleur
+            ? `Tes sessions ${meilleur.complement} sont les plus longues : garde ce créneau pour les tâches qui demandent de la profondeur.`
+            : `Il faut au moins ${ECHANTILLON_MINIMUM} sessions dans un moment de la journée pour en tirer une moyenne fiable.`}
+        </p>
+      </section>
+
+      <section className="carte">
         <h2>Où passe ton temps (30 jours)</h2>
         {cats.length === 0 && <p className="vide">Rien encore. Lance ta première session !</p>}
         <ul className="categories">
           {cats.map((c) => (
-            <li key={c.categorie}>
+            <li key={c.categorie} style={styleTeinte(c.categorie)} className="avec-teinte">
               <span>{c.categorie}</span>
               <span className="jauge">
                 <span style={{ width: `${(c.minutes / totalCats) * 100}%` }} />
@@ -114,7 +161,7 @@ export default function Statistiques({ sessions, succes, objectifJour, maintenan
             <IconeEtincelle /> {obtenus} / {succes.length}
           </span>
         </div>
-        <ul className="succes">
+        <ul className="liste-succes">
           {succes.map((s) => (
             <li key={s.id} className={s.obtenu ? 'obtenu' : undefined}>
               <span className="succes-medaille" aria-hidden>

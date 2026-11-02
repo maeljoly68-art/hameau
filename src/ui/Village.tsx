@@ -1,7 +1,8 @@
 import { memo, useLayoutEffect, useRef, useState } from 'react';
+import type { Saison } from '../core/saison.ts';
 import type { Construction } from '../core/types.ts';
 import { FEU, population, tailleTerrain } from '../core/village.ts';
-import { DX, DY, Dessin, Feu, ecran, pts } from './village/dessins.tsx';
+import { DX, DY, Dessin, Feu, SaisonContexte, ecran, pts } from './village/dessins.tsx';
 
 export type Phase = 'aube' | 'jour' | 'soir' | 'nuit';
 
@@ -18,17 +19,17 @@ const CIEL: Record<Phase, [string, string]> = {
   soir: ['#e9795a', '#f6c37f'],
   nuit: ['#0b1029', '#242c57'],
 };
-const HERBE: Record<Phase, [string, string]> = {
-  aube: ['#7fbf7a', '#74b46f'],
-  jour: ['#7cc56d', '#70b962'],
-  soir: ['#88b45f', '#7ca856'],
-  nuit: ['#2f5a3a', '#2a5234'],
+const HERBE: Record<Saison, Record<Phase, [string, string]>> = {
+  printemps: { aube: ['#86c97c', '#7bbd71'], jour: ['#84cf74', '#78c369'], soir: ['#90bb63', '#84af59'], nuit: ['#2f5a3a', '#2a5234'] },
+  ete: { aube: ['#7fbf7a', '#74b46f'], jour: ['#7cc56d', '#70b962'], soir: ['#88b45f', '#7ca856'], nuit: ['#2f5a3a', '#2a5234'] },
+  automne: { aube: ['#b3ae63', '#a6a15a'], jour: ['#a9b85a', '#9dac50'], soir: ['#b5a24f', '#a99647'], nuit: ['#454c2e', '#3f4528'] },
+  hiver: { aube: ['#f2e6ee', '#e8dce6'], jour: ['#eaf0f7', '#dfe7f1'], soir: ['#f1dccf', '#e8d0c2'], nuit: ['#3f4b66', '#39445e'] },
 };
-const COLLINES: Record<Phase, [string, string]> = {
-  aube: ['#c99bb0', '#b48aa3'],
-  jour: ['#9fd0a8', '#86c093'],
-  soir: ['#b9776a', '#9c635c'],
-  nuit: ['#1b2446', '#161d3a'],
+const COLLINES: Record<Saison, Record<Phase, [string, string]>> = {
+  printemps: { aube: ['#c99bb0', '#b48aa3'], jour: ['#a8dcae', '#8ccc96'], soir: ['#b9776a', '#9c635c'], nuit: ['#1b2446', '#161d3a'] },
+  ete: { aube: ['#c99bb0', '#b48aa3'], jour: ['#9fd0a8', '#86c093'], soir: ['#b9776a', '#9c635c'], nuit: ['#1b2446', '#161d3a'] },
+  automne: { aube: ['#c9a08f', '#b78d80'], jour: ['#c9a25e', '#b88f4f'], soir: ['#b9725a', '#9c5f4c'], nuit: ['#1d2342', '#181d37'] },
+  hiver: { aube: ['#e6d3e0', '#d8c3d3'], jour: ['#dfe8f3', '#cfdbea'], soir: ['#e3c1b4', '#d3ad9f'], nuit: ['#26304f', '#202945'] },
 };
 
 /** Ce qui n'est pas un toit n'attire pas de chemin : on ne va pas « chez » un parterre. */
@@ -39,14 +40,21 @@ function hache(x: number, y: number): number {
   return Math.abs((x * 73856093) ^ (y * 19349663)) % 100;
 }
 
-function Ornement({ x, y }: { x: number; y: number }) {
+function Ornement({ x, y, saison }: { x: number; y: number; saison: Saison }) {
   const h = hache(x, y);
   const { sx, sy } = ecran(x, y);
   const ox = (h % 7) - 3;
+  if (h < 16 && saison === 'hiver')
+    return (
+      <g transform={`translate(${sx + ox} ${sy + 1})`}>
+        <ellipse cx={0} cy={0} rx={6} ry={2.6} fill="#fbfdff" />
+        <ellipse cx={4} cy={1} rx={3} ry={1.6} fill="#f2f6fc" />
+      </g>
+    );
   if (h < 16)
     return (
-      <g transform={`translate(${sx + ox} ${sy + 2})`} fill="#4c9a48">
-        <path d="M-4 0 q1 -6 2 0 M-1 0 q1 -8 2 0 M2 0 q1 -5 2 0" stroke="#3f8a3e" strokeWidth={1.4} fill="none" strokeLinecap="round" />
+      <g transform={`translate(${sx + ox} ${sy + 2})`}>
+        <path d="M-4 0 q1 -6 2 0 M-1 0 q1 -8 2 0 M2 0 q1 -5 2 0" stroke={saison === 'automne' ? '#7f7f35' : '#3f8a3e'} strokeWidth={1.4} fill="none" strokeLinecap="round" />
       </g>
     );
   if (h < 22)
@@ -56,14 +64,78 @@ function Ornement({ x, y }: { x: number; y: number }) {
         <ellipse cx={2} cy={2} rx={2} ry={1.3} fill="#8e8b84" />
       </g>
     );
-  if (h < 26)
+  // Selon la saison : feuilles mortes, ou fleurs (plus nombreuses au printemps).
+  if (saison === 'automne' && h < 32)
+    return (
+      <g transform={`translate(${sx + ox} ${sy})`}>
+        <ellipse cx={-3} cy={0} rx={2.4} ry={1.2} fill="#d9822b" transform="rotate(-20 -3 0)" />
+        <ellipse cx={2} cy={2} rx={2.2} ry={1.1} fill="#c0582a" transform="rotate(30 2 2)" />
+        <ellipse cx={4} cy={-1} rx={2} ry={1} fill="#efb441" />
+      </g>
+    );
+  if ((saison === 'ete' && h < 26) || (saison === 'printemps' && h < 36))
     return (
       <g transform={`translate(${sx + ox} ${sy})`}>
         <circle cx={-2} cy={0} r={1.6} fill="#fff6" />
-        <circle cx={2} cy={2} r={1.6} fill="#ffd34d" />
+        <circle cx={2} cy={2} r={1.6} fill={saison === 'printemps' ? '#ff9ec0' : '#ffd34d'} />
+        {saison === 'printemps' && <circle cx={5} cy={-1} r={1.4} fill="#b9a0ff" />}
       </g>
     );
   return null;
+}
+
+/** Feuilles, flocons ou pétales qui tombent sur le village ; rien en été. */
+function Particules({ saison, largeur, hauteur }: { saison: Saison; largeur: number; hauteur: number }) {
+  if (saison === 'ete') return null;
+  const n = saison === 'hiver' ? 24 : 9;
+  return (
+    <g style={{ pointerEvents: 'none' }} aria-hidden>
+      {Array.from({ length: n }, (_, i) => {
+        const x = (((i * 137) % 100) / 100) * largeur;
+        const duree = (saison === 'hiver' ? 9 : 13) + ((i * 7) % 8);
+        const balance = (i % 2 ? 1 : -1) * (14 + ((i * 5) % 22));
+        // Chute en balancier : un aller-retour latéral sur la descente.
+        const chemin = `M ${x} -12 q ${balance} ${hauteur / 4} 0 ${hauteur / 2} t 0 ${hauteur / 2 + 24}`;
+        return (
+          <g key={i}>
+            <animateMotion dur={`${duree}s`} repeatCount="indefinite" path={chemin} begin={`${-((i * 1.7) % duree)}s`} rotate={saison === 'hiver' ? undefined : 'auto'} />
+            {saison === 'hiver' ? (
+              <circle r={i % 3 === 0 ? 2 : 1.3} fill="#fff" opacity={0.9} />
+            ) : saison === 'automne' ? (
+              <ellipse rx={3.2} ry={1.6} fill={['#e0892f', '#c0582a', '#efb441'][i % 3]} />
+            ) : (
+              <ellipse rx={2.4} ry={1.4} fill="#ffc6d9" />
+            )}
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+/** Gerbes de feu d'artifice au passage de niveau. */
+function FeuxDArtifice({ largeur }: { largeur: number }) {
+  const gerbes = [
+    { x: largeur * 0.25, y: 58, couleur: '#ffd34d', retard: 0 },
+    { x: largeur * 0.72, y: 44, couleur: '#ff6b8a', retard: 0.45 },
+    { x: largeur * 0.5, y: 82, couleur: '#6fd39a', retard: 0.9 },
+    { x: largeur * 0.85, y: 92, couleur: '#7cc4f0', retard: 1.3 },
+  ];
+  return (
+    <g style={{ pointerEvents: 'none' }} aria-hidden>
+      {gerbes.map((f, i) => (
+        <g key={i} transform={`translate(${f.x} ${f.y})`}>
+          <g className="gerbe" style={{ animationDelay: `${f.retard}s`, color: f.couleur }}>
+            {Array.from({ length: 14 }, (_, k) => {
+              const a = (k / 14) * 2 * Math.PI;
+              return <line key={k} x1={Math.cos(a) * 5} y1={Math.sin(a) * 5} x2={Math.cos(a) * 24} y2={Math.sin(a) * 24} stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" />;
+            })}
+            <circle r={3} fill="#fff" />
+          </g>
+        </g>
+      ))}
+    </g>
+  );
 }
 
 interface Promeneur {
@@ -79,6 +151,9 @@ export interface PropsVillage {
   constructions: Construction[];
   actif: boolean;
   phase: Phase;
+  saison: Saison;
+  /** Passage de niveau en cours : feux d'artifice. */
+  fete?: boolean;
   /** Cases où le bâtiment choisi peut être posé (« x,y »). */
   posables?: ReadonlySet<string>;
   /** Bâtiment en cours de pose, montré en transparence sous le pointeur. */
@@ -94,7 +169,7 @@ export interface PropsVillage {
  * redessiner des centaines de polygones à chaque fois faisait chauffer les
  * téléphones pour rien.
  */
-export const Village = memo(function Village({ niveau, constructions, actif, phase, posables, fantome, recent, surCase, surConstruction }: PropsVillage) {
+export const Village = memo(function Village({ niveau, constructions, actif, phase, saison, fete, posables, fantome, recent, surCase, surConstruction }: PropsVillage) {
   const [survol, setSurvol] = useState<string | null>(null);
   const t = tailleTerrain(niveau);
   const nuit = phase === 'nuit';
@@ -127,11 +202,14 @@ export const Village = memo(function Village({ niveau, constructions, actif, pha
   const [survolX, survolY] = (survol ?? '0,0').split(',').map(Number);
   const posSurvol = ecran(survolX, survolY);
   const [haut, bas] = CIEL[phase];
-  const [herbeA, herbeB] = HERBE[phase];
-  const [collineA, collineB] = COLLINES[phase];
+  const [herbeA, herbeB] = HERBE[saison][phase];
+  const [collineA, collineB] = COLLINES[saison][phase];
+  // Sur la neige, un contour blanc ne se verrait pas.
+  const contourPosable = saison === 'hiver' && !nuit ? '#ff8a3d' : '#fff';
 
   return (
-    <svg className={`village phase-${phase}`} viewBox={`0 0 ${largeur} ${hauteur}`} role="img" aria-label={`Ton hameau, niveau ${niveau}`}>
+    <SaisonContexte.Provider value={saison}>
+    <svg className={`village phase-${phase} saison-${saison}`} viewBox={`0 0 ${largeur} ${hauteur}`} role="img" aria-label={`Ton hameau, niveau ${niveau}`}>
       <defs>
         <linearGradient id="ciel" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor={haut} />
@@ -194,7 +272,7 @@ export const Village = memo(function Village({ niveau, constructions, actif, pha
               key={k}
               points={pts([[sx, sy - DY], [sx + DX, sy], [sx, sy + DY], [sx - DX, sy]])}
               fill={(x + y) % 2 ? herbeA : herbeB}
-              stroke={ok ? '#fff' : 'rgba(0,0,0,.07)'}
+              stroke={ok ? contourPosable : 'rgba(0,0,0,.07)'}
               strokeWidth={ok ? 1.5 : 1}
               className={ok ? 'case posable' : 'case'}
               onClick={choix && ok ? () => surCase?.(x, y) : undefined}
@@ -204,14 +282,14 @@ export const Village = memo(function Village({ niveau, constructions, actif, pha
         })}
 
         {/* Chemins de terre battue du feu vers chaque foyer. */}
-        <g stroke={nuit ? '#5b5140' : '#d8bd85'} strokeWidth={7} strokeLinecap="round" opacity={0.55} style={{ pointerEvents: 'none' }}>
+        <g stroke={nuit ? '#5b5140' : saison === 'hiver' ? '#c4b59b' : '#d8bd85'} strokeWidth={7} strokeLinecap="round" opacity={0.55} style={{ pointerEvents: 'none' }}>
           {foyers.map((c) => {
             const { sx, sy } = ecran(c.x, c.y);
             return <line key={c.id} x1={feu.sx} y1={feu.sy} x2={sx} y2={sy} />;
           })}
         </g>
 
-        <g style={{ pointerEvents: 'none' }}>{cases.filter(({ x, y }) => !occupees.has(`${x},${y}`)).map(({ x, y }) => <Ornement key={`o${x},${y}`} x={x} y={y} />)}</g>
+        <g style={{ pointerEvents: 'none' }}>{cases.filter(({ x, y }) => !occupees.has(`${x},${y}`)).map(({ x, y }) => <Ornement key={`o${x},${y}`} x={x} y={y} saison={saison} />)}</g>
 
         <circle cx={feu.sx} cy={feu.sy - 6} r={actif ? 90 : 55} fill="url(#lueur-feu)" style={{ pointerEvents: 'none' }} className={actif ? 'lueur' : undefined} />
 
@@ -253,13 +331,18 @@ export const Village = memo(function Village({ niveau, constructions, actif, pha
             );
           })}
 
+        {/* Lucioles : seulement par les nuits douces. */}
         {nuit &&
+          (saison === 'printemps' || saison === 'ete') &&
           Array.from({ length: 10 }, (_, i) => {
             const { sx, sy } = ecran((i * 3) % t, (i * 5 + 1) % t);
             return <circle key={`l${i}`} cx={sx + ((i * 11) % 20) - 10} cy={sy - 14 - (i % 4) * 6} r={1.5} fill="#e9ff8a" className="luciole" style={{ animationDelay: `${i * 0.7}s`, pointerEvents: 'none' }} />;
           })}
       </g>
+      <Particules saison={saison} largeur={largeur} hauteur={hauteur} />
+      {fete && <FeuxDArtifice largeur={largeur} />}
     </svg>
+    </SaisonContexte.Provider>
   );
 });
 

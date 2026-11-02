@@ -14,16 +14,30 @@ développeur Apple, rien à télécharger sur Windows.
 |---|---|
 | **Points** | 1 point par minute, +5 par bloc ininterrompu de 25 min. Rien sous 5 min. Plafond à 4 h par session (un chrono oublié la nuit ne rapporte pas 600 points). |
 | **Objectif de session** | Libre, 25, 50 ou 90 min : le chrono monte, l'anneau se remplit vers l'objectif avec le compte à rebours, et un carillon (plus une notification si activée) annonce la fin. En session libre, l'anneau suit le prochain bonus de 25 min. |
+| **Pause** | Une session se met en pause et reprend : le chrono se fige, et le temps de pause est déduit de la durée, donc des points, des stats et des succès. Terminer pendant une pause est permis : la pause s'arrête avec la session. |
 | **Objectif du jour** | Réglable (30 min à 6 h). Il sert d'échelle à l'anneau « Aujourd'hui » et au calendrier de régularité. |
 | **Niveaux** | Calculés sur les points *gagnés* (dépenser ne fait jamais reculer). Chaque niveau demande ~1 h de plus que le précédent. |
 | **Village** | Le terrain s'agrandit de 5×5 à 11×11 avec les niveaux. 16 bâtiments, du parterre de fleurs (10 pts) au château (niveau 14). Démolir rend les points : c'est aussi comme ça qu'on déplace. Tu peux nommer ton hameau. |
-| **Vivant** | Les habitants vont et viennent entre leur maison et le feu, les nuages passent, les lucioles sortent la nuit. Pendant une session, le feu s'embrase, le moulin tourne, la forge fume, les abeilles bourdonnent. Le ciel suit l'heure (aube, jour, soir, nuit). |
+| **Saisons** | Le village suit le calendrier : feuillage roux et feuilles qui tombent en automne, neige sur les toits et flocons en hiver, arbres en fleurs et pétales au printemps. Feux d'artifice au passage de niveau. |
+| **Vivant** | Les habitants vont et viennent entre leur maison et le feu, les nuages passent, les lucioles sortent les nuits douces. Pendant une session, le feu s'embrase, le moulin tourne, la forge fume, les abeilles bourdonnent. Le ciel suit l'heure (aube, jour, soir, nuit). |
 | **Succès** | 14 succès déduits de l'historique (séries, heures cumulées, marathon, lève-tôt…). Rien n'est stocké : supprimer une session retire honnêtement ce qu'elle avait donné. |
+| **Stats** | Calendrier de régularité (un an sur ordinateur), 14 derniers jours avec la ligne d'objectif, comparaison à la semaine précédente au même jour, et « quand es-tu le plus concentré » : la durée MOYENNE des sessions par moment de la journée, à partir de 3 sessions — pas le total, qui désignerait seulement le moment le plus fréquent. |
 | **Série** | Jours d'affilée avec au moins 25 min. La série d'hier tient tant que la journée n'est pas finie ; le record est gardé. |
+
+## Confort
+
+- **Premiers pas** : une liste qui se coche toute seule d'après tes données (première session, premier bâtiment, nom du hameau, installation, raccourci).
+- **Fin de session** : les dernières descriptions de la même catégorie sont proposées en un toucher.
+- **Annuler** : supprimer une session ou démolir un bâtiment se rattrape pendant quelques secondes, sans confirmation à valider par réflexe.
+- **Historique** : recherche sans accents ni majuscules, filtre par catégorie, une couleur stable par catégorie.
+- **Mode focus** : ambiance « feu de camp » (bruit brun et crépitements, synthétisés sur l'appareil).
+- **Thème** : automatique, sombre ou clair, par appareil.
+- **Export** : CSV pour Excel (séparateur « ; », accents conservés, formules neutralisées) ou sauvegarde JSON complète.
+- **Mise à jour** : une app laissée ouverte des heures prévient quand une nouvelle version est publiée.
 
 ## Raccourcis clavier (ordinateur)
 
-<kbd>Espace</kbd> lance ou termine une session · <kbd>F</kbd> mode focus · <kbd>Échap</kbd> quitte · <kbd>Ctrl</kbd>+<kbd>Entrée</kbd> enregistre la fin de session.
+<kbd>Espace</kbd> lance ou termine une session · <kbd>P</kbd> pause / reprise · <kbd>F</kbd> mode focus · <kbd>Échap</kbd> quitte · <kbd>Ctrl</kbd>+<kbd>Entrée</kbd> enregistre la fin de session.
 
 ## Voir le chrono partout
 
@@ -89,4 +103,6 @@ tests/sql/     scénario joué sur un vrai PostgreSQL
 - La bibliothèque Supabase (la moitié du poids de l'app) n'est chargée qu'après le premier affichage.
 - Le dernier état connu est gardé sur l'appareil : le village s'affiche aussitôt à l'ouverture, puis se met à jour.
 - Le village n'est pas redessiné quand le chrono avance : seul le chrono l'est.
-- Historique, statistiques et réglages ne sont téléchargés qu'à leur première ouverture.
+- Historique, statistiques et réglages sont téléchargés quand le navigateur est inactif, pas au démarrage.
+- React est dans un fichier à part : il reste en cache d'une version de l'app à l'autre.
+- La connexion à Supabase est ouverte pendant que l'app démarre, avant la première requête.

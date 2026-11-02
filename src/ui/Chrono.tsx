@@ -1,40 +1,40 @@
 import { useState } from 'react';
 import { DUREES_PROPOSEES, prochainBonus, progression } from '../core/objectif.ts';
 import { BLOC_MINUTES } from '../core/points.ts';
-import { formatChrono, MINUTE_MS } from '../core/temps.ts';
+import { ecouleEffectif, enPause } from '../core/session.ts';
+import { formatChrono, formatDuree, MINUTE_MS } from '../core/temps.ts';
 import type { Session } from '../core/types.ts';
-import { IconeLecture, IconePleinEcran, IconeStop } from './Icones.tsx';
+import { IconeLecture, IconePause, IconePleinEcran, IconeStop } from './Icones.tsx';
 import { useMaintenant } from './useHameau.ts';
 
 export const CATEGORIES_PROPOSEES = ['Travail', 'Études', 'Projet perso', 'Lecture', 'Admin', 'Sport'];
 
-/** Anneau de progression ; `graduations` marque les blocs de 25 minutes. */
-export function Anneau({ ratio, taille, epaisseur, atteint, graduations = 0, children }: { ratio: number; taille: number; epaisseur: number; atteint?: boolean; graduations?: number; children?: React.ReactNode }) {
+/** Au-delà, une session a toutes les chances d'être un chrono oublié. */
+const SESSION_SUSPECTE_MIN = 180;
+
+/** Anneau de progression. */
+export function Anneau({ ratio, taille, epaisseur, atteint, enPause: pause, children }: { ratio: number; taille: number; epaisseur: number; atteint?: boolean; enPause?: boolean; children?: React.ReactNode }) {
   const r = (taille - epaisseur) / 2;
   const c = 2 * Math.PI * r;
   return (
-    <div className="anneau" style={{ width: taille, height: taille }}>
+    <div className={pause ? 'anneau en-pause' : 'anneau'} style={{ width: taille, height: taille }}>
       <svg width={taille} height={taille} viewBox={`0 0 ${taille} ${taille}`} aria-hidden>
         <circle cx={taille / 2} cy={taille / 2} r={r} fill="none" stroke="var(--piste)" strokeWidth={epaisseur} />
         {/* Rien à 0 % : le bout arrondi d'un arc vide dessine sinon un point. */}
-        {ratio > 0 && <circle
-          cx={taille / 2}
-          cy={taille / 2}
-          r={r}
-          fill="none"
-          stroke={atteint ? 'var(--vert)' : 'var(--accent)'}
-          strokeWidth={epaisseur}
-          strokeLinecap="round"
-          strokeDasharray={`${c * Math.max(0, Math.min(1, ratio))} ${c}`}
-          transform={`rotate(-90 ${taille / 2} ${taille / 2})`}
-          className="anneau-plein"
-        />}
-        {Array.from({ length: graduations }, (_, i) => {
-          const a = (i / graduations) * 2 * Math.PI - Math.PI / 2;
-          const x = taille / 2 + Math.cos(a) * r;
-          const y = taille / 2 + Math.sin(a) * r;
-          return <circle key={i} cx={x} cy={y} r={epaisseur / 5} fill="var(--fond)" opacity={0.6} />;
-        })}
+        {ratio > 0 && (
+          <circle
+            cx={taille / 2}
+            cy={taille / 2}
+            r={r}
+            fill="none"
+            stroke={atteint ? 'var(--vert)' : 'var(--accent)'}
+            strokeWidth={epaisseur}
+            strokeLinecap="round"
+            strokeDasharray={`${c * Math.max(0, Math.min(1, ratio))} ${c}`}
+            transform={`rotate(-90 ${taille / 2} ${taille / 2})`}
+            className="anneau-plein"
+          />
+        )}
       </svg>
       <div className="anneau-centre">{children}</div>
     </div>
@@ -43,18 +43,21 @@ export function Anneau({ ratio, taille, epaisseur, atteint, graduations = 0, chi
 
 /** Ce que l'anneau et les légendes affichent, pour une session donnée à un instant donné. */
 export function etatChrono(s: Session, maintenant: number) {
-  const ecouleMs = Math.max(0, maintenant - Date.parse(s.debut));
-  const min = ecouleMs / MINUTE_MS;
+  // Durée EFFECTIVE : le chrono s'arrête pendant une pause.
+  const min = ecouleEffectif(s, maintenant);
+  const ecouleMs = min * MINUTE_MS;
+  const pause = enPause(s);
   const p = progression(min, s.objectif);
   const bonus = prochainBonus(min);
   // Session libre : l'anneau suit le bloc de 25 min en cours, ce qui donne
-  // un repère concret (« encore 7 min avant le bonus ») au lieu d'un cercle vide.
+  // un repère concret (« bonus dans 7 min ») au lieu d'un cercle vide.
   const ratio = p ? p.ratio : (min % BLOC_MINUTES) / BLOC_MINUTES;
   let legende: string;
-  if (p && !p.atteint) legende = `encore ${formatChrono(p.reste * MINUTE_MS)} avant l’objectif`;
+  if (pause) legende = `en pause depuis ${formatDuree(Math.max(0, (maintenant - Date.parse(s.pauseDepuis!)) / MINUTE_MS))}`;
+  else if (p && !p.atteint) legende = `encore ${formatChrono(p.reste * MINUTE_MS)} avant l’objectif`;
   else if (p) legende = p.auDela >= 1 ? `objectif atteint · +${Math.floor(p.auDela)} min` : 'objectif atteint !';
   else legende = bonus === null ? 'plafond de 4 h atteint' : `bonus +5 dans ${Math.ceil(bonus)} min`;
-  return { ecouleMs, ratio, atteint: p?.atteint ?? false, legende };
+  return { ecouleMs, minutes: min, ratio, atteint: p?.atteint ?? false, enPause: pause, legende, suspecte: min >= SESSION_SUSPECTE_MIN };
 }
 
 /** Dernier choix fait sur cet appareil (catégorie, durée), aussi pour les lancements rapides. */
@@ -66,7 +69,7 @@ export function lirePreference<T>(cle: string, defaut: T): T {
     return defaut;
   }
 }
-function ecrirePreference(cle: string, v: unknown) {
+export function ecrirePreference(cle: string, v: unknown) {
   try {
     localStorage.setItem(cle, JSON.stringify(v));
   } catch {
@@ -74,26 +77,21 @@ function ecrirePreference(cle: string, v: unknown) {
   }
 }
 
-/** Le chrono principal : choix de la session au repos, anneau pendant. */
-export function Chrono({
-  enCours,
-  categories,
-  surDemarrer,
-  surArreter,
-  surFocus,
-}: {
-  enCours: Session | null;
-  categories: string[];
-  surDemarrer: (categorie: string, objectif: number | null) => void;
+export interface ActionsSession {
   surArreter: () => void;
+  surPause: () => void;
+  surReprendre: () => void;
   surFocus: () => void;
-}) {
+}
+
+/** Le chrono principal : choix de la session au repos, anneau pendant. */
+export function Chrono({ enCours, categories, surDemarrer, ...actions }: { enCours: Session | null; categories: string[]; surDemarrer: (categorie: string, objectif: number | null) => void } & ActionsSession) {
   // Le dernier choix est retenu sur l'appareil : on travaille souvent par
   // blocs de même durée, le redemander à chaque fois agace.
   const [categorie, setCategorie] = useState<string>(() => lirePreference('hameau.categorie', ''));
   const [objectif, setObjectif] = useState<number | null>(() => lirePreference('hameau.objectif', 50));
 
-  if (enCours) return <ChronoActif session={enCours} surArreter={surArreter} surFocus={surFocus} />;
+  if (enCours) return <ChronoActif session={enCours} {...actions} />;
 
   return (
     <section className="carte chrono">
@@ -108,6 +106,7 @@ export function Chrono({
             <button
               key={d ?? 'libre'}
               className={d === objectif ? 'puce choisie' : 'puce'}
+              aria-pressed={d === objectif}
               onClick={() => {
                 setObjectif(d);
                 ecrirePreference('hameau.objectif', d);
@@ -125,6 +124,7 @@ export function Chrono({
             <button
               key={c}
               className={c === categorie ? 'puce choisie' : 'puce'}
+              aria-pressed={c === categorie}
               onClick={() => {
                 const v = c === categorie ? '' : c;
                 setCategorie(v);
@@ -140,33 +140,50 @@ export function Chrono({
         <IconeLecture /> Lancer la session
       </button>
       <p className="raccourci-clavier">
-        <kbd>Espace</kbd> pour lancer ou terminer
+        <kbd>Espace</kbd> lancer ou terminer · <kbd>P</kbd> pause · <kbd>F</kbd> focus
       </p>
     </section>
   );
 }
 
-function ChronoActif({ session, surArreter, surFocus }: { session: Session; surArreter: () => void; surFocus: () => void }) {
+function ChronoActif({ session, surArreter, surPause, surReprendre, surFocus }: { session: Session } & ActionsSession) {
   const maintenant = useMaintenant(1000);
   const e = etatChrono(session, maintenant);
   return (
-    <section className="carte chrono actif">
-      <Anneau ratio={e.ratio} taille={236} epaisseur={12} atteint={e.atteint}>
+    <section className={e.enPause ? 'carte chrono actif pause' : 'carte chrono actif'}>
+      <Anneau ratio={e.ratio} taille={236} epaisseur={12} atteint={e.atteint} enPause={e.enPause}>
         <div className="chrono-temps">{formatChrono(e.ecouleMs)}</div>
         <div className="chrono-legende">{e.legende}</div>
       </Anneau>
       <p className="chrono-sujet">
         <strong>{session.categorie || 'Session libre'}</strong>
-        {session.objectif && <span> · objectif {session.objectif} min</span>}
+        {session.objectif !== null && <span> · objectif {session.objectif} min</span>}
         <span className="discret"> · lancée sur {session.appareil || 'un appareil'}</span>
       </p>
-      <div className="actions centre">
-        <button className="bouton gros arreter" onClick={surArreter}>
+      {e.suspecte && !e.enPause && <p className="alerte douce petite">Plus de 3 h d’affilée : chrono oublié ? Tu pourras corriger l’heure de fin en terminant.</p>}
+      <div className="actions centre actions-chrono">
+        {/* Clés distinctes : sans elles, React réutilise le même bouton pour
+            « Reprendre » et « Pause », le focus y reste, et Espace remet en
+            pause au lieu de terminer. */}
+        {e.enPause ? (
+          <button key="reprendre" className="bouton gros demarrer" onClick={surReprendre}>
+            <IconeLecture /> Reprendre
+          </button>
+        ) : (
+          <button key="pause" className="bouton icone discret" onClick={surPause} aria-label="Mettre en pause" title="Pause (P)">
+            <IconePause />
+          </button>
+        )}
+        <button className={e.enPause ? 'bouton gros discret' : 'bouton gros arreter'} onClick={surArreter}>
           <IconeStop /> Terminer
         </button>
-        <button className="bouton icone discret" onClick={surFocus} aria-label="Mode focus plein écran" title="Mode focus (F)">
-          <IconePleinEcran />
-        </button>
+        {/* En pause, le mode focus n'a pas d'objet, et sa place manque sur
+            téléphone pour « Reprendre » et « Terminer » côte à côte. */}
+        {!e.enPause && (
+          <button className="bouton icone discret" onClick={surFocus} aria-label="Mode focus plein écran" title="Mode focus (F)">
+            <IconePleinEcran />
+          </button>
+        )}
       </div>
     </section>
   );

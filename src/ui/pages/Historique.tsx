@@ -1,8 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { pointsSession } from '../../core/points.ts';
-import { cleJour, dureeMinutes, formatDuree } from '../../core/temps.ts';
+import { dureeSession, pauseValide } from '../../core/session.ts';
+import { correspond } from '../../core/suggestions.ts';
+import { cleJour, formatDuree } from '../../core/temps.ts';
 import type { Session } from '../../core/types.ts';
+import { styleTeinte } from '../couleurs.ts';
 import { depuisChampLocal, versChampLocal } from '../DialogueFin.tsx';
+import { IconeRecherche } from '../Icones.tsx';
 
 const PAR_PAGE = 60;
 
@@ -22,11 +26,18 @@ export default function Historique({
   const [edition, setEdition] = useState<string | null>(null);
   const [ajout, setAjout] = useState<Omit<Session, 'id'> | null>(null);
   const [filtre, setFiltre] = useState<string | null>(null);
+  const [recherche, setRecherche] = useState('');
+  // Différée : sur un long historique, filtrer à chaque frappe faisait
+  // trébucher la saisie sur téléphone.
+  const rechercheDiferee = useDeferredValue(recherche);
   const [limite, setLimite] = useState(PAR_PAGE);
 
   const closes = useMemo(() => sessions.filter((s) => s.fin !== null).sort((a, b) => b.debut.localeCompare(a.debut)), [sessions]);
   const presentes = useMemo(() => [...new Set(closes.map((s) => s.categorie.trim() || 'Sans catégorie'))], [closes]);
-  const visibles = closes.filter((s) => filtre === null || (s.categorie.trim() || 'Sans catégorie') === filtre);
+  const visibles = useMemo(
+    () => closes.filter((s) => (filtre === null || (s.categorie.trim() || 'Sans catégorie') === filtre) && correspond(s, rechercheDiferee)),
+    [closes, filtre, rechercheDiferee],
+  );
 
   // Regroupe par jour local, avec le total du jour en tête de groupe.
   const groupes = useMemo(() => {
@@ -39,7 +50,7 @@ export default function Historique({
         g.push(dernier);
       }
       dernier.sessions.push(s);
-      dernier.total += dureeMinutes(s.debut, s.fin) ?? 0;
+      dernier.total += dureeSession(s) ?? 0;
     }
     return g;
   }, [visibles, limite]);
@@ -52,12 +63,18 @@ export default function Historique({
           className="bouton petit"
           onClick={() => {
             const fin = new Date();
-            setAjout({ debut: new Date(fin.getTime() - 3_600_000).toISOString(), fin: fin.toISOString(), description: '', categorie: '', appareil: 'Ajout manuel', objectif: null });
+            setAjout({ debut: new Date(fin.getTime() - 3_600_000).toISOString(), fin: fin.toISOString(), description: '', categorie: '', appareil: 'Ajout manuel', objectif: null, pauseSecondes: 0, pauseDepuis: null });
           }}
         >
           + Session oubliée
         </button>
       </div>
+      {closes.length > 0 && (
+        <label className="recherche">
+          <IconeRecherche />
+          <input type="search" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Chercher dans les descriptions…" aria-label="Chercher dans l’historique" />
+        </label>
+      )}
       {presentes.length > 1 && (
         <div className="puces" role="group" aria-label="Filtrer par catégorie">
           <button className={filtre === null ? 'puce choisie' : 'puce'} onClick={() => setFiltre(null)}>
@@ -82,6 +99,7 @@ export default function Historique({
         />
       )}
       {closes.length === 0 && <p className="vide">Aucune session terminée pour l’instant. Lance ta première depuis le village.</p>}
+      {closes.length > 0 && visibles.length === 0 && <p className="vide">Aucune session ne correspond.</p>}
       {groupes.map((g) => (
         <div key={g.cle} className="groupe-jour">
           <h3 className="jour">
@@ -90,8 +108,9 @@ export default function Historique({
           </h3>
           <ul className="historique">
             {g.sessions.map((s) => {
-              const minutes = dureeMinutes(s.debut, s.fin);
+              const minutes = dureeSession(s);
               const atteint = s.objectif !== null && minutes !== null && minutes >= s.objectif;
+              const pauseMin = pauseValide(s.pauseSecondes) / 60;
               return (
                 <li key={s.id}>
                   {edition === s.id ? (
@@ -104,14 +123,13 @@ export default function Historique({
                       }}
                       surAnnuler={() => setEdition(null)}
                       surSupprimer={() => {
-                        if (confirm('Supprimer cette session ? Ses points seront retirés.')) {
-                          surSupprimer(s.id);
-                          setEdition(null);
-                        }
+                        // Pas de confirmation : la suppression s'annule depuis le message qui suit.
+                        surSupprimer(s.id);
+                        setEdition(null);
                       }}
                     />
                   ) : (
-                    <button className="ligne" onClick={() => setEdition(s.id)}>
+                    <button className="ligne" style={styleTeinte(s.categorie)} onClick={() => setEdition(s.id)}>
                       <span className="ligne-heure">{new Date(s.debut).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
                       <span className="ligne-texte">
                         <strong>{s.categorie || 'Session'}</strong>
@@ -119,6 +137,7 @@ export default function Historique({
                         <span className="ligne-meta">
                           {s.appareil && <span className="etiquette">{s.appareil}</span>}
                           {s.objectif !== null && <span className={atteint ? 'etiquette reussie' : 'etiquette'}>{atteint ? '✓ ' : ''}objectif {s.objectif} min</span>}
+                          {pauseMin >= 1 && <span className="etiquette">pause {formatDuree(pauseMin)}</span>}
                         </span>
                       </span>
                       <span className="ligne-duree">

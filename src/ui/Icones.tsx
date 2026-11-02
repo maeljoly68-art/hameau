@@ -69,3 +69,26 @@ export const IconeCadenas = () => (
     <path d="M8 11V8a4 4 0 0 1 8 0v3" />
   </svg>
 );
+export const IconePause = () => (
+  <svg {...base} width={20} height={20}>
+    <rect x="6.5" y="5.5" width="4" height="13" rx="1.4" fill="currentColor" stroke="none" />
+    <rect x="13.5" y="5.5" width="4" height="13" rx="1.4" fill="currentColor" stroke="none" />
+  </svg>
+);
+export const IconeSon = ({ coupe = false }: { coupe?: boolean }) => (
+  <svg {...base} width={18} height={18}>
+    <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke="none" />
+    {coupe ? <path d="m16 9.5 5 5M21 9.5l-5 5" /> : <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" />}
+  </svg>
+);
+export const IconeRecherche = () => (
+  <svg {...base} width={18} height={18}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m16 16 4.5 4.5" />
+  </svg>
+);
+export const IconeCoche = ({ taille = 16 }: { taille?: number }) => (
+  <svg {...base} width={taille} height={taille}>
+    <path d="m5 12.5 4.5 4.5L19 7.5" />
+  </svg>
+);

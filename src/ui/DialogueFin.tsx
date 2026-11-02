@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { pointsSession } from '../core/points.ts';
-import { dureeMinutes, formatDuree } from '../core/temps.ts';
+import { clore, dureeSession, pauseValide } from '../core/session.ts';
+import { suggestionsDescription } from '../core/suggestions.ts';
+import { formatDuree } from '../core/temps.ts';
 import type { Session } from '../core/types.ts';
 
 /** Valeur pour <input type="datetime-local">, en heure locale. */
@@ -18,11 +20,13 @@ export function depuisChampLocal(v: string): string | null {
 /** Fin de session : ce qui a été fait, et l'heure de fin si on a oublié d'arrêter. */
 export function DialogueFin({
   session,
+  sessions,
   categories,
   surValider,
   surAnnuler,
 }: {
   session: Session;
+  sessions: Session[];
   categories: string[];
   surValider: (champs: { fin: string; description: string; categorie: string }) => void;
   surAnnuler: () => void;
@@ -35,10 +39,15 @@ export function DialogueFin({
   const [instant] = useState(() => new Date().toISOString());
   const [fin, setFin] = useState(() => versChampLocal(instant));
   const [finModifiee, setFinModifiee] = useState(false);
+  const suggestions = useMemo(() => suggestionsDescription(sessions, categorie, 4), [sessions, categorie]);
+  const zone = useRef<HTMLTextAreaElement>(null);
 
   const finIso = finModifiee ? depuisChampLocal(fin) : instant;
-  const minutes = finIso ? dureeMinutes(session.debut, finIso) : null;
   const finAvantDebut = finIso !== null && Date.parse(finIso) < Date.parse(session.debut);
+  // Ce que la base retiendra : la pause éventuelle s'arrête à la fin.
+  const close = finIso && !finAvantDebut ? clore(session, finIso) : null;
+  const minutes = close ? dureeSession(close) : null;
+  const pauseMin = close ? pauseValide(close.pauseSecondes) / 60 : 0;
 
   return (
     <div className="voile" role="dialog" aria-modal="true" aria-labelledby="titre-fin">
@@ -57,7 +66,27 @@ export function DialogueFin({
       >
         <h2 id="titre-fin">Qu’as-tu fait pendant cette session ?</h2>
         <p className="aide">Une ligne suffit : c’est ce qui rend l’historique utile dans trois semaines.</p>
-        <textarea autoFocus rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex. : relu le chapitre 4, corrigé le bug de connexion…" />
+        <textarea ref={zone} autoFocus rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex. : relu le chapitre 4, corrigé le bug de connexion…" />
+        {suggestions.length > 0 && description.trim() === '' && (
+          <div className="suggestions" role="group" aria-label="Reprendre une description récente">
+            {suggestions.map((s) => (
+              <button
+                type="button"
+                key={s}
+                className="puce suggestion"
+                onClick={() => {
+                  setDescription(s);
+                  // Les suggestions disparaissent une fois la zone remplie : sans
+                  // ce retour du focus, il partait dans le vide et Ctrl+Entrée
+                  // n'atteignait plus le formulaire.
+                  zone.current?.focus();
+                }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
         <label>
           Catégorie
           <input list="categories" value={categorie} onChange={(e) => setCategorie(e.target.value)} placeholder="Travail, Études…" />
@@ -69,7 +98,10 @@ export function DialogueFin({
         </label>
         <label>
           Fin de la session <small>(à corriger si tu as oublié d’arrêter le chrono)</small>
-          <input type="datetime-local" value={fin} onChange={(e) => {
+          <input
+            type="datetime-local"
+            value={fin}
+            onChange={(e) => {
               setFin(e.target.value);
               setFinModifiee(true);
             }}
@@ -82,6 +114,7 @@ export function DialogueFin({
             <p className="bilan">
               <span className="bilan-duree">{formatDuree(minutes)}</span>
               <strong className="bilan-points">+{pointsSession(minutes)} points</strong>
+              {pauseMin >= 1 && <small>pauses déduites : {formatDuree(pauseMin)}</small>}
               {pointsSession(minutes) === 0 && <small>5 minutes minimum pour gagner des points</small>}
               {session.objectif !== null && (
                 <small className={minutes >= session.objectif ? 'reussi' : undefined}>

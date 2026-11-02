@@ -2,7 +2,7 @@
 // Un succès stocké pourrait rester acquis après la suppression de la session
 // qui l'a donné ; déduit, il reste toujours vrai.
 import { meilleureSerie, minutesParJour } from './stats.ts';
-import { dureeMinutes } from './temps.ts';
+import { dureeSession } from './session.ts';
 import type { Construction, Session } from './types.ts';
 
 export interface Succes {
@@ -25,7 +25,7 @@ export function succes(sessions: readonly Session[], constructions: readonly Con
   let matin = 0;
   let soir = 0;
   for (const s of sessions) {
-    const d = dureeMinutes(s.debut, s.fin);
+    const d = dureeSession(s);
     if (d === null) continue;
     closes += d >= 5 ? 1 : 0;
     total += d;
