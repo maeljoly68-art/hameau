@@ -48,3 +48,62 @@ test('population : seuls les toits logent des habitants', () => {
   assert.equal(population([construction('arbre', 0, 0, 15), construction('fleurs', 1, 0, 10)]), 1);
   assert.equal(population([construction('cabane', 0, 0, 40), construction('maison', 1, 0, 90)]), 4);
 });
+
+import { coutAmelioration, habitants, niveauRequisAmelioration, niveauValide, refusAmelioration, batiment, NIVEAU_MAX } from '../src/core/village.ts';
+
+test('améliorer : un prix par palier, aucun au-delà du niveau 3', () => {
+  const maison = batiment('maison')!;
+  assert.equal(coutAmelioration(maison, 1), 72);
+  assert.equal(coutAmelioration(maison, 2), 144);
+  assert.equal(coutAmelioration(maison, NIVEAU_MAX), null);
+});
+
+test('améliorer : le village doit avoir grandi, et le solde suffire', () => {
+  const maison = batiment('maison')!; // niveau requis 3
+  assert.equal(niveauRequisAmelioration(maison, 2), 4);
+  assert.equal(niveauRequisAmelioration(maison, 3), 6);
+  const c = construction('maison', 0, 0, 90);
+  assert.equal(refusAmelioration(c, { niveau: 4, solde: 72 }), null);
+  assert.equal(refusAmelioration(c, { niveau: 3, solde: 500 }), 'niveau');
+  assert.equal(refusAmelioration(c, { niveau: 4, solde: 71 }), 'solde');
+  assert.equal(refusAmelioration(construction('maison', 0, 0, 306, 3), { niveau: 99, solde: 9999 }), 'max');
+  assert.equal(refusAmelioration(construction('licorne', 0, 0, 1), { niveau: 99, solde: 9999 }), 'inconnu');
+  // Au niveau 2, la marche suivante demande plus de village et plus de points.
+  assert.equal(refusAmelioration(construction('maison', 0, 0, 162, 2), { niveau: 5, solde: 9999 }), 'niveau');
+  assert.equal(refusAmelioration(construction('maison', 0, 0, 162, 2), { niveau: 6, solde: 143 }), 'solde');
+});
+
+test('les points d’une amélioration restent dépensés : le coût du bâtiment les cumule', () => {
+  const s = [session('2026-11-01T10:00:00+01:00', 240)]; // 240 + 9 × 5 = 285 points
+  // Maison construite 90, améliorée pour 72 : 162 investis.
+  assert.equal(solde(s, [construction('maison', 0, 0, 162, 2)]), 285 - 162);
+});
+
+test('chaque amélioration loge un habitant de plus, sous un toit seulement', () => {
+  assert.equal(habitants('maison', 1), 2);
+  assert.equal(habitants('maison', 3), 4);
+  assert.equal(habitants('arbre', 3), 0);
+  assert.equal(population([construction('cabane', 0, 0, 40, 2), construction('fleurs', 1, 0, 26, 3)]), 3);
+});
+
+test('un niveau absent ou abîmé (données d’avant les améliorations) vaut 1', () => {
+  assert.equal(niveauValide(undefined), 1);
+  assert.equal(niveauValide(null), 1);
+  assert.equal(niveauValide(2), 2);
+  assert.equal(niveauValide(7), 1);
+  assert.equal(niveauValide(2.5), 1);
+  assert.equal(habitants('maison', Number.NaN), 2);
+});
+
+test('chaque bâtiment décrit ses deux améliorations', () => {
+  for (const b of CATALOGUE) assert.ok(b.ameliorations.every((t) => t.length > 3), b.id);
+});
+
+import { accord } from '../src/core/village.ts';
+
+test('les messages s’accordent avec le nom du bâtiment', () => {
+  assert.equal(accord(batiment('maison'), 'démoli'), 'démolie');
+  assert.equal(accord(batiment('moulin'), 'démoli'), 'démoli');
+  assert.equal(accord(batiment('tour'), 'amélioré'), 'améliorée');
+  assert.equal(accord(undefined, 'construit'), 'construit');
+});

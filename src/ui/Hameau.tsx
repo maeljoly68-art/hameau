@@ -1,13 +1,15 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { nouveauxCosmetiques, type Progression } from '../core/apparence.ts';
+import { cielPour } from '../core/ciel.ts';
 import { pointsSession } from '../core/points.ts';
 import { premiersPas } from '../core/premiersPas.ts';
 import { saisonPour } from '../core/saison.ts';
 import { clore, dureeSession, ecouleEffectif, enPause } from '../core/session.ts';
-import { minutesAujourdhui, serie } from '../core/stats.ts';
+import { meilleureSerie, minutesAujourdhui, serie } from '../core/stats.ts';
 import { nouveauxSucces, succes as calculerSucces } from '../core/succes.ts';
 import { cleJour, formatChrono, formatDuree } from '../core/temps.ts';
 import type { Construction, Session } from '../core/types.ts';
-import { batiment, refusConstruction, tailleTerrain, type Batiment } from '../core/village.ts';
+import { accord, batiment, coutAmelioration, habitants, NIVEAU_MAX, niveauRequisAmelioration, refusAmelioration, refusConstruction, tailleTerrain, type Batiment } from '../core/village.ts';
 import type { Depot } from '../data/depot.ts';
 import { lireLocal } from '../data/local.ts';
 import { lienSillage, marquerTache, synchroniser, type LienSillage } from '../data/sillage.ts';
@@ -16,11 +18,13 @@ import { useAlerteObjectif } from './alertes.ts';
 import { Boutique } from './Boutique.tsx';
 import { Anneau, CATEGORIES_PROPOSEES, Chrono, ecrirePreference, etatChrono, lirePreference } from './Chrono.tsx';
 import { DialogueFin } from './DialogueFin.tsx';
-import { IconeCoche, IconeEtincelle, IconeFenetre, IconeFlamme, IconeHistorique, IconeMarteau, IconeReglages, IconeStats, IconeTaches, IconeVillage } from './Icones.tsx';
+import { GardeRobe } from './GardeRobe.tsx';
+import { IconeAmis, IconeCintre, IconeCoche, IconeEtincelle, IconeEtoile, IconeFenetre, IconeFlamme, IconeHistorique, IconeMarteau, IconeReglages, IconeStats, IconeTaches, IconeVillage } from './Icones.tsx';
 import { miniChronoDisponible, useMiniChrono } from './MiniChrono.tsx';
 import { ModeFocus } from './ModeFocus.tsx';
 import { useHameau, useMaintenant } from './useHameau.ts';
-import { CadreVillage, phasePour } from './Village.tsx';
+import { CadreVillage } from './Village.tsx';
+import { Dessin, SaisonContexte } from './village/dessins.tsx';
 
 // Les onglets secondaires ne sont chargés qu'à la première visite : l'écran
 // d'ouverture n'a besoin que du village et du chrono.
@@ -28,16 +32,19 @@ const chargerHistorique = () => import('./pages/Historique.tsx');
 const chargerStatistiques = () => import('./pages/Statistiques.tsx');
 const chargerReglages = () => import('./pages/Reglages.tsx');
 const chargerTaches = () => import('./pages/Taches.tsx');
+const chargerAmis = () => import('./pages/Amis.tsx');
 const Historique = lazy(chargerHistorique);
 const Statistiques = lazy(chargerStatistiques);
 const Reglages = lazy(chargerReglages);
 const Taches = lazy(chargerTaches);
+const Amis = lazy(chargerAmis);
 
-type Onglet = 'village' | 'taches' | 'historique' | 'stats' | 'reglages';
+type Onglet = 'village' | 'taches' | 'amis' | 'historique' | 'stats' | 'reglages';
 
 const ONGLETS: { id: Onglet; nom: string; Icone: () => React.ReactElement }[] = [
   { id: 'village', nom: 'Village', Icone: IconeVillage },
   { id: 'taches', nom: 'Tâches', Icone: IconeTaches },
+  { id: 'amis', nom: 'Amis', Icone: IconeAmis },
   { id: 'historique', nom: 'Historique', Icone: IconeHistorique },
   { id: 'stats', nom: 'Stats', Icone: IconeStats },
   { id: 'reglages', nom: 'Réglages', Icone: IconeReglages },
@@ -136,12 +143,77 @@ function PremiersPas({ etapes, surMasquer }: { etapes: ReturnType<typeof premier
   );
 }
 
+const RAISONS_AMELIORATION = { niveau: 'Le village doit grandir', solde: 'Pas encore assez de points', max: 'Niveau maximal', inconnu: 'Bâtiment inconnu' } as const;
+
+/** Fiche d'un bâtiment : son niveau, ce que change le suivant, et de quoi l'améliorer. */
+function FicheBatiment({ construction: c, niveauVillage, solde, saison, surAmeliorer }: { construction: Construction; niveauVillage: number; solde: number; saison: ReturnType<typeof saisonPour>; surAmeliorer: (c: Construction) => void }) {
+  const b = batiment(c.batiment);
+  const cout = b ? coutAmelioration(b, c.niveau) : null;
+  const refus = refusAmelioration(c, { niveau: niveauVillage, solde });
+  const gain = habitants(c.batiment, c.niveau + 1) - habitants(c.batiment, c.niveau);
+  return (
+    <div className="fiche-batiment">
+      <div className="entete">
+        <h2>{b?.nom ?? c.batiment}</h2>
+        <span className="etoiles" aria-label={`Niveau ${c.niveau} sur ${NIVEAU_MAX}`}>
+          {Array.from({ length: NIVEAU_MAX }, (_, i) => (
+            <IconeEtoile key={i} pleine={i < c.niveau} />
+          ))}
+        </span>
+      </div>
+      <p className="aide">{b?.description}</p>
+      <SaisonContexte.Provider value={saison}>
+        <div className="evolution">
+          <svg viewBox="-40 -92 80 102" aria-hidden>
+            <ellipse cx={0} cy={4} rx={30} ry={11} fill="rgba(0,0,0,.18)" />
+            <Dessin id={c.batiment} actif={false} niveau={c.niveau} />
+          </svg>
+          {b && cout !== null && (
+            <>
+              <span className="fleche" aria-hidden>→</span>
+              <svg viewBox="-40 -92 80 102" aria-hidden>
+                <ellipse cx={0} cy={4} rx={30} ry={11} fill="rgba(0,0,0,.18)" />
+                <Dessin id={c.batiment} actif={false} niveau={c.niveau + 1} />
+              </svg>
+            </>
+          )}
+        </div>
+      </SaisonContexte.Provider>
+      {b && cout !== null ? (
+        <div className="amelioration">
+          <p>
+            <strong>Niveau {c.niveau + 1} :</strong> {b.ameliorations[c.niveau - 1]}
+            {gain > 0 && ` · +${gain} habitant`}.
+          </p>
+          <button className="bouton" disabled={refus !== null} onClick={() => surAmeliorer(c)}>
+            Améliorer · <IconeEtincelle taille={13} /> {cout}
+          </button>
+          {refus === 'niveau' && <p className="aide petite">Possible au niveau {niveauRequisAmelioration(b, c.niveau + 1)} du village.</p>}
+          {refus === 'solde' && <p className="aide petite">Encore {cout - solde} points à gagner.</p>}
+        </div>
+      ) : (
+        <p className="aide">{RAISONS_AMELIORATION.max} : ce bâtiment ne peut plus grandir.</p>
+      )}
+      <p className="aide petite">
+        Construit le {new Date(c.construitLe).toLocaleDateString('fr-FR')} · {c.cout} points investis.
+      </p>
+    </div>
+  );
+}
+
 export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: string | null; surDeconnexion: () => void }) {
   const { donnees, frais, derive, erreur, setErreur, agir } = useHameau(depot);
   // Une demi-minute suffit pour l'heure du ciel et le total du jour : le
   // chrono, lui, a sa propre horloge à la seconde.
   const maintenant = useMaintenant(30_000);
-  const [onglet, setOnglet] = useState<Onglet>('village');
+  // Une invitation reçue par lien ouvre directement l'onglet Amis.
+  const [invitation, setInvitation] = useState<string | null>(() => lirePreference<string | null>('hameau.invitation', null));
+  const [onglet, setOnglet] = useState<Onglet>(() => (invitation && depot.synchronise ? 'amis' : 'village'));
+  const [gardeRobe, setGardeRobe] = useState(false);
+  // Le ciel suit le soleil à la minute : recalculé seulement quand elle change,
+  // pour que le village (mémoïsé) ne se redessine pas à chaque battement.
+  const minute = Math.floor(maintenant / 60_000);
+  const ciel = useMemo(() => cielPour(new Date(minute * 60_000)), [minute]);
   const [finEnCours, setFinEnCours] = useState(false);
   const [focus, setFocus] = useState(false);
   const [aConstruire, setAConstruire] = useState<Batiment | null>(null);
@@ -186,6 +258,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       void chargerStatistiques();
       void chargerReglages();
       void chargerTaches();
+      void chargerAmis();
     };
     const w = window as unknown as { requestIdleCallback?: (f: () => void, o: { timeout: number }) => number };
     if (w.requestIdleCallback) w.requestIdleCallback(precharger, { timeout: 6000 });
@@ -220,12 +293,34 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
     [donnees],
   );
 
-  // Fête le niveau et les succès gagnés, une fois, sans rejouer au chargement.
-  const vu = useRef<{ niveau: number; succes: NonNullable<typeof listeSucces> } | null>(null);
+  // Où en est-on, pour la garde-robe : tout se déduit des sessions et des
+  // constructions, comme les succès.
+  const progression = useMemo<Progression | null>(() => {
+    if (!donnees || !derive || !listeSucces) return null;
+    let minutes = 0;
+    let sessions = 0;
+    for (const s of donnees.sessions) {
+      const d = dureeSession(s);
+      if (d === null) continue;
+      minutes += d;
+      if (d >= 5) sessions++;
+    }
+    return {
+      niveau: derive.niveau.niveau,
+      minutes,
+      sessions,
+      meilleureSerie: meilleureSerie(donnees.sessions),
+      batiments: donnees.constructions.length,
+      succes: new Set(listeSucces.filter((x) => x.obtenu).map((x) => x.id)),
+    };
+  }, [donnees, derive, listeSucces]);
+
+  // Fête le niveau, les succès et les objets gagnés, une fois, sans rejouer au chargement.
+  const vu = useRef<{ niveau: number; succes: NonNullable<typeof listeSucces>; progression: Progression } | null>(null);
   useEffect(() => {
-    if (!derive || !listeSucces || !frais) return;
+    if (!derive || !listeSucces || !progression || !frais) return;
     const avant = vu.current;
-    vu.current = { niveau: derive.niveau.niveau, succes: listeSucces };
+    vu.current = { niveau: derive.niveau.niveau, succes: listeSucces, progression };
     if (!avant) return;
     if (derive.niveau.niveau > avant.niveau) {
       toast(`Niveau ${derive.niveau.niveau} ! Le hameau s’agrandit.`, { type: 'succes' });
@@ -233,7 +328,25 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       window.setTimeout(() => setFete(false), 5000);
     }
     for (const s of nouveauxSucces(avant.succes, listeSucces)) toast(`Succès : ${s.nom}`, { type: 'succes' });
-  }, [derive, listeSucces, frais, toast]);
+    for (const c of nouveauxCosmetiques(avant.progression, progression))
+      toast(`Garde-robe : ${c.nom} gagné`, { type: 'succes', action: { libelle: 'Voir', faire: () => {
+        setOnglet('village');
+        setBoutique(false);
+        setGardeRobe(true);
+      } } });
+  }, [derive, listeSucces, progression, frais, toast]);
+
+  // Le niveau montré aux amis : recopié quand il change. Une fois par niveau
+  // et par ouverture, en silence : si la base n'est pas encore à jour, on
+  // retentera à la prochaine ouverture plutôt qu'à chaque rechargement.
+  const niveauEnvoye = useRef<number | null>(null);
+  useEffect(() => {
+    if (!frais || !depot.synchronise || !donnees || !derive) return;
+    const n = derive.niveau.niveau;
+    if (donnees.profil.niveauPublie === n || niveauEnvoye.current === n) return;
+    niveauEnvoye.current = n;
+    depot.enregistrerProfil({ ...donnees.profil, niveauPublie: n }).catch(() => undefined);
+  }, [frais, depot, donnees, derive]);
 
   const categories = useMemo(() => {
     const vues = new Set(CATEGORIES_PROPOSEES);
@@ -280,7 +393,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       setAConstruire(null);
       setBoutique(false);
       void agir(() => depot.construire({ batiment: b.id, x, y, cout: b.cout })).then(() => {
-        toast(`${b.nom} construit !`);
+        toast(`${b.nom} ${accord(b, 'construit')} !`);
         // L'animation « pousse » vise le bâtiment le plus récent sur cette case.
         setRecent(`${x},${y}`);
       });
@@ -304,10 +417,23 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
   );
   const demolir = useCallback(
     (c: Construction) => {
-      const nom = batiment(c.batiment)?.nom ?? c.batiment;
+      const b = batiment(c.batiment);
+      const nom = b?.nom ?? c.batiment;
       void agir(() => depot.demolir(c.id)).then(() =>
-        toast(`${nom} démoli (+${c.cout}).`, { action: { libelle: 'Annuler', faire: () => void agir(() => depot.construire({ batiment: c.batiment, x: c.x, y: c.y, cout: c.cout })) } }),
+        toast(`${nom} ${accord(b, 'démoli')} (+${c.cout}).`, { action: { libelle: 'Annuler', faire: () => void agir(() => depot.construire({ batiment: c.batiment, x: c.x, y: c.y, cout: c.cout, niveau: c.niveau })) } }),
       );
+    },
+    [agir, depot, toast],
+  );
+  const ameliorer = useCallback(
+    (c: Construction) => {
+      const b = batiment(c.batiment);
+      const cout = b ? coutAmelioration(b, c.niveau) : null;
+      if (!b || cout === null) return;
+      void agir(() => depot.ameliorer(c, cout)).then(() => {
+        toast(`${b.nom} ${accord(b, 'amélioré')} : niveau ${c.niveau + 1} !`, { type: 'succes' });
+        setRecent(`${c.x},${c.y}`);
+      });
     },
     [agir, depot, toast],
   );
@@ -342,7 +468,6 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
 
   const { niveau, solde } = derive;
   const m = new Date(maintenant);
-  const phase = phasePour(m.getHours());
   const saison = saisonPour(m);
   const jours = serie(donnees.sessions, m);
   // Le total du jour compte aussi la session en cours (pauses déduites), à la demi-minute près.
@@ -350,6 +475,9 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
   const aujourdhui = minutesAujourdhui(donnees.sessions, m) + enCoursAujourdhui;
   const prochain = listeSucces.filter((s) => !s.obtenu).sort((a, b) => b.actuel / b.cible - a.actuel / a.cible)[0];
   const recentId = recent ? (donnees.constructions.find((c) => `${c.x},${c.y}` === recent)?.id ?? null) : null;
+  // Le bâtiment ouvert, tel qu'il est MAINTENANT : après une amélioration, son
+  // niveau et son coût ont changé ; démoli ailleurs, la fiche se ferme.
+  const choisie = selection ? (donnees.constructions.find((c) => c.id === selection.id) ?? null) : null;
   const etapes = premiersPas(donnees, { installee, synchronise: depot.synchronise });
   const montrerPas = !pasMasques && etapes.some((e) => !e.fait);
   const actionsSession = { surArreter: () => setFinEnCours(true), surPause: pause, surReprendre: reprise, surFocus: () => setFocus(true) };
@@ -408,8 +536,13 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                   niveau={niveau.niveau}
                   constructions={donnees.constructions}
                   actif={enCours !== null && !enPause(enCours)}
-                  phase={phase}
+                  ciel={ciel}
                   saison={saison}
+                  apparence={profil.apparence}
+                  surPersonnage={() => {
+                    setBoutique(false);
+                    setGardeRobe(true);
+                  }}
                   fete={fete}
                   posables={posables}
                   fantome={aConstruire?.id}
@@ -428,8 +561,25 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                       </div>
                     ) : (
                       <div className="village-actions">
-                        <button className={boutique ? 'bouton discret actif' : 'bouton discret'} onClick={() => setBoutique(!boutique)} aria-expanded={boutique}>
+                        <button
+                          className={boutique ? 'bouton discret actif' : 'bouton discret'}
+                          onClick={() => {
+                            setGardeRobe(false);
+                            setBoutique(!boutique);
+                          }}
+                          aria-expanded={boutique}
+                        >
                           <IconeMarteau /> Construire
+                        </button>
+                        <button
+                          className={gardeRobe ? 'bouton discret actif' : 'bouton discret'}
+                          onClick={() => {
+                            setBoutique(false);
+                            setGardeRobe(!gardeRobe);
+                          }}
+                          aria-expanded={gardeRobe}
+                        >
+                          <IconeCintre /> Garde-robe
                         </button>
                         {miniChronoDisponible() && (
                           <button className="bouton discret" onClick={() => void (mini.ouverte ? mini.fermer() : mini.ouvrir())} title="Petite fenêtre toujours au premier plan">
@@ -440,6 +590,15 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                     )
                   }
                 />
+                {gardeRobe && !aConstruire && progression && (
+                  <GardeRobe
+                    apparence={profil.apparence}
+                    progression={progression}
+                    nomSucces={(id) => listeSucces.find((x) => x.id === id)?.nom ?? id}
+                    surChoisir={(a) => void agir(() => depot.enregistrerProfil({ ...profil, apparence: a }))}
+                    surFermer={() => setGardeRobe(false)}
+                  />
+                )}
                 {boutique && !aConstruire && (
                   <Boutique
                     niveau={niveau.niveau}
@@ -494,6 +653,20 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
           )}
           <Suspense fallback={<div className="carte aide">Chargement…</div>}>
             {onglet === 'taches' && <Taches emailSuggere={email} sessionEnCours={enCours !== null} surLancer={lancerTache} surLien={setLien} />}
+            {onglet === 'amis' && (
+              <Amis
+                synchronise={depot.synchronise}
+                profil={profil}
+                maintenant={maintenant}
+                invitation={invitation}
+                surInvitationTraitee={() => {
+                  setInvitation(null);
+                  ecrirePreference('hameau.invitation', null);
+                }}
+                surPseudo={(pseudo) => agir(() => depot.enregistrerProfil({ ...profil, pseudo })).then(() => toast('Pseudo enregistré.'))}
+                toast={toast}
+              />
+            )}
             {onglet === 'historique' && (
               <Historique
                 sessions={donnees.sessions}
@@ -573,25 +746,20 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
         />
       )}
 
-      {selection && (
+      {choisie && (
         <div className="voile" role="dialog" aria-modal="true" onClick={() => setSelection(null)}>
           <div className="fenetre" onClick={(e) => e.stopPropagation()}>
-            <h2>{batiment(selection.batiment)?.nom ?? selection.batiment}</h2>
-            <p className="aide">{batiment(selection.batiment)?.description}</p>
-            <p>
-              Construit le {new Date(selection.construitLe).toLocaleDateString('fr-FR')} pour {selection.cout} points.
-            </p>
-            <p className="aide">Démolir rend les points dépensés : c’est aussi la façon de déplacer un bâtiment.</p>
+            <FicheBatiment construction={choisie} niveauVillage={niveau.niveau} solde={solde} saison={saison} surAmeliorer={ameliorer} />
+            <p className="aide">Démolir rend tous les points dépensés, améliorations comprises : c’est aussi la façon de déplacer un bâtiment.</p>
             <div className="actions">
               <button
                 className="bouton danger"
                 onClick={() => {
-                  const c = selection;
                   setSelection(null);
-                  demolir(c);
+                  demolir(choisie);
                 }}
               >
-                Démolir (+{selection.cout})
+                Démolir (+{choisie.cout})
               </button>
               <button className="bouton" onClick={() => setSelection(null)}>
                 Garder

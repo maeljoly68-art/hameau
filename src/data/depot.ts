@@ -22,7 +22,14 @@ export interface Depot {
   ajouterSession(s: Omit<Session, 'id'>): Promise<void>;
   modifierSession(id: string, champs: Partial<Omit<Session, 'id'>>): Promise<void>;
   supprimerSession(id: string): Promise<void>;
-  construire(c: Omit<Construction, 'id' | 'construitLe'>): Promise<void>;
+  /** Niveau absent = 1 ; présent quand on rétablit un bâtiment déjà amélioré (annulation, import). */
+  construire(c: Omit<Construction, 'id' | 'construitLe' | 'niveau'> & { niveau?: number }): Promise<void>;
+  /**
+   * Monte le bâtiment d'un niveau et ajoute `cout` aux points qu'il a coûté.
+   * Refusé s'il a changé de niveau entre-temps (autre appareil) : sans ce
+   * garde-fou, deux clics simultanés paieraient deux fois le même palier.
+   */
+  ameliorer(c: Construction, cout: number): Promise<void>;
   demolir(id: string): Promise<void>;
   enregistrerProfil(p: Profil): Promise<void>;
   /** Prévient quand les données ont changé ailleurs (autre onglet, autre appareil). */

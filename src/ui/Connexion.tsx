@@ -1,19 +1,23 @@
 import { useState } from 'react';
 import { saisonPour } from '../core/saison.ts';
-import type { Construction } from '../core/types.ts';
+import { APPARENCE_DEFAUT, type Construction } from '../core/types.ts';
 import { client } from '../data/config.ts';
-import { phasePour, Village } from './Village.tsx';
+import { cielPour } from '../core/ciel.ts';
+import { Village } from './Village.tsx';
 
 // Un petit hameau de vitrine, pour montrer d'emblée ce qu'on va faire pousser.
 const VITRINE: Construction[] = [
-  { id: 'v1', batiment: 'maison', x: 0, y: 1, cout: 0, construitLe: '' },
-  { id: 'v2', batiment: 'arbre', x: 1, y: 0, cout: 0, construitLe: '' },
-  { id: 'v3', batiment: 'moulin', x: 4, y: 1, cout: 0, construitLe: '' },
-  { id: 'v4', batiment: 'fleurs', x: 3, y: 2, cout: 0, construitLe: '' },
-  { id: 'v5', batiment: 'cabane', x: 2, y: 4, cout: 0, construitLe: '' },
-  { id: 'v6', batiment: 'arbre', x: 0, y: 4, cout: 0, construitLe: '' },
-  { id: 'v7', batiment: 'puits', x: 3, y: 4, cout: 0, construitLe: '' },
+  { id: 'v1', batiment: 'maison', x: 0, y: 1, cout: 0, niveau: 2, construitLe: '' },
+  { id: 'v2', batiment: 'arbre', x: 1, y: 0, cout: 0, niveau: 3, construitLe: '' },
+  { id: 'v3', batiment: 'moulin', x: 4, y: 1, cout: 0, niveau: 2, construitLe: '' },
+  { id: 'v4', batiment: 'fleurs', x: 3, y: 2, cout: 0, niveau: 2, construitLe: '' },
+  { id: 'v5', batiment: 'cabane', x: 2, y: 4, cout: 0, niveau: 1, construitLe: '' },
+  { id: 'v6', batiment: 'arbre', x: 0, y: 4, cout: 0, niveau: 1, construitLe: '' },
+  { id: 'v7', batiment: 'puits', x: 3, y: 4, cout: 0, niveau: 2, construitLe: '' },
 ];
+
+/** Le gardien de la vitrine, déjà un peu équipé : de quoi donner envie. */
+const VITRINE_PERSO = { ...APPARENCE_DEFAUT, chapeau: 'paille', compagnon: 'chat', accessoire: 'livre' };
 
 /**
  * Connexion par email + mot de passe. Pas de lien magique : sur iPhone, le
@@ -26,7 +30,7 @@ export function Connexion({ surSansCompte }: { surSansCompte: () => void }) {
   const [mode, setMode] = useState<'connexion' | 'inscription'>('connexion');
   const [message, setMessage] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
-  const [phase] = useState(() => phasePour(new Date().getHours()));
+  const [ciel] = useState(() => cielPour(new Date()));
   const [saison] = useState(() => saisonPour(new Date()));
 
   const envoyer = async () => {
@@ -55,7 +59,7 @@ export function Connexion({ surSansCompte }: { surSansCompte: () => void }) {
   return (
     <main className="connexion">
       <div className="connexion-scene">
-        <Village niveau={1} constructions={VITRINE} actif phase={phase} saison={saison} />
+        <Village niveau={1} constructions={VITRINE} actif ciel={ciel} saison={saison} apparence={VITRINE_PERSO} />
       </div>
       <div className="connexion-corps">
         <h1>Hameau</h1>

@@ -55,3 +55,11 @@ test('identifiants uniques', () => {
   const ids = succes([], [], 120).map((s) => s.id);
   assert.equal(new Set(ids).size, ids.length);
 });
+
+test('rénovateur et chef-d’œuvre suivent les niveaux des bâtiments', () => {
+  const base = [construction('maison', 0, 0, 90)];
+  assert.ok(!un(succes([], base, 120), 'renovateur').obtenu);
+  assert.ok(un(succes([], [construction('maison', 0, 0, 162, 2)], 120), 'renovateur').obtenu);
+  assert.ok(!un(succes([], [construction('maison', 0, 0, 162, 2)], 120), 'chef-oeuvre').obtenu);
+  assert.ok(un(succes([], [construction('maison', 0, 0, 306, 3)], 120), 'chef-oeuvre').obtenu);
+});

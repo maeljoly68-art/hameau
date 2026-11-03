@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { codeDansLien } from './core/classement.ts';
 import { urlSupabase } from './data/config.ts';
 import { App } from './ui/App.tsx';
 import { appliquerTheme, lireTheme, suivreSysteme } from './ui/theme.ts';
@@ -7,6 +8,19 @@ import './style.css';
 
 appliquerTheme(lireTheme());
 suivreSysteme();
+
+// Lien d'invitation (« #ami=CODE ») : retenu jusqu'à ce que la personne soit
+// connectée, puis proposé dans l'onglet Amis. Effacé de l'adresse, pour qu'un
+// favori ou l'écran d'accueil ne le rejoue pas à chaque ouverture.
+const invitation = codeDansLien(location.hash);
+if (invitation) {
+  try {
+    localStorage.setItem('hameau.invitation', JSON.stringify(invitation));
+  } catch {
+    // Stockage bloqué : l'invitation se perd, le code reste saisissable à la main.
+  }
+  history.replaceState(null, '', location.pathname + location.search);
+}
 
 // Ouvre la connexion vers Supabase pendant que React démarre : sur un
 // téléphone, la poignée de main TLS coûte plusieurs centaines de millisecondes

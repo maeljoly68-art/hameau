@@ -1,6 +1,8 @@
+import { apparenceValide } from '../core/apparence.ts';
 import { objectifValide } from '../core/objectif.ts';
 import { clore, mettreEnPause, pauseValide, reprendre } from '../core/session.ts';
-import { PROFIL_DEFAUT, type Construction, type Session } from '../core/types.ts';
+import { PROFIL_DEFAUT, type Construction, type Profil, type Session } from '../core/types.ts';
+import { niveauValide } from '../core/village.ts';
 import { nomAppareil, nouvelId, type Depot, type Donnees } from './depot.ts';
 
 const CLE = 'hameau.v1';
@@ -10,6 +12,21 @@ function normaliser(s: Session): Session {
   return { ...s, objectif: objectifValide(s.objectif), pauseSecondes: pauseValide(s.pauseSecondes), pauseDepuis: s.fin === null ? (s.pauseDepuis ?? null) : null };
 }
 
+/** Les bâtiments d'avant les améliorations n'ont pas de niveau : ils sont au premier. */
+const normaliserConstruction = (c: Construction): Construction => ({ ...c, niveau: niveauValide(c.niveau) });
+
+/** Profil lu : les champs ajoutés depuis (pseudo, apparence) prennent leur valeur par défaut. */
+export function profilValide(p: Partial<Profil> | undefined): Profil {
+  const d = { ...PROFIL_DEFAUT, ...p };
+  return {
+    nomHameau: typeof d.nomHameau === 'string' && d.nomHameau.trim() ? d.nomHameau : PROFIL_DEFAUT.nomHameau,
+    objectifJour: typeof d.objectifJour === 'number' && d.objectifJour > 0 ? d.objectifJour : PROFIL_DEFAUT.objectifJour,
+    pseudo: typeof d.pseudo === 'string' ? d.pseudo : '',
+    apparence: apparenceValide(d.apparence),
+    niveauPublie: typeof d.niveauPublie === 'number' && d.niveauPublie >= 1 ? Math.floor(d.niveauPublie) : 1,
+  };
+}
+
 export function lireLocal(): Donnees {
   try {
     const brut = localStorage.getItem(CLE);
@@ -17,8 +34,8 @@ export function lireLocal(): Donnees {
       const d = JSON.parse(brut) as Partial<Donnees>;
       return {
         sessions: (d.sessions ?? []).map(normaliser),
-        constructions: d.constructions ?? [],
-        profil: { ...PROFIL_DEFAUT, ...d.profil },
+        constructions: (d.constructions ?? []).map(normaliserConstruction),
+        profil: profilValide(d.profil),
       };
     }
   } catch {
@@ -87,8 +104,16 @@ export function depotLocal(): Depot {
     async construire(c) {
       modifier((d) => {
         if (d.constructions.some((x) => x.x === c.x && x.y === c.y)) throw new Error('Case déjà occupée');
-        const n: Construction = { ...c, id: nouvelId(), construitLe: new Date().toISOString() };
+        const n: Construction = { ...c, niveau: niveauValide(c.niveau), id: nouvelId(), construitLe: new Date().toISOString() };
         d.constructions.push(n);
+      });
+    },
+    async ameliorer(c, cout) {
+      modifier((d) => {
+        const x = d.constructions.find((k) => k.id === c.id);
+        if (!x || x.niveau !== c.niveau) throw new Error('Ce bâtiment a changé entre-temps : recharge le village.');
+        x.niveau = niveauValide(c.niveau + 1);
+        x.cout += cout;
       });
     },
     async demolir(id) {

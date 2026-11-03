@@ -237,10 +237,152 @@ select :'mn' = '50' as ok \gset
 \if :ok \else \echo 'ÉCHEC : durée effective du raccourci' :'mn' \quit 3 \endif
 reset role;
 
--- Supprimer le compte emporte tout.
+-- Migration 4 : niveaux des bâtiments.
+set role authenticated;
+select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false) \gset
+insert into public.constructions (batiment, x, y, cout) values ('maison', 3, 3, 90) returning id as cid \gset
+select set_config('test.cid', :'cid', false) \gset
+do $$ begin
+  if (select niveau from public.constructions where id = current_setting('test.cid')::uuid) <> 1 then raise exception 'ÉCHEC : niveau par défaut'; end if;
+end $$;
+-- Amélioration gardée par le niveau vu : la seconde, faite « en même temps », ne touche rien.
+update public.constructions set niveau = 2, cout = cout + 72 where id = :'cid' and niveau = 1;
+update public.constructions set niveau = 2, cout = cout + 72 where id = :'cid' and niveau = 1;
+do $$ begin
+  if (select cout from public.constructions where id = current_setting('test.cid')::uuid) <> 162 then raise exception 'ÉCHEC : palier payé deux fois'; end if;
+  update public.constructions set niveau = 4 where id = current_setting('test.cid')::uuid;
+  raise exception 'ÉCHEC : niveau 4 accepté';
+exception when check_violation then null; end $$;
+
+-- Amis : profil public, code, ajout, classement, retrait.
+reset role;
+insert into auth.users values ('33333333-3333-3333-3333-333333333333');
+set role authenticated;
+update public.profils set pseudo = 'Maël', niveau = 7, apparence = '{"chapeau":"paille"}' where user_id = auth.uid();
+do $$ begin
+  update public.profils set pseudo = repeat('x', 30) where user_id = auth.uid();
+  raise exception 'ÉCHEC : pseudo de 30 caractères accepté';
+exception when check_violation then null; end $$;
+do $$ begin
+  update public.profils set apparence = '[1, 2]' where user_id = auth.uid();
+  raise exception 'ÉCHEC : apparence qui n''est pas un objet';
+exception when check_violation then null; end $$;
+select public.hameau_mon_code() as code1 \gset
+select set_config('test.code1', :'code1', false) \gset
+select :'code1' ~ '^[A-HJ-NP-Z2-9]{8}$' as ok \gset
+\if :ok \else \echo 'ÉCHEC : forme du code' :'code1' \quit 3 \endif
+select public.hameau_mon_code() = :'code1' as ok \gset
+\if :ok \else \echo 'ÉCHEC : le code change à chaque appel' \quit 3 \endif
+do $$ begin
+  update public.profils set code_ami = 'ABCDEFG0' where user_id = auth.uid();
+  raise exception 'ÉCHEC : code hors alphabet accepté';
+exception when check_violation then null; end $$;
+do $$ begin
+  perform public.hameau_ajouter_ami(current_setting('test.code1'));
+  raise exception 'ÉCHEC : s''ajouter soi-même';
+exception when invalid_parameter_value then null; end $$;
+-- Sessions à dates fixes (semaine du lundi 2 mars 2026) : 90 min, puis 6 h
+-- plafonnées à 4 h, plus une avant la semaine, hors du compte. Deux autres
+-- commencent entre minuit et 1 h à Paris, quand UTC est encore la veille :
+-- elles comptent pour le jour de Paris, et la première ouvre la semaine.
+insert into public.sessions (debut, fin, categorie) values
+  ('2026-03-03 09:00+01', '2026-03-03 10:30+01', 'A'),
+  ('2026-03-04 08:00+01', '2026-03-04 14:00+01', 'B'),
+  ('2026-03-02 00:30+01', '2026-03-02 00:40+01', 'Lundi 0 h 30'),
+  ('2026-03-05 00:30+01', '2026-03-05 00:50+01', 'Jeudi 0 h 30'),
+  ('2026-03-01 23:00+01', '2026-03-01 23:50+01', 'Avant');
+
+-- Le deuxième compte ajoute le premier, avec un code saisi en minuscules et tiret.
+select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false) \gset
+select public.hameau_ajouter_ami(lower(substr(:'code1', 1, 4) || '-' || substr(:'code1', 5))) ->> 'pseudo' as ps \gset
+select :'ps' = 'Maël' as ok \gset
+\if :ok \else \echo 'ÉCHEC : ajout par code' :'ps' \quit 3 \endif
+do $$ begin
+  perform public.hameau_ajouter_ami('ZZZZ2222');
+  raise exception 'ÉCHEC : code inconnu accepté';
+exception when no_data_found then null; end $$;
+-- 50 min dont 10 de pause, commencée dimanche soir à Paris : lundi à New York ? Non,
+-- dimanche aussi (17 h 30). Celle de lundi 3 h à Paris est encore dimanche à New York.
+insert into public.sessions (debut, fin, pause_secondes, categorie) values
+  ('2026-03-02 23:30+01', '2026-03-03 00:20+01', 600, 'Nuit'),
+  ('2026-03-09 03:00+01', '2026-03-09 03:30+01', 0, 'Lundi suivant à Paris');
+insert into public.sessions (categorie) values ('En cours');
+-- Ni lecture du profil de l'autre, ni amitié écrite à la main.
+do $$ begin
+  if (select count(*) from public.profils where user_id <> auth.uid()) <> 0 then raise exception 'ÉCHEC : profil d''un autre lisible'; end if;
+  if (select count(*) from public.amities) <> 1 then raise exception 'ÉCHEC : amitiés lues, % au lieu de 1', (select count(*) from public.amities); end if;
+end $$;
+do $$ begin
+  insert into public.amities (utilisateur, ami) values (auth.uid(), '33333333-3333-3333-3333-333333333333');
+  raise exception 'ÉCHEC : amitié créée sans code';
+exception when insufficient_privilege then null; end $$;
+
+create temporary table classement_paris as select * from public.hameau_classement('2026-03-02', 7, 'Europe/Paris', 240);
+do $$ declare r record; begin
+  if (select count(*) from classement_paris) <> 2 then raise exception 'ÉCHEC : classement, % membres au lieu de 2', (select count(*) from classement_paris); end if;
+  select * into r from classement_paris where not moi;
+  if r.pseudo <> 'Maël' or r.niveau <> 7 or r.apparence->>'chapeau' <> 'paille' then raise exception 'ÉCHEC : vitrine de l''ami'; end if;
+  if r.secondes <> 21600 then raise exception 'ÉCHEC : 10 + 90 min + 4 h plafonnées + 20 min = 21600 s, pas %', r.secondes; end if;
+  if r.par_jour <> array[10, 90, 240, 20, 0, 0, 0] then raise exception 'ÉCHEC : minutes par jour %', r.par_jour; end if;
+  if r.ouverte_debut is not null then raise exception 'ÉCHEC : session ouverte inventée'; end if;
+  if r.batiments <> 2 then raise exception 'ÉCHEC : bâtiments %', r.batiments; end if;
+  select * into r from classement_paris where moi;
+  if r.secondes <> 2400 then raise exception 'ÉCHEC : pause déduite, 2400 s attendues, pas %', r.secondes; end if;
+  if r.par_jour[1] <> 40 then raise exception 'ÉCHEC : session rattachée au jour de son début'; end if;
+  if r.ouverte_debut is null then raise exception 'ÉCHEC : la session en cours ne se voit pas'; end if;
+end $$;
+drop table classement_paris;
+-- Le fuseau découpe les jours : à New York, lundi 3 h de Paris est encore dimanche.
+do $$ declare s bigint; begin
+  select secondes into s from public.hameau_classement('2026-03-02', 7, 'America/New_York', 240) where moi;
+  if s <> 2400 + 1800 then raise exception 'ÉCHEC : fuseau de New York, % s', s; end if;
+  select secondes into s from public.hameau_classement('2026-03-02', 7, 'Mars/Olympus', 240) where moi;
+  if s <> 2400 then raise exception 'ÉCHEC : fuseau inconnu, Paris attendu, % s', s; end if;
+end $$;
+
+-- Un compte sans amis ne voit que lui.
+select set_config('test.uid', '33333333-3333-3333-3333-333333333333', false) \gset
+do $$ begin
+  if (select count(*) from public.hameau_classement('2026-03-02', 7, 'Europe/Paris', 240)) <> 1 then raise exception 'ÉCHEC : un inconnu voit le classement des autres'; end if;
+end $$;
+
+-- Retirer un ami le retire des deux côtés ; un nouveau code périme l'ancien.
+select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false) \gset
+select public.hameau_retirer_ami('22222222-2222-2222-2222-222222222222') \gset ignore_
+select public.hameau_nouveau_code() <> :'code1' as ok \gset
+\if :ok \else \echo 'ÉCHEC : nouveau code identique' \quit 3 \endif
+select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false) \gset
+do $$ begin
+  if (select count(*) from public.hameau_classement('2026-03-02', 7, 'Europe/Paris', 240)) <> 1 then raise exception 'ÉCHEC : ami retiré toujours visible'; end if;
+  perform public.hameau_ajouter_ami(current_setting('test.code1'));
+  raise exception 'ÉCHEC : l''ancien code marche encore';
+exception when no_data_found then null; end $$;
+reset role;
+
+-- Sans compte, rien de tout cela.
+set role anon;
+do $$ begin
+  perform public.hameau_classement('2026-03-02', 7, 'Europe/Paris', 240);
+  raise exception 'ÉCHEC : anon exécute hameau_classement';
+exception when insufficient_privilege then null; end $$;
+do $$ begin
+  perform public.hameau_mon_code();
+  raise exception 'ÉCHEC : anon exécute hameau_mon_code';
+exception when insufficient_privilege then null; end $$;
+do $$ begin
+  perform public.hameau_ajouter_ami('ABCD2345');
+  raise exception 'ÉCHEC : anon exécute hameau_ajouter_ami';
+exception when insufficient_privilege then null; end $$;
+reset role;
+
+-- Supprimer le compte emporte tout ce qui est à lui, amitiés comprises.
 delete from auth.users where id = '11111111-1111-1111-1111-111111111111';
 do $$ begin
-  if (select count(*) from public.sessions) + (select count(*) from public.constructions) + (select count(*) from public.jetons_raccourci) + (select count(*) from public.profils) <> 0 then
+  if (select count(*) from public.sessions where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.constructions where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.jetons_raccourci where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.profils where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.amities where '11111111-1111-1111-1111-111111111111' in (utilisateur, ami)) <> 0 then
     raise exception 'ÉCHEC : cascade';
   end if;
 end $$;

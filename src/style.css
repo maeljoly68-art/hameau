@@ -155,13 +155,15 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 /* Navigation : barre en bas sur téléphone, colonne à gauche sur grand écran. */
 .navigation {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
-  display: grid; grid-template-columns: repeat(5, 1fr);
+  display: grid; grid-template-columns: repeat(6, 1fr);
   background: var(--nav); backdrop-filter: blur(16px) saturate(1.3); -webkit-backdrop-filter: blur(16px) saturate(1.3);
   border-top: 1px solid var(--bord); padding-bottom: env(safe-area-inset-bottom);
 }
 .marque { display: none; }
 .onglet { background: none; border: 0; padding: 10px 4px 8px; display: grid; gap: 3px; justify-items: center; font-size: 11px; font-weight: 600; color: var(--texte-3); transition: color .15s; }
 .onglet.actif { color: var(--accent); }
+/* Six onglets sur un petit téléphone : « Historique » doit tenir sans être coupé. */
+@media (max-width: 380px) { .onglet { font-size: 10px; letter-spacing: -.01em; padding-inline: 2px; } }
 
 @media (min-width: 960px) {
   .app { display: grid; grid-template-columns: 232px 1fr; }
@@ -212,8 +214,12 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 @keyframes pulse { 50% { fill-opacity: .7; } }
 .pousse { animation: pousse .6s cubic-bezier(.3, 1.6, .5, 1) both; transform-box: fill-box; transform-origin: 50% 100%; }
 @keyframes pousse { from { transform: scale(.2); opacity: 0; } }
-.ailes { transform-box: fill-box; }
-.ailes.tournent { animation: tourne 4s linear infinite; transform-origin: 0 0; }
+/* Les ailes pivotent sur leur moyeu, l'origine (0, 0) de leur groupe.
+   « transform-box: fill-box » prenait le coin de leur boîte pour pivot : elles
+   décrivaient un grand cercle loin de la tour. En pause plutôt que retirée,
+   l'animation s'arrête là où elle en est, au lieu de sauter à l'angle zéro. */
+.ailes { transform-origin: 0 0; animation: tourne 4s linear infinite paused; }
+.ailes.tournent { animation-play-state: running; }
 @keyframes tourne { to { transform: rotate(360deg); } }
 .flamme { transform-origin: 0 0; animation: flamme 1.6s ease-in-out infinite; }
 .flamme.vive { animation-duration: .5s; }
@@ -235,6 +241,24 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 @keyframes drapeau { 50% { transform: scaleX(.8); } }
 .abeilles { animation: abeilles 1.8s ease-in-out infinite; }
 @keyframes abeilles { 50% { transform: translate(-3px, 3px); } }
+/* Fanions et girouette : pivot sur le mât, donc le bord gauche de leur propre boîte. */
+.fanion { transform-box: fill-box; transform-origin: 0% 50%; animation: drapeau 1.5s ease-in-out infinite; }
+.girouette { transform-box: fill-box; transform-origin: 50% 50%; animation: girouette 7s ease-in-out infinite; }
+@keyframes girouette { 50% { transform: scaleX(-1); } }
+.canard { animation: canard 5s ease-in-out infinite; }
+@keyframes canard { 50% { transform: translate(-3px, 1px); } }
+/* Le personnage respire ; endormi, plus lentement. */
+.perso-corps { animation: respirer 3.6s ease-in-out infinite; }
+.perso-corps.endormi { animation-duration: 5.5s; }
+@keyframes respirer { 50% { transform: translateY(-0.5px); } }
+.personnage.cliquable { cursor: pointer; }
+.personnage.cliquable:hover .perso { filter: brightness(1.1); }
+.queue { transform-box: fill-box; transform-origin: 0% 100%; animation: queue 2.2s ease-in-out infinite; }
+@keyframes queue { 50% { transform: rotate(-9deg); } }
+.marteler { transform-box: fill-box; transform-origin: 50% 100%; animation: marteler .9s ease-in-out infinite; }
+@keyframes marteler { 50% { transform: rotate(-35deg); } }
+.ecrire { animation: ecrire 1.4s ease-in-out infinite; }
+@keyframes ecrire { 50% { transform: translate(-2px, 0.5px); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
 /* ───────── Cartes et commandes ───────── */
@@ -546,3 +570,86 @@ body.mini { margin: 0; min-height: 100vh; background: var(--fond); }
 .pied-sillage { gap: 10px; }
 .pied-sillage p { color: var(--texte-2); font-size: 14px; }
 a.bouton { text-decoration: none; }
+
+/* ───────── Garde-robe ───────── */
+
+.garde-robe-corps { display: grid; gap: 16px; }
+@media (min-width: 640px) { .garde-robe-corps { grid-template-columns: 210px 1fr; align-items: start; } }
+.garde-robe-scene { display: grid; gap: 10px; justify-items: center; text-align: center; background: radial-gradient(160px 120px at 50% 70%, rgba(255, 181, 71, .14), transparent 70%), var(--fond-2); border-radius: 18px; padding: 14px 12px; }
+.portrait-grand { width: 190px; height: 168px; }
+.essai { display: grid; gap: 6px; justify-items: center; width: 100%; }
+.essai strong { display: inline-flex; gap: 6px; align-items: center; }
+.essai .jauge { width: 80%; }
+.garde-robe-choix { display: grid; gap: 12px; min-width: 0; }
+.garde-robe-choix .puces { gap: 6px; }
+.garde-robe-choix .puce { padding: 6px 11px; font-size: 13px; }
+.vestiaire { list-style: none; padding: 0 !important; display: grid !important; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px !important; }
+.objet { position: relative; width: 100%; height: 100%; display: grid; gap: 4px; justify-items: center; align-content: start; background: var(--fond-2); border: 1px solid var(--bord); border-radius: 14px; padding: 8px 6px 10px; color: var(--texte); transition: border-color .15s, transform .15s; }
+.objet:hover { border-color: var(--bord-fort); transform: translateY(-1px); }
+.objet.choisi { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.objet.essaye { border-style: dashed; border-color: var(--texte-3); }
+.objet.verrouille .apercu-objet { filter: grayscale(.75) brightness(.75); opacity: .75; }
+.apercu-objet { width: 64px; height: 64px; }
+.objet-nom { font-size: 12.5px; font-weight: 600; text-align: center; line-height: 1.25; }
+.objet-porte { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 99px; background: var(--accent); color: var(--accent-texte); }
+.objet-verrou { display: inline-flex; gap: 4px; align-items: center; font-size: 11.5px; color: var(--texte-3); font-variant-numeric: tabular-nums; }
+
+/* ───────── Fiche d'un bâtiment ───────── */
+
+.fiche-batiment { display: grid; gap: 10px; }
+.fiche-batiment h2 { margin: 0; }
+.etoiles { display: inline-flex; gap: 2px; color: var(--accent); }
+.evolution { display: flex; align-items: center; justify-content: center; gap: 6px; background: linear-gradient(#22305a00, #6db76018 70%), var(--fond-2); border-radius: 16px; padding: 6px; }
+.evolution svg { width: 120px; height: 150px; }
+.evolution .fleche { font-size: 22px; color: var(--accent); font-weight: 700; }
+.amelioration { display: grid; gap: 8px; }
+.amelioration p { margin: 0; }
+.amelioration .bouton { justify-self: start; }
+.aide.petite { font-size: 12.5px; }
+
+/* ───────── Amis et classement ───────── */
+
+.page.amis { display: grid; gap: 16px; }
+.invitation { grid-template-columns: 1fr auto; align-items: center; border-color: rgba(255, 181, 71, .45); background: radial-gradient(300px 140px at 0% 0%, rgba(255, 181, 71, .12), transparent 70%), var(--carte); }
+.invitation h2, .invitation p { margin: 0; }
+@media (max-width: 520px) { .invitation { grid-template-columns: 1fr; } }
+.segments { display: inline-flex; background: var(--fond-2); border: 1px solid var(--bord); border-radius: 99px; padding: 3px; }
+.segment { border: 0; background: transparent; color: var(--texte-2); border-radius: 99px; padding: 6px 12px; font-size: 13px; font-weight: 600; }
+.segment.actif { background: var(--accent); color: var(--accent-texte); }
+.podium { display: grid; grid-template-columns: repeat(3, 1fr); align-items: end; gap: 8px; padding-top: 6px; width: 100%; max-width: 520px; justify-self: center; }
+.marche { display: grid; justify-items: center; gap: 2px; text-align: center; min-width: 0; }
+.marche strong { font-size: 14px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.podium-perso { width: 76px; height: 68px; }
+.marche-1 .podium-perso { width: 96px; height: 86px; }
+.podium-temps { font: 700 14px var(--chiffres); color: var(--texte-2); }
+.podium-socle { display: grid; place-items: center; width: 100%; border-radius: 12px 12px 4px 4px; font: 800 18px var(--chiffres); color: var(--accent-texte); margin-top: 4px; }
+.marche-1 .podium-socle { height: 58px; background: linear-gradient(180deg, #ffd56b, #e8a51c); }
+.marche-2 .podium-socle { height: 42px; background: linear-gradient(180deg, #e3e8f0, #a9b3c4); }
+.marche-3 .podium-socle { height: 30px; background: linear-gradient(180deg, #f0b98a, #c47a42); }
+.marche.moi strong { color: var(--accent); }
+.ecart { margin: 0; font-weight: 600; text-align: center; }
+.liste-classement { list-style: none; padding: 0 !important; display: grid; gap: 6px !important; }
+.liste-classement li { display: grid; grid-template-columns: 24px 40px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; background: var(--fond-2); border: 1px solid transparent; border-radius: 14px; padding: 8px 12px 8px 10px; }
+.liste-classement li:has(> .bouton) { grid-template-columns: 24px 40px minmax(0, 1fr) auto auto auto; }
+.liste-classement li.moi { border-color: rgba(255, 181, 71, .45); background: radial-gradient(220px 80px at 0% 50%, rgba(255, 181, 71, .1), transparent 70%), var(--fond-2); }
+.rang { font: 800 16px var(--chiffres); color: var(--texte-3); text-align: center; }
+.liste-classement li:nth-child(1) .rang { color: #e8a51c; }
+.avatar { width: 40px; height: 54px; border-radius: 12px; background: var(--carte-2); }
+.qui { display: grid; gap: 1px; min-width: 0; }
+.qui strong, .qui .aide { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qui .aide { font-size: 12.5px; }
+.temps { font: 700 15px var(--chiffres); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.en-direct { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; color: var(--vert); }
+.en-direct.pause { color: var(--texte-3); }
+.point-direct { width: 7px; height: 7px; border-radius: 99px; background: var(--vert); box-shadow: 0 0 0 0 rgba(111, 211, 154, .6); animation: direct 1.8s ease-out infinite; }
+@keyframes direct { 70% { box-shadow: 0 0 0 7px rgba(111, 211, 154, 0); } 100% { box-shadow: 0 0 0 0 rgba(111, 211, 154, 0); } }
+.barres { display: flex; align-items: flex-end; gap: 2px; height: 26px; width: 66px; }
+.barres > span { flex: 1; min-height: 2px; border-radius: 2px; background: var(--piste); }
+.barres > span.pleine { background: var(--vert); opacity: .85; }
+.barres.serrees { gap: 1px; width: 78px; }
+@media (max-width: 420px) { .barres { display: none; } .liste-classement li { grid-template-columns: 22px 36px minmax(0, 1fr) auto; } .liste-classement li:has(> .bouton) { grid-template-columns: 22px 36px minmax(0, 1fr) auto auto; } .avatar { width: 36px; height: 48px; } }
+.code-ami { display: flex; align-items: center; gap: 10px; background: var(--fond-2); border: 1px dashed var(--bord-fort); border-radius: 14px; padding: 10px 12px; }
+.code-ami .code { flex: 1; font: 800 24px var(--chiffres); letter-spacing: .12em; color: var(--accent); }
+.ligne-formulaire { display: flex; gap: 8px; }
+.ligne-formulaire input { flex: 1; min-width: 0; }
+.ligne-formulaire input[aria-label='Code de ton ami'] { font: 700 17px var(--chiffres); letter-spacing: .1em; text-transform: uppercase; }

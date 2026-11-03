@@ -65,6 +65,8 @@ export function succes(sessions: readonly Session[], constructions: readonly Con
     regle('nuit', 'Oiseau de nuit', 'Une session de 25 min commencée après 22 h.', soir, 1),
     regle('batisseur', 'Bâtisseur', 'Construire 5 bâtiments.', constructions.length, 5),
     regle('urbaniste', 'Urbaniste', 'Construire 15 bâtiments.', constructions.length, 15),
+    regle('renovateur', 'Rénovateur', 'Améliorer un bâtiment.', constructions.filter((c) => c.niveau >= 2).length, 1),
+    regle('chef-oeuvre', 'Chef-d’œuvre', 'Porter un bâtiment au niveau 3.', constructions.filter((c) => c.niveau >= 3).length, 1),
   ];
 }
 

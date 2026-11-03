@@ -83,7 +83,7 @@ function FormulaireProfil({ profil, surEnregistrer }: { profil: Profil; surEnreg
       className="carte"
       onSubmit={(e) => {
         e.preventDefault();
-        surEnregistrer({ nomHameau: nomPropre || PROFIL_DEFAUT.nomHameau, objectifJour: objectif });
+        surEnregistrer({ ...profil, nomHameau: nomPropre || PROFIL_DEFAUT.nomHameau, objectifJour: objectif });
       }}
     >
       <h2>Ton hameau</h2>

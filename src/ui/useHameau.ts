@@ -60,15 +60,21 @@ export function useHameau(depot: Depot) {
   /** Exécute une écriture puis recharge ; l'erreur s'affiche au lieu de disparaître. */
   const agir = useCallback(
     async (f: () => Promise<unknown>) => {
+      let echec: unknown = null;
       try {
         await f();
-        setErreur(null);
       } catch (e) {
-        setErreur(e instanceof Error ? e.message : String(e));
-        throw e;
-      } finally {
-        await recharger();
+        echec = e;
       }
+      await recharger();
+      // Posée APRÈS le rechargement : un rechargement réussi efface l'erreur
+      // de chargement, et effaçait du même coup celle de l'action, qui ne
+      // s'affichait jamais.
+      if (echec !== null) {
+        setErreur(echec instanceof Error ? echec.message : String(echec));
+        throw echec;
+      }
+      setErreur(null);
     },
     [recharger],
   );

@@ -98,3 +98,33 @@ export const IconeTaches = () => (
     <path d="m8.5 12 2.5 2.5 4.5-5" />
   </svg>
 );
+export const IconeAmis = () => (
+  <svg {...base}>
+    <path d="M8 21h8M12 17v4" />
+    <path d="M7 4h10v5a5 5 0 0 1-10 0z" />
+    <path d="M7 6H4.5a2.5 2.5 0 0 0 2.6 3.5M17 6h2.5a2.5 2.5 0 0 1-2.6 3.5" />
+  </svg>
+);
+export const IconeCintre = () => (
+  <svg {...base}>
+    <path d="M12 7.5a2 2 0 1 1 2-2c0 1.3-2 1.6-2 3.2" />
+    <path d="M12 8.7 3.2 15.2c-.9.7-.4 2.1.7 2.1h16.2c1.1 0 1.6-1.4.7-2.1z" />
+  </svg>
+);
+export const IconePartager = () => (
+  <svg {...base} width={18} height={18}>
+    <path d="M12 15V3.5M7.5 8 12 3.5 16.5 8" />
+    <path d="M5 12.5v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+  </svg>
+);
+export const IconeCopier = () => (
+  <svg {...base} width={18} height={18}>
+    <rect x="8.5" y="8.5" width="11" height="11" rx="2.5" />
+    <path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5" />
+  </svg>
+);
+export const IconeEtoile = ({ pleine = true, taille = 14 }: { pleine?: boolean; taille?: number }) => (
+  <svg width={taille} height={taille} viewBox="0 0 24 24" aria-hidden>
+    <path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" fill={pleine ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.6} strokeLinejoin="round" />
+  </svg>
+);

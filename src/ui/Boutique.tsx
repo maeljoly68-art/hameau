@@ -8,7 +8,7 @@ function Apercu({ id }: { id: string }) {
   return (
     <svg viewBox="-38 -80 76 90" className="apercu" aria-hidden>
       <ellipse cx={0} cy={4} rx={30} ry={11} fill="rgba(0,0,0,.18)" />
-      <Dessin id={id} actif={false} nuit={false} />
+      <Dessin id={id} actif={false} />
     </svg>
   );
 }
@@ -41,6 +41,7 @@ export function Boutique({ niveau, solde, saison, surChoisir }: { niveau: number
           );
         })}
       </ul>
+      <p className="aide petite">Déjà construit ? Touche un bâtiment du village pour l’améliorer : trois niveaux chacun.</p>
     </section>
     </SaisonContexte.Provider>
   );

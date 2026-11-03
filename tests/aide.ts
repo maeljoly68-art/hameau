@@ -6,6 +6,6 @@ export function session(debut: string, minutes: number | null, categorie = 'Trav
   return { id: `s${++n}`, debut: new Date(debut).toISOString(), fin, description: '', categorie, appareil: 'test', objectif: null, pauseSecondes: 0, pauseDepuis: null };
 }
 
-export function construction(batiment: string, x: number, y: number, cout: number): Construction {
-  return { id: `c${++n}`, batiment, x, y, cout, construitLe: '2026-11-01T10:00:00Z' };
+export function construction(batiment: string, x: number, y: number, cout: number, niveau = 1): Construction {
+  return { id: `c${++n}`, batiment, x, y, cout, niveau, construitLe: '2026-11-01T10:00:00Z' };
 }

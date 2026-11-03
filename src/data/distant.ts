@@ -1,8 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { apparenceValide } from '../core/apparence.ts';
 import { objectifValide } from '../core/objectif.ts';
 import { pauseValide } from '../core/session.ts';
 import { PROFIL_DEFAUT, type Construction, type Profil, type Session } from '../core/types.ts';
+import { niveauValide } from '../core/village.ts';
 import { nomAppareil, type Depot } from './depot.ts';
+import { profilValide } from './local.ts';
 
 interface LigneSession {
   id: string;
@@ -21,12 +24,29 @@ interface LigneConstruction {
   x: number;
   y: number;
   cout: number;
+  /** Absente tant que la migration des améliorations n'est pas passée. */
+  niveau?: number;
   construit_le: string;
 }
 interface LigneProfil {
   nom_hameau: string;
   objectif_jour: number;
+  // Colonnes de la migration « amis » : absentes avant elle.
+  pseudo?: string | null;
+  apparence?: unknown;
+  niveau?: number | null;
 }
+
+/**
+ * Une colonne inconnue de la base (migration pas encore collée) : PostgREST
+ * répond « PGRST204 », Postgres « 42703 ». On le reconnaît pour retomber sur
+ * les colonnes d'avant au lieu de bloquer tout l'enregistrement.
+ */
+function colonneManquante(e: { code?: string } | null): boolean {
+  return !!e && (e.code === 'PGRST204' || e.code === '42703');
+}
+
+export const MESSAGE_MIGRATION = 'La base Supabase n’est pas encore à jour : colle le fichier supabase/A-COLLER-DANS-SUPABASE.sql dans l’éditeur SQL du projet.';
 
 const versSession = (l: LigneSession): Session => ({
   id: l.id,
@@ -67,8 +87,14 @@ const versConstruction = (l: LigneConstruction): Construction => ({
   x: l.x,
   y: l.y,
   cout: l.cout,
+  niveau: niveauValide(l.niveau),
   construitLe: l.construit_le,
 });
+
+const versProfil = (l: LigneProfil | null): Profil =>
+  l
+    ? profilValide({ nomHameau: l.nom_hameau, objectifJour: l.objectif_jour, pseudo: l.pseudo ?? '', apparence: apparenceValide(l.apparence), niveauPublie: l.niveau ?? 1 })
+    : PROFIL_DEFAUT;
 
 function echec(r: { error: { message: string } | null }): void {
   if (r.error) throw new Error(r.error.message);
@@ -90,7 +116,9 @@ export function depotDistant(obtenir: () => Promise<SupabaseClient>, userId: str
       const [s, c, p] = await Promise.all([
         sb.from('sessions').select('*').order('debut', { ascending: false }).limit(5000),
         sb.from('constructions').select('*'),
-        sb.from('profils').select('nom_hameau, objectif_jour').maybeSingle<LigneProfil>(),
+        // « * » plutôt qu'une liste : avant la migration des amis, demander
+        // « pseudo » ferait échouer tout le chargement.
+        sb.from('profils').select('*').maybeSingle<LigneProfil>(),
       ]);
       echec(s);
       echec(c);
@@ -99,7 +127,7 @@ export function depotDistant(obtenir: () => Promise<SupabaseClient>, userId: str
         sessions: (s.data ?? []).map((l) => versSession(l as LigneSession)),
         constructions: (c.data ?? []).map((l) => versConstruction(l as LigneConstruction)),
         // Pas encore de profil = réglages par défaut, pas une erreur.
-        profil: p.data ? { nomHameau: p.data.nom_hameau, objectifJour: p.data.objectif_jour } : PROFIL_DEFAUT,
+        profil: versProfil(p.data),
       };
     },
     async demarrer(categorie, objectif) {
@@ -147,9 +175,27 @@ export function depotDistant(obtenir: () => Promise<SupabaseClient>, userId: str
     },
     async construire(c) {
       const sb = await obtenir();
-      const r = await sb.from('constructions').insert({ batiment: c.batiment, x: c.x, y: c.y, cout: c.cout });
+      const niveau = niveauValide(c.niveau);
+      // Le niveau n'est envoyé que s'il dépasse 1 : une construction ordinaire
+      // marche encore sur une base qui n'a pas la colonne.
+      const r = await sb.from('constructions').insert({ batiment: c.batiment, x: c.x, y: c.y, cout: c.cout, ...(niveau > 1 ? { niveau } : {}) });
       if (r.error?.code === '23505') throw new Error('Cette case vient d’être occupée depuis un autre appareil.');
+      if (colonneManquante(r.error)) throw new Error(MESSAGE_MIGRATION);
       echec(r);
+    },
+    async ameliorer(c, cout) {
+      const sb = await obtenir();
+      // « niveau = celui qu'on a vu » : si un autre appareil vient d'améliorer,
+      // aucune ligne ne correspond, et l'on ne paie pas deux fois le palier.
+      const r = await sb
+        .from('constructions')
+        .update({ niveau: c.niveau + 1, cout: c.cout + cout })
+        .eq('id', c.id)
+        .eq('niveau', c.niveau)
+        .select('id');
+      if (colonneManquante(r.error)) throw new Error(MESSAGE_MIGRATION);
+      echec(r);
+      if (!r.data?.length) throw new Error('Ce bâtiment vient d’être amélioré depuis un autre appareil.');
     },
     async demolir(id) {
       const sb = await obtenir();
@@ -157,7 +203,13 @@ export function depotDistant(obtenir: () => Promise<SupabaseClient>, userId: str
     },
     async enregistrerProfil(p: Profil) {
       const sb = await obtenir();
-      echec(await sb.from('profils').upsert({ user_id: userId, nom_hameau: p.nomHameau, objectif_jour: p.objectifJour, maj_le: new Date().toISOString() }));
+      const base = { user_id: userId, nom_hameau: p.nomHameau, objectif_jour: p.objectifJour, maj_le: new Date().toISOString() };
+      const r = await sb.from('profils').upsert({ ...base, pseudo: p.pseudo.trim() || null, apparence: p.apparence, niveau: p.niveauPublie });
+      if (!colonneManquante(r.error)) return echec(r);
+      // Base pas encore migrée : le nom et l'objectif s'enregistrent quand
+      // même ; le reste attend la mise à jour, et on le dit.
+      echec(await sb.from('profils').upsert(base));
+      throw new Error(MESSAGE_MIGRATION);
     },
     ecouter(rappel) {
       let fini = false;
