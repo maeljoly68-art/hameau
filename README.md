@@ -74,7 +74,16 @@ règles RLS. La migration est dans `supabase/migrations/` (rejouable).
 
 Authentication → URL Configuration : **Site URL** =
 `https://maeljoly68-art.github.io/hameau/` (sinon les emails de confirmation
-renvoient vers `localhost`).
+renvoient vers `localhost`). Le lien du **mot de passe oublié** ramène à cette
+même adresse : elle doit aussi figurer dans **Redirect URLs**, faute de quoi
+Supabase renvoie vers le Site URL.
+
+Les e-mails (confirmation, mot de passe oublié) partent par le service intégré
+de Supabase : il envoie très peu de messages par heure et, tant qu'aucun SMTP
+personnalisé n'est branché (Authentication → Emails → SMTP Settings), peut se
+limiter aux adresses des membres de l'organisation. Pour que des amis du
+classement puissent aussi réinitialiser leur mot de passe, il faut un SMTP
+(Resend ou Brevo ont une offre gratuite).
 
 Le projet gratuit se met en pause après une semaine sans aucune activité ; il
 se relance d'un clic depuis le tableau de bord Supabase.

@@ -470,7 +470,9 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 .connexion-corps { max-width: 420px; width: 100%; margin: 0 auto; padding: 20px 16px 40px; display: grid; gap: 14px; text-align: center; }
 .connexion h1 { font-size: 40px; font-weight: 800; letter-spacing: -0.03em; }
 .connexion .accroche { color: var(--texte-2); }
-.connexion form { text-align: left; }
+.connexion form, .connexion .carte { text-align: left; }
+/* Sous un champ, petit et à droite : « mot de passe oublié », « afficher ». */
+.lien-a-droite { justify-self: end; padding: 0; margin-top: -4px; font-size: 14px; }
 @media (min-width: 960px) {
   .connexion { grid-template-columns: 1.2fr 1fr; align-items: center; align-content: center; max-width: 1100px; margin: 0 auto; gap: 40px; padding: 24px; }
   .connexion-scene, .connexion-corps { padding: 0; max-width: none; }

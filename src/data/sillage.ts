@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { traduireErreurAuth } from '../core/recuperation.ts';
 import { differences, SOURCE, versSeances, type CocheSillage, type HabitudeSillage, type SeanceSillage, type TacheSillage } from '../core/sillage.ts';
 import type { Session } from '../core/types.ts';
 import { SILLAGE } from './config.ts';
@@ -52,7 +53,10 @@ let promesse: Promise<SupabaseClient> | null = null;
  */
 function client(): Promise<SupabaseClient> {
   promesse ??= import('@supabase/supabase-js').then(({ createClient }) =>
-    createClient(SILLAGE.url, SILLAGE.cle, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'hameau.sillage.auth' } }),
+    // « detectSessionInUrl » coupé : la connexion à Sillage se fait par mot de
+    // passe seulement, et ce client ne doit jamais avaler le jeton d'un lien
+    // destiné à Hameau (mot de passe oublié) qui se trouverait dans l'adresse.
+    createClient(SILLAGE.url, SILLAGE.cle, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'hameau.sillage.auth' } }),
   );
   return promesse;
 }
@@ -79,6 +83,19 @@ export async function connecter(email: string, motDePasse: string): Promise<Lien
   const profils = (p.data ?? []).map((x) => ({ profilId: x.id as string, nom: (x.username as string | null) || 'Profil' }));
   if (profils.length === 1) choisirProfil(profils[0]);
   return profils;
+}
+
+/**
+ * Demande à Sillage d'envoyer un lien pour choisir un mot de passe. Le lien
+ * ouvre SILLAGE, pas Hameau : c'est sa page « reset-password » qui reçoit le
+ * nouveau mot de passe, avec les règles de Sillage. Utile surtout à qui se
+ * connecte à Sillage avec Discord ou Google, et n'y a donc jamais eu de mot
+ * de passe : sans lui, Hameau ne peut pas s'y relier.
+ */
+export async function demanderLienMotDePasse(email: string): Promise<void> {
+  const sb = await client();
+  const r = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${SILLAGE.app}/reset-password` });
+  if (r.error) throw new Error(traduireErreurAuth(r.error.message, r.error.code));
 }
 
 export function choisirProfil(l: LienSillage) {

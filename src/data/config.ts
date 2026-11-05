@@ -27,6 +27,13 @@ export const SILLAGE = {
   app: 'https://maeljoly68-art-jdtpromaelfx.maeljoly68.workers.dev',
 } as const;
 
+/**
+ * L'adresse de l'app, celle où les e-mails (confirmation d'inscription, mot
+ * de passe oublié) ramènent la personne. Sans elle, Supabase renverrait vers
+ * l'adresse par défaut du projet, qui n'est pas celle de l'app.
+ */
+export const adresseApp = () => new URL(import.meta.env.BASE_URL, location.origin).href;
+
 let promesse: Promise<SupabaseClient> | null = null;
 
 /**

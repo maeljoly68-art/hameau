@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { echeanceTexte, habitudesDuJour, IMPORTANCES, joursAvant, lundiDe, trierTaches, type TacheSillage } from '../../core/sillage.ts';
 import { cleJour, decalerJours, formatDuree } from '../../core/temps.ts';
 import { SILLAGE } from '../../data/config.ts';
-import { ajouterTache, charger, choisirProfil, cocher, connecter, delier, derniereSynchro, lienSillage, marquerTache, type DonneesSillage, type LienSillage } from '../../data/sillage.ts';
+import { ajouterTache, charger, choisirProfil, cocher, connecter, delier, demanderLienMotDePasse, derniereSynchro, lienSillage, marquerTache, type DonneesSillage, type LienSillage } from '../../data/sillage.ts';
 import { IconeCoche, IconeLecture } from '../Icones.tsx';
 
 function Connexion({ emailSuggere, surLie }: { emailSuggere: string | null; surLie: (l: LienSillage) => void }) {
@@ -10,7 +10,20 @@ function Connexion({ emailSuggere, surLie }: { emailSuggere: string | null; surL
   const [motDePasse, setMotDePasse] = useState('');
   const [occupe, setOccupe] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [profils, setProfils] = useState<LienSillage[] | null>(null);
+
+  const motDePasseOublie = () => {
+    const adresse = email.trim();
+    if (!adresse) return setMessage('Entre d’abord l’adresse de ton compte Sillage.');
+    setOccupe(true);
+    setMessage(null);
+    setInfo(null);
+    demanderLienMotDePasse(adresse)
+      .then(() => setInfo(`Si un compte Sillage existe pour ${adresse}, un e-mail vient de lui être envoyé. Son lien ouvre Sillage : choisis-y ton mot de passe, puis reviens ici te connecter.`))
+      .catch((er: unknown) => setMessage(er instanceof Error ? er.message : String(er)))
+      .finally(() => setOccupe(false));
+  };
 
   if (profils && profils.length > 1)
     return (
@@ -62,12 +75,16 @@ function Connexion({ emailSuggere, surLie }: { emailSuggere: string | null; surL
         Mot de passe Sillage
         <input type="password" autoComplete="current-password" required value={motDePasse} onChange={(e) => setMotDePasse(e.target.value)} />
       </label>
+      <button type="button" className="lien lien-a-droite" disabled={occupe} onClick={motDePasseOublie}>
+        Mot de passe Sillage oublié ?
+      </button>
       {message && <p className="alerte douce">{message}</p>}
+      {info && <p className="alerte douce">{info}</p>}
       <button className="bouton gros" disabled={occupe}>
         {occupe ? '…' : 'Relier'}
       </button>
       <p className="aide">
-        Le mot de passe n’est pas gardé : seule la connexion l’est, sur cet appareil, comme quand tu te connectes à Sillage. Hameau n’a pas plus de droits que toi dans Sillage. Si tu te connectes à Sillage avec Discord, définis d’abord un mot de passe dans Sillage (« mot de passe oublié »).
+        Le mot de passe n’est pas gardé : seule la connexion l’est, sur cet appareil, comme quand tu te connectes à Sillage. Hameau n’a pas plus de droits que toi dans Sillage. Si tu te connectes à Sillage avec Discord ou Google, tu n’as pas encore de mot de passe : touche « Mot de passe Sillage oublié ? » pour en définir un.
       </p>
     </form>
   );
