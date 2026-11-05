@@ -217,3 +217,17 @@ test('avec beaucoup de temps, une révision en retard passe avant la lecture ; a
   const serre = plan({ cours: [cours('A', '2026-11-15')], chapitres: [revoir, ...lire], disponibilites: dispo(20) });
   assert.equal(serre.seances[0].type, 'decouverte', 'le temps presse : on lit d’abord');
 });
+
+test('un chapitre qui tiendrait entier un autre jour n’est pas coupé en deux', () => {
+  // 30 min par jour, des chapitres de 20 : il resterait 10 min après le premier. On ne lit pas la moitié du suivant.
+  const p = plan({ cours: [cours('A', '2027-02-05')], chapitres: chapitres('A', 6, { dureeMin: 20 }), disponibilites: dispo(30) });
+  const lectures = p.seances.filter((s) => s.type === 'decouverte');
+  assert.equal(lectures.length, 6);
+  assert.ok(lectures.every((s) => s.minutes === 20 && !s.suite), JSON.stringify(lectures.map((s) => [s.jour, s.minutes, s.suite])));
+});
+
+test('mais quand le temps presse, on coupe plutôt que de perdre un jour', () => {
+  // Partiel dans 7 jours, beaucoup à lire : mieux vaut lire une moitié de fiche aujourd'hui que rien.
+  const p = plan({ cours: [cours('A', '2026-11-12')], chapitres: chapitres('A', 12, { dureeMin: 20 }), disponibilites: dispo(30) });
+  assert.ok(p.seances.some((s) => s.type === 'decouverte' && s.suite), 'au moins une lecture reprise le lendemain');
+});

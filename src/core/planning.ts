@@ -122,6 +122,9 @@ export function planifier(entree: EntreePlan): Plan {
   const dernierPartiel = dates.reduce((a, b) => (ecartJours(a, b) > 0 ? b : a), aujourdhui);
   const horizon = Math.min(HORIZON_MAX, Math.max(ecartJours(aujourdhui, dernierPartiel), actifs.some((c) => c.partiel === null) ? HORIZON_SANS_DATE : 0));
   const fin = ajouterJours(aujourdhui, horizon);
+  // La plus longue journée possible : un chapitre plus long qu'elle ne tiendra jamais d'un coup.
+  let capaMax = 0;
+  for (let j = aujourdhui; ecartJours(j, fin) >= 0; j = ajouterJours(j, 1)) capaMax = Math.max(capaMax, capacite(j));
 
   /**
    * À quel point la lecture des chapitres neufs presse : le rapport entre ce
@@ -148,7 +151,7 @@ export function planifier(entree: EntreePlan): Plan {
     avant: number | null;
   }
 
-  const meilleur = (jour: string): Choix | null => {
+  const meilleur = (jour: string, reste: number): Choix | null => {
     let best: Choix | null = null;
     const comparer = (a: Choix, b: Choix) => {
       if (a.score !== b.score) return a.score - b.score;
@@ -173,7 +176,12 @@ export function planifier(entree: EntreePlan): Plan {
           if (!premierNeuf) continue;
           premierNeuf = false;
           if (avant !== null && avant <= JOURS_SANS_NOUVEAU) continue;
-          candidat = { score: urgence * 1.6 * pression(c, jour), cours: c, suivi: s, type: 'decouverte', retard: 0, avant };
+          const presse = pression(c, jour);
+          // Un chapitre qui ne tient pas dans ce qui reste de la journée n'est pas coupé : lire la moitié
+          // d'une fiche aujourd'hui et le reste demain ne vaut pas une lecture entière un autre jour.
+          // On ne le coupe que s'il ne tiendra dans aucune journée, ou si le temps presse vraiment.
+          if (s.restant > reste && s.restant <= capaMax && presse < 1.5) continue;
+          candidat = { score: urgence * 1.6 * presse, cours: c, suivi: s, type: 'decouverte', retard: 0, avant };
         } else {
           let echeance = s.prochaine ?? jour;
           // Un dernier passage est dû dès l'entrée dans la fenêtre finale, même si le cycle dirait « plus tard ».
@@ -197,7 +205,7 @@ export function planifier(entree: EntreePlan): Plan {
   for (let jour = aujourdhui; ecartJours(jour, fin) >= 0; jour = ajouterJours(jour, 1)) {
     let reste = capacite(jour);
     while (reste >= CRENEAU_MIN) {
-      const choix = meilleur(jour);
+      const choix = meilleur(jour, reste);
       if (!choix) break;
       const { cours: c, suivi: s, type, retard, avant } = choix;
       const dejaCommence = s.restant < Math.max(5, s.ch.dureeMin);
