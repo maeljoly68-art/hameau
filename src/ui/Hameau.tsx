@@ -12,6 +12,8 @@ import type { Construction, Session } from '../core/types.ts';
 import { accord, batiment, coutAmelioration, habitants, NIVEAU_MAX, niveauRequisAmelioration, refusAmelioration, refusConstruction, tailleTerrain, type Batiment } from '../core/village.ts';
 import type { Depot } from '../data/depot.ts';
 import { lireLocal } from '../data/local.ts';
+import { noterChapitre } from '../data/cours.ts';
+import { NOTES, type Note } from '../core/revision.ts';
 import { lienSillage, marquerTache, synchroniser, type LienSillage } from '../data/sillage.ts';
 import type { TacheSillage } from '../core/sillage.ts';
 import { useAlerteObjectif } from './alertes.ts';
@@ -19,9 +21,10 @@ import { Boutique } from './Boutique.tsx';
 import { Anneau, CATEGORIES_PROPOSEES, Chrono, ecrirePreference, etatChrono, lirePreference } from './Chrono.tsx';
 import { DialogueFin } from './DialogueFin.tsx';
 import { GardeRobe } from './GardeRobe.tsx';
-import { IconeAmis, IconeCintre, IconeCoche, IconeEtincelle, IconeEtoile, IconeFenetre, IconeFlamme, IconeHistorique, IconeMarteau, IconeReglages, IconeStats, IconeTaches, IconeVillage } from './Icones.tsx';
+import { IconeAmis, IconeCintre, IconeCours, IconeCoche, IconeEtincelle, IconeEtoile, IconeFenetre, IconeFlamme, IconeHistorique, IconeMarteau, IconeReglages, IconeStats, IconeTaches, IconeVillage } from './Icones.tsx';
 import { miniChronoDisponible, useMiniChrono } from './MiniChrono.tsx';
 import { ModeFocus } from './ModeFocus.tsx';
+import type { LancerChapitre } from './pages/Cours.tsx';
 import { useHameau, useMaintenant } from './useHameau.ts';
 import { CadreVillage } from './Village.tsx';
 import { Dessin, SaisonContexte } from './village/dessins.tsx';
@@ -33,16 +36,19 @@ const chargerStatistiques = () => import('./pages/Statistiques.tsx');
 const chargerReglages = () => import('./pages/Reglages.tsx');
 const chargerTaches = () => import('./pages/Taches.tsx');
 const chargerAmis = () => import('./pages/Amis.tsx');
+const chargerOngletCours = () => import('./pages/Cours.tsx');
 const Historique = lazy(chargerHistorique);
 const Statistiques = lazy(chargerStatistiques);
 const Reglages = lazy(chargerReglages);
 const Taches = lazy(chargerTaches);
 const Amis = lazy(chargerAmis);
+const OngletCours = lazy(chargerOngletCours);
 
-type Onglet = 'village' | 'taches' | 'amis' | 'historique' | 'stats' | 'reglages';
+type Onglet = 'village' | 'cours' | 'taches' | 'amis' | 'historique' | 'stats' | 'reglages';
 
 const ONGLETS: { id: Onglet; nom: string; Icone: () => React.ReactElement }[] = [
   { id: 'village', nom: 'Village', Icone: IconeVillage },
+  { id: 'cours', nom: 'Cours', Icone: IconeCours },
   { id: 'taches', nom: 'Tâches', Icone: IconeTaches },
   { id: 'amis', nom: 'Amis', Icone: IconeAmis },
   { id: 'historique', nom: 'Historique', Icone: IconeHistorique },
@@ -259,6 +265,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       void chargerReglages();
       void chargerTaches();
       void chargerAmis();
+      void chargerOngletCours();
     };
     const w = window as unknown as { requestIdleCallback?: (f: () => void, o: { timeout: number }) => number };
     if (w.requestIdleCallback) w.requestIdleCallback(precharger, { timeout: 6000 });
@@ -381,6 +388,22 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
         toast(`Session lancée sur « ${t.title} »`);
       }),
     [agir, depot, toast],
+  );
+  // Lancer le chrono SUR un chapitre : la catégorie est le cours, la durée prévue
+  // devient l'objectif, et le lien est retenu pour proposer la note à la fin.
+  const [aNoter, setANoter] = useState<{ chapitreId: string; titre: string } | null>(null);
+  const lancerChapitre = useCallback(
+    (l: LancerChapitre) => {
+      if (enCours) return toast('Une session tourne déjà : termine-la d’abord.');
+      void agir(async () => {
+        const s = await depot.demarrer(l.titreCours, Math.min(600, Math.max(5, l.minutes)));
+        ecrirePreference('hameau.chapitre-en-cours', { session: s.id, chapitreId: l.chapitreId, titre: l.titreChapitre });
+      }).then(() => {
+        setOnglet('village');
+        toast(`Session lancée : ${l.titreChapitre}`);
+      });
+    },
+    [agir, depot, enCours, toast],
   );
   const demarrerRapide = useCallback(() => demarrer(lirePreference('hameau.categorie', ''), lirePreference<number | null>('hameau.objectif', 50)), [demarrer]);
   const pause = useCallback(() => enCours && void agir(() => depot.pause(enCours.id)), [agir, depot, enCours]);
@@ -652,6 +675,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
             </div>
           )}
           <Suspense fallback={<div className="carte aide">Chargement…</div>}>
+            {onglet === 'cours' && <OngletCours userId={depot.userId} synchronise={depot.synchronise} maintenant={maintenant} surLancer={lancerChapitre} toast={toast} />}
             {onglet === 'taches' && <Taches emailSuggere={email} sessionEnCours={enCours !== null} surLancer={lancerTache} surLien={setLien} />}
             {onglet === 'amis' && (
               <Amis
@@ -733,9 +757,13 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
             const tache = tacheDe(enCours);
             // Le gain affiché est celui que la base retiendra : pauses déduites.
             const gain = pointsSession(dureeSession(clore(enCours, champs.fin)));
+            const chapitre = lirePreference<{ session: string; chapitreId: string; titre: string } | null>('hameau.chapitre-en-cours', null);
             void agir(() => depot.terminer(enCours.id, champs)).then(() => {
               toast(gain > 0 ? `+${gain} points de concentration` : 'Session enregistrée.');
               ecrirePreference('hameau.tache-en-cours', null);
+              ecrirePreference('hameau.chapitre-en-cours', null);
+              // Le chapitre travaillé : on propose de le noter tout de suite, c'est là que la mémoire est fraîche.
+              if (chapitre && chapitre.session === enCours.id) setANoter({ chapitreId: chapitre.chapitreId, titre: chapitre.titre });
               if (tache && tacheFaite)
                 marquerTache(tache.tacheId, true).then(
                     () => toast(`« ${tache.titre} » faite dans Sillage`, { type: 'succes' }),
@@ -769,7 +797,39 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
         </div>
       )}
 
-      <div className="toasts" aria-live="polite">
+      {aNoter && (
+        <div className="voile" role="dialog" aria-modal="true" aria-label="Noter le chapitre" onClick={() => setANoter(null)}>
+          <div className="fenetre" onClick={(e) => e.stopPropagation()}>
+            <h2>Comment s’est passé « {aNoter.titre} » ?</h2>
+            <p className="aide">Ta note règle quand le chapitre revient dans le calendrier. Sur une première lecture, elle n’y change rien : le chapitre est simplement marqué lu.</p>
+            <div className="notation grande" role="group" aria-label="Note du chapitre">
+              {NOTES.map((n) => (
+                <button
+                  key={n.id}
+                  className={`note note-${n.id}`}
+                  onClick={() => {
+                    const c = aNoter;
+                    setANoter(null);
+                    noterChapitre(c.chapitreId, n.id as Note, cleJour(new Date())).then(
+                      () => toast('Noté : le calendrier est recalculé.'),
+                      (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
+                    );
+                  }}
+                >
+                  {n.nom}
+                </button>
+              ))}
+            </div>
+            <div className="actions">
+              <button className="bouton discret" onClick={() => setANoter(null)}>
+                Plus tard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={aNoter ? 'toasts en-haut' : 'toasts'} aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className={`toast${t.type === 'succes' ? ' succes' : ''}${t.action ? ' avec-action' : ''}`}>
             {t.type === 'succes' && <IconeEtincelle />} {t.texte}

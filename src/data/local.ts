@@ -64,6 +64,7 @@ export function depotLocal(): Depot {
 
   return {
     synchronise: false,
+    userId: null,
     cleCache: 'hameau.cache.local',
     async charger() {
       return lireLocal();

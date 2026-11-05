@@ -44,6 +44,17 @@ L'onglet **Tâches** relie Hameau à [Sillage](https://maeljoly68-art-jdtpromael
 - **Export** : CSV pour Excel (séparateur « ; », accents conservés, formules neutralisées) ou sauvegarde JSON complète.
 - **Mise à jour** : une app laissée ouverte des heures prévient quand une nouvelle version est publiée.
 
+## Cours et calendrier
+
+L'onglet **Cours** garde, dans le compte, ce qui était jusque-là enregistré « sur cet appareil » dans les pages de cours : la progression de chaque chapitre, les notes, les dates de partiel. Il en tire le calendrier du jour et des semaines à venir.
+
+- **Cours → chapitres** : un chapitre est une unité qu'on apprend (une fiche, un TD, les flashcards…). Il porte sa durée de lecture, son niveau dans le cycle, son dernier et son prochain passage. Un cours porte la date de son partiel et l'adresse de l'artefact d'origine.
+- **Cycle d'apprentissage** (`src/core/revision.ts`) : lu une fois, un chapitre est revu dès le lendemain, puis après 3, 7, 14, 30 et 60 jours. La note donnée à chaque révision règle l'écart : « À revoir » ramène à demain et redescend de deux crans, « Difficile » divise l'écart par deux, « Facile » saute un cran.
+- **Calendrier** (`src/core/planning.ts`) : le partiel le plus proche passe en premier ; les chapitres neufs se lisent dans l'ordre, jamais dans les 3 derniers jours ; chaque chapitre a un dernier passage dans les 4 jours qui précèdent le partiel ; la journée n'est jamais chargée au-delà du temps disponible. Si ce temps ne suffit pas, l'écart est chiffré. Le calendrier n'est **pas** enregistré : il se recalcule depuis l'état réel des chapitres, pour ne jamais diverger de ce qu'on a vraiment fait.
+- **Notes** : par chapitre, avec un passage cité facultatif.
+- **Chrono** : « Lancer le chrono » démarre une session dans la catégorie du cours, avec la durée prévue pour objectif ; à la fin, la fenêtre propose de noter le chapitre.
+- Réservé au compte (les tables `cours`, `chapitres`, `notes_chapitres`, `reglages_cours`, protégées par RLS) : le calendrier doit être le même sur tous les appareils.
+
 ## Raccourcis clavier (ordinateur)
 
 <kbd>Espace</kbd> lance ou termine une session · <kbd>P</kbd> pause / reprise · <kbd>F</kbd> mode focus · <kbd>Échap</kbd> quitte · <kbd>Ctrl</kbd>+<kbd>Entrée</kbd> enregistre la fin de session.

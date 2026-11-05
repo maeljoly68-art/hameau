@@ -375,6 +375,85 @@ do $$ begin
 exception when insufficient_privilege then null; end $$;
 reset role;
 
+-- Migration 5 : cours, chapitres, notes, temps disponible.
+set role authenticated;
+select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false) \gset
+insert into public.cours (titre, partiel, lien, ordre) values ('Droit des sociétés', '2026-12-04', 'https://claude.ai/artifact/abc', 0) returning id as cid \gset
+select set_config('test.cid', :'cid', false) \gset
+insert into public.chapitres (cours_id, titre, ordre, duree_min) values (:'cid', 'Fiche 1 · Bases', 0, 20) returning id as hid \gset
+select set_config('test.hid', :'hid', false) \gset
+do $$ begin
+  if (select niveau from public.chapitres where id = current_setting('test.hid')::uuid) <> 0 then raise exception 'ÉCHEC : niveau par défaut d''un chapitre'; end if;
+end $$;
+
+-- Formes refusées.
+do $$ begin insert into public.cours (titre) values ('   '); raise exception 'ÉCHEC : titre de cours vide accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.cours (titre, couleur) values ('X', 'rouge'); raise exception 'ÉCHEC : couleur invalide acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.cours (titre, lien) values ('X', 'http://exemple.fr'); raise exception 'ÉCHEC : lien http accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.cours (titre, lien) values ('X', 'javascript:alert(1)'); raise exception 'ÉCHEC : lien javascript accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.chapitres (cours_id, titre, duree_min) values (current_setting('test.cid')::uuid, 'X', 4); raise exception 'ÉCHEC : durée de 4 minutes acceptée'; exception when check_violation then null; end $$;
+do $$ begin update public.chapitres set niveau = 7 where id = current_setting('test.hid')::uuid; raise exception 'ÉCHEC : niveau 7 accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.notes_chapitres (chapitre_id, texte) values (current_setting('test.hid')::uuid, repeat('x', 4001)); raise exception 'ÉCHEC : note de 4001 caractères acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.reglages_cours (disponibilites) values ('[1,2]'); raise exception 'ÉCHEC : disponibilités qui ne sont pas un objet'; exception when check_violation then null; end $$;
+
+-- Notes et temps disponible.
+insert into public.notes_chapitres (chapitre_id, texte, citation) values (:'hid', 'À retenir : 100 associés au plus en SARL', 'L223-3');
+insert into public.reglages_cours (disponibilites) values ('{"semaine":[60,60,60,60,60,90,90],"libres":[]}');
+
+-- La date de modification se met à jour toute seule.
+select maj_le as avant from public.chapitres where id = :'hid' \gset
+select set_config('test.avant', :'avant', false) \gset
+update public.chapitres set niveau = 1, derniere_revision = '2026-11-05', prochaine_revision = '2026-11-06' where id = :'hid';
+do $$ begin
+  if (select maj_le from public.chapitres where id = current_setting('test.hid')::uuid) <= current_setting('test.avant')::timestamptz then
+    raise exception 'ÉCHEC : maj_le non mise à jour';
+  end if;
+end $$;
+
+-- L'autre compte ne voit rien, ne peut pas se rattacher à mes cours, ni écrire pour moi.
+select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false) \gset
+do $$ begin
+  if (select count(*) from public.cours) + (select count(*) from public.chapitres) + (select count(*) from public.notes_chapitres) + (select count(*) from public.reglages_cours) <> 0 then
+    raise exception 'ÉCHEC : RLS des cours';
+  end if;
+end $$;
+do $$ begin
+  insert into public.chapitres (cours_id, titre) values (current_setting('test.cid')::uuid, 'Intrus');
+  raise exception 'ÉCHEC : chapitre rattaché au cours d''un autre compte';
+exception when foreign_key_violation then null; end $$;
+do $$ begin
+  insert into public.cours (user_id, titre) values ('11111111-1111-1111-1111-111111111111', 'Pour autrui');
+  raise exception 'ÉCHEC : cours écrit pour un autre compte';
+exception when insufficient_privilege then null; end $$;
+do $$ begin
+  update public.cours set titre = 'Piraté' where id = current_setting('test.cid')::uuid;
+  if found then raise exception 'ÉCHEC : cours d''autrui modifié'; end if;
+end $$;
+do $$ begin
+  delete from public.chapitres where id = current_setting('test.hid')::uuid;
+  if found then raise exception 'ÉCHEC : chapitre d''autrui supprimé'; end if;
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  if (select count(*) from public.cours) + (select count(*) from public.notes_chapitres) <> 0 then raise exception 'ÉCHEC : anon lit des cours'; end if;
+end $$;
+reset role;
+
+-- Supprimer un cours emporte ses chapitres et leurs notes.
+set role authenticated;
+select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false) \gset
+delete from public.cours where id = :'cid';
+do $$ begin
+  if (select count(*) from public.chapitres where cours_id = current_setting('test.cid')::uuid) <> 0 then raise exception 'ÉCHEC : chapitres orphelins'; end if;
+  if (select count(*) from public.notes_chapitres) <> 0 then raise exception 'ÉCHEC : notes orphelines'; end if;
+end $$;
+-- De quoi vérifier que la suppression du compte emporte aussi tout cela.
+insert into public.cours (titre) values ('Éco indus') returning id as cid2 \gset
+insert into public.chapitres (cours_id, titre) values (:'cid2', '1.1') returning id as hid2 \gset
+insert into public.notes_chapitres (chapitre_id, texte) values (:'hid2', 'une note');
+reset role;
+
 -- Supprimer le compte emporte tout ce qui est à lui, amitiés comprises.
 delete from auth.users where id = '11111111-1111-1111-1111-111111111111';
 do $$ begin
@@ -382,7 +461,11 @@ do $$ begin
      + (select count(*) from public.constructions where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.jetons_raccourci where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.profils where user_id = '11111111-1111-1111-1111-111111111111')
-     + (select count(*) from public.amities where '11111111-1111-1111-1111-111111111111' in (utilisateur, ami)) <> 0 then
+     + (select count(*) from public.amities where '11111111-1111-1111-1111-111111111111' in (utilisateur, ami))
+     + (select count(*) from public.cours where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.chapitres where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.notes_chapitres where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.reglages_cours where user_id = '11111111-1111-1111-1111-111111111111') <> 0 then
     raise exception 'ÉCHEC : cascade';
   end if;
 end $$;

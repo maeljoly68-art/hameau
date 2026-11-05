@@ -9,6 +9,8 @@ export interface Donnees {
 /** Ce que l'interface attend d'un stockage, qu'il soit local ou synchronisé. */
 export interface Depot {
   readonly synchronise: boolean;
+  /** Identifiant du compte, ou null sur cet appareil seulement. */
+  readonly userId: string | null;
   /** Clé du cache d'affichage instantané (par compte). */
   readonly cleCache: string;
   charger(): Promise<Donnees>;

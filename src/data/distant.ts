@@ -110,6 +110,7 @@ export function depotDistant(obtenir: () => Promise<SupabaseClient>, userId: str
 
   return {
     synchronise: true,
+    userId,
     cleCache: `hameau.cache.${userId}`,
     async charger() {
       const sb = await obtenir();

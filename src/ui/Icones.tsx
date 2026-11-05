@@ -128,3 +128,21 @@ export const IconeEtoile = ({ pleine = true, taille = 14 }: { pleine?: boolean; 
     <path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" fill={pleine ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.6} strokeLinejoin="round" />
   </svg>
 );
+export const IconeCours = () => (
+  <svg {...base}>
+    <path d="M3 8.5 12 4l9 4.5-9 4.5z" />
+    <path d="M7 11v4.6c0 1 2.2 2.4 5 2.4s5-1.4 5-2.4V11" />
+    <path d="M21 8.5V14" />
+  </svg>
+);
+export const IconeChevron = ({ sens = 'droite' }: { sens?: 'gauche' | 'droite' }) => (
+  <svg {...base} width={18} height={18}>
+    <path d={sens === 'droite' ? 'm9 5 7 7-7 7' : 'm15 5-7 7 7 7'} />
+  </svg>
+);
+export const IconeLien = () => (
+  <svg {...base} width={16} height={16}>
+    <path d="M14 4h6v6M20 4l-9 9" />
+    <path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10" />
+  </svg>
+);
