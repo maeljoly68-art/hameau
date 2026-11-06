@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DISPONIBILITES_DEFAUT, type Chapitre, type Cours, type Disponibilites } from '../src/core/cours.ts';
 import { ajouterJours, ecartJours, jourSemaine } from '../src/core/jours.ts';
-import { FENETRE_FINALE, JOURS_AVANT_DEBUT, JOURS_SANS_NOUVEAU, PLEIN_COURS, SEUIL_COURS, capaciteDuJour, dureeLecture, dureeRevision, planifier, resumeParJour, seancesDuJour, type EntreePlan, type Seance } from '../src/core/planning.ts';
+import { EXAMEN_DUREE_DEFAUT, EXAMEN_FENETRE_DEBUT, EXAMEN_FENETRE_FIN, EXAMEN_MIN, FENETRE_FINALE, FRAGILE_COEF, JOURS_AVANT_DEBUT, JOURS_SANS_NOUVEAU, PLEIN_COURS, SEUIL_COURS, capaciteDuJour, estPageExamen, dureeLecture, dureeRevision, planifier, resumeParJour, seancesDuJour, type EntreePlan, type Seance } from '../src/core/planning.ts';
 
 const AUJ = '2026-11-05'; // jeudi
 const PARTIEL = '2026-12-04'; // vendredi, 29 jours plus tard : celui du plan de révision de Droit des sociétés
@@ -573,4 +573,160 @@ test('le temps déjà fait ne compte que pour aujourd’hui, et pas ce qui a ét
   const hier = chap('A', 0, { niveau: 3, derniere: '2026-11-04', prochaine: '2026-11-20' });
   const p = plan({ cours: [cours('A', PARTIEL)], chapitres: [hier, ...chapitres('A', 4).slice(1)], disponibilites: dispo(60) });
   assert.equal(minutesDe(p.seances, AUJ), 60, 'un travail d’hier ne mange pas la journée d’aujourd’hui');
+});
+
+// ---- Pages fragiles ----
+
+test('une page fragile passe devant une page de même urgence ; sans elle, c’est l’ordre du cours', () => {
+  const p0 = chap('A', 0, { niveau: 2, derniere: '2026-11-01', prochaine: AUJ });
+  const p1 = chap('A', 1, { niveau: 2, derniere: '2026-11-01', prochaine: AUJ });
+  const unCreneau = (fragiles?: string[]) => plan({ cours: [cours('A', PARTIEL)], chapitres: [p0, p1], disponibilites: dispo(10), fragiles: fragiles ? new Set(fragiles) : undefined }).seances[0];
+  assert.equal(unCreneau().chapitreId, 'A-0');
+  assert.equal(unCreneau().fragile, false);
+  assert.equal(unCreneau(['A-1']).chapitreId, 'A-1', 'la page fragile prend l’unique créneau');
+  assert.equal(unCreneau(['A-1']).fragile, true);
+  assert.equal(unCreneau(['A-0']).chapitreId, 'A-0');
+  assert.equal(unCreneau([]).chapitreId, 'A-0', 'un ensemble vide ne change rien');
+});
+
+test('la priorité d’une page fragile est un coup de pouce, pas un passe-droit', () => {
+  assert.equal(FRAGILE_COEF, 1.5);
+  const base = (retard1: number, fragile: boolean) => {
+    const autre = chap('A', 0, { niveau: 2, derniere: '2026-10-20', prochaine: ajouterJours(AUJ, -retard1) });
+    const page = chap('A', 1, { niveau: 2, derniere: '2026-11-01', prochaine: AUJ });
+    return plan({ cours: [cours('A', PARTIEL)], chapitres: [autre, page], disponibilites: dispo(10), fragiles: fragile ? new Set(['A-1']) : undefined }).seances[0].chapitreId;
+  };
+  assert.equal(base(2, true), 'A-0', 'deux jours de retard : 4 contre 2 × 1,5 = 3');
+  assert.equal(base(0, true), 'A-1', 'à l’heure : la fragile devant (3 contre 2)');
+  assert.equal(base(0, false), 'A-0', 'sans le coup de pouce, l’ordre du cours');
+});
+
+test('le dernier passage avant le partiel : la page fragile d’abord', () => {
+  const pages = [chap('A', 0, { niveau: 3, derniere: '2026-10-25', prochaine: '2026-12-20' }), chap('A', 1, { niveau: 3, derniere: '2026-10-25', prochaine: '2026-12-20' })];
+  const du = (fragiles?: string[]) => plan({ cours: [cours('A', '2026-11-08')], chapitres: pages, disponibilites: dispo(10), fragiles: fragiles ? new Set(fragiles) : undefined }).seances[0];
+  assert.equal(du().type, 'consolidation');
+  assert.equal(du().chapitreId, 'A-0');
+  assert.equal(du(['A-1']).chapitreId, 'A-1');
+  assert.equal(du(['A-1']).type, 'consolidation');
+});
+
+test('toute séance dit si sa page est fragile : relecture comprise', () => {
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: lus('A', ['2026-10-20', '2026-10-21']), disponibilites: dispoRel(), charge: COURS_2H, fragiles: new Set(['A-1']) });
+  const du = seancesDuJour(p, AUJ);
+  assert.deepEqual(du.map((s) => [s.type, s.chapitreId, s.fragile]), [['relecture', 'A-0', false], ['relecture', 'A-1', true]]);
+  assert.ok(p.seances.every((s) => typeof s.fragile === 'boolean'));
+});
+
+// ---- Examen blanc ----
+
+const SEM = (m = 90, we = 180): Disponibilites => ({ semaine: [m, m, m, m, m, we, we], libres: [] });
+const avecTd = (id: string, n = 3) => [...chapitres(id, n), chap(id, n, { titre: 'TD1 corrigé · SAS' })];
+const examens = (p: { seances: Seance[] }) => p.seances.filter((s) => s.type === 'examen');
+
+test('quelles pages servent d’examen blanc : sujets, TD, exercices — pas les fiches', () => {
+  for (const t of ['TD1 corrigé · SAS', 'TD2 corrigé · SA', 'td', 'E1 · La Ferrière', 'E3 · Diagnostic d’équipe', 'Exercices corrigés', 'Sujets d’examen corrigés', 'Sujet 2', 'Examen blanc', 'Révision · Sujets d’examen']) assert.equal(estPageExamen(t), true, t);
+  for (const t of ['Fiche 1 · Bases', 'Flashcards', 'Quiz', 'Fiche formules', 'Fiche 12 · Les pièges', 'Fiche 2 · Les statuts', 'Partie 7', 'Calcul', 'Fiche mémo', 'ATD', 'E · sans numéro', '1.1 · Définition & grands auteurs']) assert.equal(estPageExamen(t), false, t);
+});
+
+test('un examen blanc : le jour le plus libre de la fenêtre, le plus tard possible, sur un sujet, à la durée de l’épreuve', () => {
+  // Partiel mercredi 25 novembre : fenêtre du 11 au 21. Les jours libres de 3 h sont les 14, 15 et 21 : le dernier l'emporte.
+  const p = plan({ cours: [cours('A', '2026-11-25')], chapitres: avecTd('A'), disponibilites: SEM() });
+  const [ex, ...autres] = examens(p);
+  assert.deepEqual(autres, [], 'un seul');
+  assert.equal(ex.jour, '2026-11-21');
+  assert.equal(ex.chapitreId, 'A-3', 'le TD');
+  assert.equal(ex.minutes, EXAMEN_DUREE_DEFAUT);
+  assert.equal(ex.raison, 'Examen blanc · partiel dans 4 j');
+  assert.deepEqual([ex.suite, ex.complete, ex.retard, ex.fragile], [false, true, 0, false]);
+});
+
+test('la durée d’un examen blanc est celle de l’épreuve, plafonnée au temps du jour', () => {
+  const duree = (m: number | undefined) => examens(plan({ cours: [cours('A', '2026-11-25')], chapitres: avecTd('A'), disponibilites: SEM(), examens: m === undefined ? undefined : new Map([['A', m]]) }))[0].minutes;
+  assert.equal(duree(undefined), 90);
+  assert.equal(duree(120), 120);
+  assert.equal(duree(60), 60);
+  assert.equal(duree(300), 180, 'plafonnée aux 3 h du jour');
+});
+
+test('l’examen blanc reste dans la fenêtre : de 14 à 4 jours avant le partiel', () => {
+  assert.equal(EXAMEN_FENETRE_DEBUT, 14);
+  assert.equal(EXAMEN_FENETRE_FIN, 4);
+  for (const partiel of ['2026-11-25', '2026-12-04', '2026-12-20', '2027-01-15']) {
+    const ex = examens(plan({ cours: [cours('A', partiel)], chapitres: avecTd('A'), disponibilites: SEM() }));
+    assert.equal(ex.length, 1, partiel);
+    assert.ok(ecartJours(ex[0].jour, partiel) >= EXAMEN_FENETRE_FIN && ecartJours(ex[0].jour, partiel) <= EXAMEN_FENETRE_DEBUT, `${partiel} : examen le ${ex[0].jour}`);
+  }
+  // Tous les jours se valent : le plus tard de la fenêtre (4 jours avant), et pas avant le 14e jour même.
+  assert.equal(examens(plan({ cours: [cours('A', '2026-12-04')], chapitres: avecTd('A'), disponibilites: SEM(60, 60) }))[0].jour, '2026-11-30');
+});
+
+test('le partiel proche : la fenêtre commence aujourd’hui, et trop proche, il n’y en a plus', () => {
+  // Partiel le 11 : la fenêtre va du 5 (aujourd'hui) au 7 — vendredi 6 et samedi 7 sont possibles, le samedi est le plus libre.
+  const ex = examens(plan({ cours: [cours('A', '2026-11-11')], chapitres: avecTd('A'), disponibilites: SEM() }));
+  assert.deepEqual(ex.map((s) => s.jour), ['2026-11-07']);
+  assert.deepEqual(examens(plan({ cours: [cours('A', '2026-11-08')], chapitres: avecTd('A'), disponibilites: SEM() })).map((s) => s.jour), ['2026-11-05'.replace('05', '05')].filter((j) => ecartJours(j, '2026-11-08') >= EXAMEN_FENETRE_FIN), 'partiel dans 3 jours : fenêtre vide');
+  assert.deepEqual(examens(plan({ cours: [cours('A', '2026-11-09')], chapitres: avecTd('A'), disponibilites: SEM() })).map((s) => s.jour), ['2026-11-05'], 'partiel dans 4 jours : seul aujourd’hui reste');
+});
+
+test('pas d’examen blanc sans sujet, sans partiel, en pause, déjà fait, ou le partiel passé', () => {
+  const sans = (extra: Partial<EntreePlan> & Pick<EntreePlan, 'cours' | 'chapitres'>) => examens(plan({ disponibilites: SEM(), ...extra })).length;
+  assert.equal(sans({ cours: [cours('A', '2026-11-25')], chapitres: chapitres('A', 4) }), 0, 'que des fiches');
+  assert.equal(sans({ cours: [cours('A', null)], chapitres: avecTd('A') }), 0, 'sans date');
+  assert.equal(sans({ cours: [{ ...cours('A', '2026-11-25'), enPause: true }], chapitres: avecTd('A') }), 0, 'en pause');
+  assert.equal(sans({ cours: [cours('A', '2026-11-25')], chapitres: avecTd('A'), examensFaits: new Set(['A']) }), 0, 'déjà passé récemment');
+  assert.equal(sans({ cours: [cours('A', '2026-11-01')], chapitres: avecTd('A') }), 0, 'partiel passé');
+  assert.equal(sans({ cours: [cours('A', AUJ)], chapitres: avecTd('A') }), 0, 'partiel aujourd’hui');
+  assert.equal(sans({ cours: [cours('A', '2026-11-25')], chapitres: avecTd('A'), examensFaits: new Set(['B']) }), 1, 'l’examen d’une autre matière ne dispense pas');
+});
+
+test('il faut au moins 45 minutes libres pour un examen blanc', () => {
+  assert.equal(EXAMEN_MIN, 45);
+  const exam = (m: number) => examens(plan({ cours: [cours('A', '2026-11-25')], chapitres: avecTd('A'), disponibilites: SEM(m, m) }));
+  assert.equal(exam(44).length, 0);
+  const ex = exam(45);
+  assert.equal(ex.length, 1);
+  assert.equal(ex[0].minutes, 45, 'la durée tient dans le temps du jour');
+  // Un jour libre n'est pas candidat.
+  const libres = Array.from({ length: 11 }, (_, i) => ajouterJours('2026-11-11', i));
+  assert.equal(examens(plan({ cours: [cours('A', '2026-11-25')], chapitres: avecTd('A'), disponibilites: { ...SEM(), libres } })).length, 0);
+});
+
+test('deux matières qui ont leur partiel le même jour n’ont pas leur examen blanc le même jour', () => {
+  const p = plan({ cours: [cours('A', '2026-11-25', 0), cours('B', '2026-11-25', 1)], chapitres: [...avecTd('A'), ...avecTd('B')], disponibilites: SEM() });
+  const ex = examens(p);
+  assert.equal(ex.length, 2);
+  assert.deepEqual(Object.fromEntries(ex.map((s) => [s.coursId, s.jour])), { A: '2026-11-21', B: '2026-11-15' }, 'la première matière prend le meilleur jour, l’autre le suivant');
+});
+
+test('l’examen blanc prend la page la moins vue, la première dans l’ordre à égalité', () => {
+  const pages = [...chapitres('A', 2), chap('A', 2, { titre: 'TD1 corrigé', derniere: '2026-11-03', niveau: 2, prochaine: '2026-12-30' }), chap('A', 3, { titre: 'TD2 corrigé', derniere: '2026-10-20', niveau: 2, prochaine: '2026-12-30' }), chap('A', 4, { titre: 'Exercices', niveau: 0 })];
+  assert.equal(examens(plan({ cours: [cours('A', '2026-11-25')], chapitres: pages, disponibilites: SEM() }))[0].chapitreId, 'A-4', 'jamais vue : la meilleure');
+  assert.equal(examens(plan({ cours: [cours('A', '2026-11-25')], chapitres: pages.slice(0, 4), disponibilites: SEM() }))[0].chapitreId, 'A-3', 'la plus ancienne');
+  const egales = [chap('A', 0, { titre: 'TD2' }), chap('A', 1, { titre: 'TD1' })];
+  assert.equal(examens(plan({ cours: [cours('A', '2026-11-25')], chapitres: egales, disponibilites: SEM() }))[0].chapitreId, 'A-0', 'à égalité, l’ordre du cours');
+});
+
+test('un examen blanc ne fait jamais dépasser le temps du jour, et sa page n’est pas proposée deux fois ce jour-là', () => {
+  const d = SEM();
+  const p = plan({ cours: [cours('A', '2026-11-25'), cours('B', '2026-12-10', 1)], chapitres: [...avecTd('A', 6), ...avecTd('B', 6)], disponibilites: d });
+  for (const j of new Set(p.seances.map((s) => s.jour))) assert.ok(minutesDe(p.seances, j) <= d.semaine[jourSemaine(j)], `${j} : ${minutesDe(p.seances, j)} min`);
+  const ex = examens(p)[0];
+  assert.equal(p.seances.filter((s) => s.jour === ex.jour && s.chapitreId === ex.chapitreId).length, 1);
+  // Le reste de la journée d'examen sert à autre chose si l'épreuve est courte.
+  const court = plan({ cours: [cours('A', '2026-11-25')], chapitres: avecTd('A', 6), disponibilites: SEM(), examens: new Map([['A', 60]]) });
+  assert.ok(minutesDe(court.seances, examens(court)[0].jour) > 60, 'les 2 h restantes sont utilisées');
+});
+
+test('un jour presque entièrement pris n’est plus candidat à l’examen blanc', () => {
+  // 150 min déjà faites sur 180 : il en reste 30, moins que le minimum — et la fenêtre ne contient que ce jour-là.
+  const faits = [chap('A', 0, { niveau: 3, derniere: '2026-11-14', prochaine: '2026-12-20', dureeMin: 375 })];
+  const p = planifier({ cours: [cours('A', '2026-11-18')], chapitres: [...faits, chap('A', 1, { titre: 'TD1' })], disponibilites: SEM(), aujourdhui: '2026-11-14' });
+  assert.deepEqual(examens(p), []);
+});
+
+test('ce qui est déjà fait aujourd’hui est retiré de l’examen blanc d’aujourd’hui', () => {
+  // Samedi 14 novembre, partiel le 18 : la fenêtre se réduit à aujourd'hui. 100 min déjà faites sur 180 : il reste 80 min.
+  const faits = [chap('A', 0, { niveau: 3, derniere: '2026-11-14', prochaine: '2026-12-20', dureeMin: 240 })]; // une révision de 96 → 95 min
+  const p = planifier({ cours: [cours('A', '2026-11-18')], chapitres: [...faits, chap('A', 1, { titre: 'TD1' })], disponibilites: SEM(), aujourdhui: '2026-11-14' });
+  assert.deepEqual(examens(p).map((s) => [s.jour, s.minutes]), [['2026-11-14', 85]]);
 });

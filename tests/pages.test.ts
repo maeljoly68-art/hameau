@@ -5,7 +5,7 @@ import { arrondi5, libellePages, numerosDePages, regrouper, sansCoupure } from '
 import type { Seance } from '../src/core/planning.ts';
 
 const chap = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}-${ordre}`, coursId, titre: `Ch ${ordre}`, ordre, dureeMin: 30, niveau: 0, derniere: null, prochaine: null, lien: null, ...extra });
-const sea = (coursId: string, ordre: number, extra: Partial<Seance> = {}): Seance => ({ jour: '2026-11-05', coursId, chapitreId: `${coursId}-${ordre}`, type: 'decouverte', minutes: 30, raison: 'À découvrir', suite: false, complete: true, retard: 0, ...extra });
+const sea = (coursId: string, ordre: number, extra: Partial<Seance> = {}): Seance => ({ jour: '2026-11-05', coursId, chapitreId: `${coursId}-${ordre}`, type: 'decouverte', minutes: 30, raison: 'À découvrir', suite: false, complete: true, retard: 0, fragile: false, ...extra });
 
 test('le numéro d’une page est son rang dans le cours, en partant de 1, quel que soit l’ordre reçu', () => {
   const n = numerosDePages([chap('B', 5), chap('A', 7), chap('A', 2), chap('B', 1), chap('A', 4)]);
@@ -121,4 +121,11 @@ test('un nombre et son unité ne se séparent pas à la ligne ; « 3 jours » re
   assert.equal(sansCoupure('dans 3 jours, 2 heures, 5 minutes'), 'dans 3 jours, 2 heures, 5 minutes');
   assert.equal(sansCoupure('Pages 1 à 3'), 'Pages 1 à 3');
   assert.equal(sansCoupure('42 jj'), '42 jj', 'une lettre de plus : pas une unité');
+});
+
+test('un bloc est fragile dès qu’une de ses pages l’est', () => {
+  const chapitres = Array.from({ length: 3 }, (_, i) => chap('A', i));
+  assert.equal(regrouper([sea('A', 0), sea('A', 1), sea('A', 2)], chapitres)[0].fragile, false);
+  assert.equal(regrouper([sea('A', 0), sea('A', 1, { fragile: true }), sea('A', 2)], chapitres)[0].fragile, true);
+  assert.equal(regrouper([sea('A', 0, { fragile: true })], chapitres)[0].fragile, true);
 });

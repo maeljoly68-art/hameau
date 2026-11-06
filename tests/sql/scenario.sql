@@ -466,6 +466,74 @@ do $$ begin
   if (select en_pause from public.cours where id = current_setting('test.cid')::uuid) is distinct from false then raise exception 'ÉCHEC : pause non levée'; end if;
 end $$;
 
+-- Migration 8 : journal des passages.
+insert into public.passages (chapitre_id, jour, sorte, note, minutes, score_pct, vitesse, rappel) values (:'hid', '2026-11-06', 'revision', 'bien', 12, 85.5, 1.11, 'les trois points de la fiche');
+insert into public.passages (chapitre_id, jour, sorte) values (:'hid', '2026-11-06', 'lecture');
+do $$ begin
+  if (select count(*) from public.passages) <> 2 then raise exception 'ÉCHEC : passages non enregistrés'; end if;
+  -- Une durée, une note, un score absents restent absents : jamais 0.
+  if (select count(*) from public.passages where minutes is null and note is null and score_pct is null and vitesse is null and rappel is null) <> 1 then raise exception 'ÉCHEC : un passage sans durée ni note doit les garder nulles'; end if;
+  if (select count(*) from public.passages where user_id = current_setting('test.uid')::uuid) <> 2 then raise exception 'ÉCHEC : le compte n''est pas celui de la session par défaut'; end if;
+  if (select score_pct from public.passages where sorte = 'revision') <> 85.5 or (select vitesse from public.passages where sorte = 'revision') <> 1.11 then raise exception 'ÉCHEC : score ou vitesse déformés'; end if;
+end $$;
+-- Chaque sorte, chaque note et chaque borne permise passent (une contrainte trop serrée casserait la validation d'un jour).
+insert into public.passages (chapitre_id, jour, sorte, note, minutes, vitesse, rappel) values
+  (:'hid', '2026-11-06', 'relecture', null, 0, 0.5, repeat('x', 2000)),
+  (:'hid', '2026-11-06', 'rappel', 'a-revoir', 1440, 2.5, null),
+  (:'hid', '2026-11-06', 'examen', 'difficile', 90, null, null),
+  (:'hid', '2026-11-06', 'revision', 'facile', null, null, null);
+insert into public.passages (chapitre_id, jour, sorte, score_pct) values (:'hid', '2026-11-06', 'examen', 100), (:'hid', '2026-11-06', 'examen', 0);
+do $$ begin
+  if (select count(*) from public.passages) <> 8 then raise exception 'ÉCHEC : sortes, notes ou bornes permises refusées'; end if;
+  if (select count(distinct sorte) from public.passages) <> 5 or (select count(distinct note) from public.passages) <> 4 then raise exception 'ÉCHEC : toutes les sortes et toutes les notes doivent passer'; end if;
+end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte) values (current_setting('test.hid')::uuid, '2026-11-06', 'devinette'); raise exception 'ÉCHEC : sorte inconnue acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte, note) values (current_setting('test.hid')::uuid, '2026-11-06', 'revision', 'moyen'); raise exception 'ÉCHEC : note inconnue acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte, minutes) values (current_setting('test.hid')::uuid, '2026-11-06', 'lecture', -1); raise exception 'ÉCHEC : durée négative acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte, minutes) values (current_setting('test.hid')::uuid, '2026-11-06', 'lecture', 1441); raise exception 'ÉCHEC : durée de plus d''un jour acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte, score_pct) values (current_setting('test.hid')::uuid, '2026-11-06', 'examen', 100.01); raise exception 'ÉCHEC : score au-dessus de 100 pour cent accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte, score_pct) values (current_setting('test.hid')::uuid, '2026-11-06', 'examen', -0.01); raise exception 'ÉCHEC : score négatif accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte, vitesse) values (current_setting('test.hid')::uuid, '2026-11-06', 'lecture', 0.49); raise exception 'ÉCHEC : vitesse sous 0,5 acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte, vitesse) values (current_setting('test.hid')::uuid, '2026-11-06', 'lecture', 2.51); raise exception 'ÉCHEC : vitesse au-dessus de 2,5 acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte, rappel) values (current_setting('test.hid')::uuid, '2026-11-06', 'rappel', repeat('x', 2001)); raise exception 'ÉCHEC : rappel de plus de 2000 caractères accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte) values (current_setting('test.hid')::uuid, null, 'lecture'); raise exception 'ÉCHEC : passage sans jour accepté'; exception when not_null_violation then null; end $$;
+
+-- Migration 9 : rappels mensuels.
+insert into public.rappels (titre) values ('Remplir mon rapport du mois sur Studea') returning id as rid \gset
+select set_config('test.rid', :'rid', false) \gset
+do $$ begin
+  if (select jour_du_mois from public.rappels where id = current_setting('test.rid')::uuid) <> 1 then raise exception 'ÉCHEC : un rappel est dû le 1er du mois par défaut'; end if;
+  if (select fait_le from public.rappels where id = current_setting('test.rid')::uuid) is not null then raise exception 'ÉCHEC : un rappel neuf ne doit pas être déjà fait'; end if;
+  if (select lien from public.rappels where id = current_setting('test.rid')::uuid) is not null then raise exception 'ÉCHEC : lien absent par défaut'; end if;
+end $$;
+insert into public.rappels (titre, jour_du_mois, fait_le, lien) values ('Dernier jour permis', 28, '2026-11-03', 'https://exemple.fr/rapport'), ('Premier jour permis', 1, null, null);
+do $$ begin
+  if (select count(*) from public.rappels) <> 3 then raise exception 'ÉCHEC : rappels non enregistrés (ou bornes 1 et 28 refusées)'; end if;
+end $$;
+insert into public.rappels (titre) values ('x');
+insert into public.rappels (titre, lien) values ('Lien de 500 caractères', 'https://' || repeat('x', 492));
+do $$ begin
+  if (select count(*) from public.rappels) <> 5 then raise exception 'ÉCHEC : titre d''un caractère ou lien de 500 caractères refusés'; end if;
+end $$;
+do $$ begin insert into public.rappels (titre, lien) values ('x', 'https://' || repeat('x', 493)); raise exception 'ÉCHEC : lien de 501 caractères accepté'; exception when check_violation then null; end $$;
+update public.rappels set fait_le = '2026-11-06' where id = :'rid';
+do $$ begin
+  if (select fait_le from public.rappels where id = current_setting('test.rid')::uuid) <> '2026-11-06' then raise exception 'ÉCHEC : rappel non marqué fait'; end if;
+end $$;
+update public.rappels set fait_le = null where id = :'rid';
+do $$ begin
+  if (select fait_le from public.rappels where id = current_setting('test.rid')::uuid) is not null then raise exception 'ÉCHEC : « fait » non effaçable'; end if;
+end $$;
+do $$ begin insert into public.rappels (titre, jour_du_mois) values ('x', 0); raise exception 'ÉCHEC : jour 0 accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.rappels (titre, jour_du_mois) values ('x', 29); raise exception 'ÉCHEC : jour 29 accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.rappels (titre) values ('   '); raise exception 'ÉCHEC : titre vide accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.rappels (titre) values (repeat('x', 121)); raise exception 'ÉCHEC : titre de plus de 120 caractères accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.rappels (titre) values (repeat('x', 120)); exception when check_violation then raise exception 'ÉCHEC : titre de 120 caractères refusé'; end $$;
+do $$ begin insert into public.rappels (titre, lien) values ('x', 'http://exemple.fr'); raise exception 'ÉCHEC : lien http accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.rappels (titre, lien) values ('x', 'https://exemple.fr/un lien'); raise exception 'ÉCHEC : lien avec une espace accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.rappels (titre, lien) values ('x', 'https://exemple.fr/' || repeat('x', 500)); raise exception 'ÉCHEC : lien de plus de 500 caractères accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.rappels (titre, fait_le) values ('x', 'pas une date'); raise exception 'ÉCHEC : date absurde acceptée'; exception when invalid_datetime_format then null; end $$;
+
 -- La date de modification se met à jour toute seule.
 select maj_le as avant from public.chapitres where id = :'hid' \gset
 select set_config('test.avant', :'avant', false) \gset
@@ -479,7 +547,7 @@ end $$;
 -- L'autre compte ne voit rien, ne peut pas se rattacher à mes cours, ni écrire pour moi.
 select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false) \gset
 do $$ begin
-  if (select count(*) from public.cours) + (select count(*) from public.chapitres) + (select count(*) from public.notes_chapitres) + (select count(*) from public.reglages_cours) <> 0 then
+  if (select count(*) from public.cours) + (select count(*) from public.chapitres) + (select count(*) from public.notes_chapitres) + (select count(*) from public.reglages_cours) + (select count(*) from public.passages) + (select count(*) from public.rappels) <> 0 then
     raise exception 'ÉCHEC : RLS des cours';
   end if;
 end $$;
@@ -487,6 +555,30 @@ do $$ begin
   insert into public.chapitres (cours_id, titre) values (current_setting('test.cid')::uuid, 'Intrus');
   raise exception 'ÉCHEC : chapitre rattaché au cours d''un autre compte';
 exception when foreign_key_violation then null; end $$;
+do $$ begin
+  insert into public.passages (chapitre_id, jour, sorte) values (current_setting('test.hid')::uuid, '2026-11-06', 'lecture');
+  raise exception 'ÉCHEC : passage rattaché au chapitre d''un autre compte';
+exception when foreign_key_violation then null; end $$;
+do $$ begin
+  insert into public.passages (user_id, chapitre_id, jour, sorte) values ('11111111-1111-1111-1111-111111111111', current_setting('test.hid')::uuid, '2026-11-06', 'lecture');
+  raise exception 'ÉCHEC : passage écrit pour un autre compte';
+exception when insufficient_privilege then null; end $$;
+do $$ begin
+  update public.passages set note = 'facile';
+  if found then raise exception 'ÉCHEC : passage d''autrui modifié'; end if;
+  delete from public.passages;
+  if found then raise exception 'ÉCHEC : passage d''autrui supprimé'; end if;
+end $$;
+do $$ begin
+  insert into public.rappels (user_id, titre) values ('11111111-1111-1111-1111-111111111111', 'Pour autrui');
+  raise exception 'ÉCHEC : rappel écrit pour un autre compte';
+exception when insufficient_privilege then null; end $$;
+do $$ begin
+  update public.rappels set fait_le = '2026-11-06';
+  if found then raise exception 'ÉCHEC : rappel d''autrui modifié'; end if;
+  delete from public.rappels;
+  if found then raise exception 'ÉCHEC : rappel d''autrui supprimé'; end if;
+end $$;
 do $$ begin
   insert into public.cours (user_id, titre) values ('11111111-1111-1111-1111-111111111111', 'Pour autrui');
   raise exception 'ÉCHEC : cours écrit pour un autre compte';
@@ -502,7 +594,7 @@ end $$;
 reset role;
 set role anon;
 do $$ begin
-  if (select count(*) from public.cours) + (select count(*) from public.notes_chapitres) <> 0 then raise exception 'ÉCHEC : anon lit des cours'; end if;
+  if (select count(*) from public.cours) + (select count(*) from public.notes_chapitres) + (select count(*) from public.passages) + (select count(*) from public.rappels) <> 0 then raise exception 'ÉCHEC : anon lit des cours'; end if;
 end $$;
 reset role;
 
@@ -513,11 +605,13 @@ delete from public.cours where id = :'cid';
 do $$ begin
   if (select count(*) from public.chapitres where cours_id = current_setting('test.cid')::uuid) <> 0 then raise exception 'ÉCHEC : chapitres orphelins'; end if;
   if (select count(*) from public.notes_chapitres) <> 0 then raise exception 'ÉCHEC : notes orphelines'; end if;
+  if (select count(*) from public.passages) <> 0 then raise exception 'ÉCHEC : passages orphelins'; end if;
 end $$;
 -- De quoi vérifier que la suppression du compte emporte aussi tout cela.
 insert into public.cours (titre) values ('Éco indus') returning id as cid2 \gset
 insert into public.chapitres (cours_id, titre) values (:'cid2', '1.1') returning id as hid2 \gset
 insert into public.notes_chapitres (chapitre_id, texte) values (:'hid2', 'une note');
+insert into public.passages (chapitre_id, jour, sorte) values (:'hid2', '2026-11-06', 'lecture');
 reset role;
 
 -- Supprimer le compte emporte tout ce qui est à lui, amitiés comprises.
@@ -531,6 +625,8 @@ do $$ begin
      + (select count(*) from public.cours where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.chapitres where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.notes_chapitres where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.passages where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.rappels where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.reglages_cours where user_id = '11111111-1111-1111-1111-111111111111') <> 0 then
     raise exception 'ÉCHEC : cascade';
   end if;

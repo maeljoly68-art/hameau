@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ECART_JOURS, ETAT_INITIAL, NIVEAU_MAX, apresDecouverte, apresRevision, maitrise, niveauValide, statut, type EtatRevision } from '../src/core/revision.ts';
+import { ECART_JOURS, ETAT_INITIAL, NIVEAU_MAX, apresDecouverte, apresRappelAnticipe, apresRevision, maitrise, niveauValide, statut, type EtatRevision } from '../src/core/revision.ts';
 
 const J = '2026-11-05';
 const a = (niveau: number): EtatRevision => ({ niveau, derniere: '2026-11-01', prochaine: '2026-11-04' });
@@ -60,4 +60,30 @@ test('un niveau absurde (donnée abîmée) vaut 0, jamais NaN ni hors échelle',
   for (const v of [-1, 7, 2.5, NaN, '3', null, undefined]) assert.equal(niveauValide(v), 0, String(v));
   assert.equal(niveauValide(3), 3);
   assert.equal(maitrise(99), 0);
+});
+
+test('un rappel avant l’échéance : réussi, il ne fait pas monter le cran ; il est seulement retenu comme dernier passage', () => {
+  const etat = { niveau: 3, derniere: '2026-11-01', prochaine: '2026-11-12' };
+  for (const note of ['bien', 'facile'] as const) assert.deepEqual(apresRappelAnticipe(etat, note, '2026-11-07'), { niveau: 3, derniere: '2026-11-07', prochaine: '2026-11-12' }, note);
+});
+
+test('un rappel raté avant l’échéance compte pour de vrai, sans jamais reculer l’échéance prévue', () => {
+  // « À revoir » : deux crans en moins et demain, même si l'échéance prévue était plus loin.
+  assert.deepEqual(apresRappelAnticipe({ niveau: 4, derniere: '2026-11-01', prochaine: '2026-11-20' }, 'a-revoir', '2026-11-07'), { niveau: 2, derniere: '2026-11-07', prochaine: '2026-11-08' });
+  // « Difficile » : même cran, l'écart divisé par deux (7 / 2 → 4 jours), s'il est plus tôt que l'échéance prévue…
+  assert.deepEqual(apresRappelAnticipe({ niveau: 3, derniere: '2026-11-01', prochaine: '2026-11-12' }, 'difficile', '2026-11-07'), { niveau: 3, derniere: '2026-11-07', prochaine: '2026-11-11' });
+  // … mais jamais plus tard : l'échéance déjà prévue plus tôt est gardée.
+  assert.deepEqual(apresRappelAnticipe({ niveau: 3, derniere: '2026-11-01', prochaine: '2026-11-09' }, 'difficile', '2026-11-07'), { niveau: 3, derniere: '2026-11-07', prochaine: '2026-11-09' });
+  assert.deepEqual(apresRappelAnticipe({ niveau: 3, derniere: '2026-11-01', prochaine: '2026-11-08' }, 'a-revoir', '2026-11-07'), { niveau: 1, derniere: '2026-11-07', prochaine: '2026-11-08' }, 'échéance égale : la même');
+});
+
+test('un rappel sur une page jamais lue, ou sans échéance connue, retombe sur le cycle ordinaire', () => {
+  assert.deepEqual(apresRappelAnticipe({ niveau: 0, derniere: null, prochaine: null }, 'facile', '2026-11-07'), apresDecouverte('2026-11-07'));
+  assert.deepEqual(apresRappelAnticipe({ niveau: 2, derniere: '2026-11-01', prochaine: null }, 'a-revoir', '2026-11-07'), apresRevision({ niveau: 2, derniere: '2026-11-01', prochaine: null }, 'a-revoir', '2026-11-07'));
+});
+
+test('un rappel anticipé ne modifie pas l’état reçu', () => {
+  const etat = Object.freeze({ niveau: 3, derniere: '2026-11-01', prochaine: '2026-11-12' });
+  assert.doesNotThrow(() => apresRappelAnticipe(etat, 'bien', '2026-11-07'));
+  assert.doesNotThrow(() => apresRappelAnticipe(etat, 'a-revoir', '2026-11-07'));
 });

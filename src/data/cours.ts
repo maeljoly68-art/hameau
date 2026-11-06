@@ -3,7 +3,9 @@
 // et le PC, ce qu'un stockage sur l'appareil ne ferait pas.
 import { disponibilitesValides, dureeValide, lienValide, vitesseValide, type Chapitre, type Cours, type Disponibilites, type DonneesCours, type NoteChapitre } from '../core/cours.ts';
 import { estJour } from '../core/jours.ts';
-import { apresDecouverte, apresRevision, niveauValide, type Note } from '../core/revision.ts';
+import { noteDepuisPct, passageValide, type Passage, type SortePassage } from '../core/passages.ts';
+import { apresDecouverte, apresRappelAnticipe, apresRevision, niveauValide, type Note } from '../core/revision.ts';
+import { cleJour, decalerJours } from '../core/temps.ts';
 import { vitesseApresChrono, vitesseApresCoche, type Ressenti } from '../core/vitesse.ts';
 import { client } from './config.ts';
 import { MESSAGE_MIGRATION } from './distant.ts';
@@ -31,6 +33,18 @@ interface LigneChapitre {
   prochaine_revision: string | null;
   lien: string | null;
 }
+interface LignePassage {
+  id: string;
+  chapitre_id: string;
+  jour: string;
+  sorte: string;
+  note: string | null;
+  minutes: number | null;
+  score_pct: number | string | null;
+  vitesse: number | string | null;
+  rappel: string | null;
+  cree_le: string;
+}
 interface LigneNote {
   id: string;
   chapitre_id: string;
@@ -51,6 +65,9 @@ const versChapitre = (l: LigneChapitre): Chapitre => ({
   prochaine: l.prochaine_revision && estJour(l.prochaine_revision) ? l.prochaine_revision : null,
   lien: l.lien,
 });
+// Les colonnes « numeric » reviennent parfois en texte selon la couche : on les relit comme des nombres.
+const nombreOuNull = (v: number | string | null): number | null => (v === null ? null : Number(v));
+const versPassage = (l: LignePassage): Passage | null => passageValide({ id: l.id, chapitreId: l.chapitre_id, jour: l.jour, sorte: l.sorte, note: l.note, minutes: l.minutes, scorePct: nombreOuNull(l.score_pct), vitesse: nombreOuNull(l.vitesse), rappel: l.rappel, creeLe: l.cree_le });
 const versNote = (l: LigneNote): NoteChapitre => ({ id: l.id, chapitreId: l.chapitre_id, texte: l.texte, citation: l.citation, creeLe: l.cree_le });
 
 interface ErreurBase {
@@ -83,17 +100,57 @@ async function toutLire<T>(page: (de: number, a: number) => PromiseLike<{ data: 
   }
 }
 
+/** Les passages des quatre derniers mois. La table n'existe qu'après sa migration : sans elle, `journal` est faux et rien d'autre ne change. */
+async function lirePassages(sb: Awaited<ReturnType<typeof client>>): Promise<{ passages: Passage[]; journal: boolean }> {
+  const depuis = cleJour(decalerJours(new Date(), -120));
+  try {
+    const lignes = await toutLire<LignePassage>((de, a) => sb.from('passages').select('*').gte('jour', depuis).order('jour').order('cree_le').order('id').range(de, a));
+    return { passages: lignes.map(versPassage).filter((p): p is Passage => p !== null), journal: true };
+  } catch (e) {
+    if (e instanceof Error && e.message === MESSAGE_MIGRATION) return { passages: [], journal: false };
+    throw e;
+  }
+}
+
+/**
+ * Laisse une ligne dans le journal. Le journal est un plus : un passage qui ne s'écrit pas (table pas encore migrée,
+ * réseau coupé) ne doit JAMAIS empêcher de valider une page, ni s'afficher comme une erreur.
+ */
+async function journaliser(lignes: readonly NouveauPassage[]): Promise<void> {
+  if (lignes.length === 0) return;
+  try {
+    const sb = await client();
+    await sb.from('passages').insert(
+      lignes.map((l) => ({ chapitre_id: l.chapitreId, jour: l.jour, sorte: l.sorte, note: l.note, minutes: l.minutes, score_pct: l.scorePct, vitesse: l.vitesse, rappel: l.rappel === null ? null : l.rappel.trim().slice(0, 2000) || null })),
+    );
+  } catch {
+    // Voir plus haut : rien à signaler.
+  }
+}
+
+export interface NouveauPassage {
+  chapitreId: string;
+  jour: string;
+  sorte: SortePassage;
+  note: Note | null;
+  minutes: number | null;
+  scorePct: number | null;
+  vitesse: number | null;
+  rappel: string | null;
+}
+
 export async function chargerCours(): Promise<DonneesCours> {
   const sb = await client();
-  const [c, h, n, r] = await Promise.all([
+  const [c, h, n, r, j] = await Promise.all([
     toutLire<LigneCours>((de, a) => sb.from('cours').select('*').order('ordre').order('cree_le').order('id').range(de, a)),
     toutLire<LigneChapitre>((de, a) => sb.from('chapitres').select('*').order('cours_id').order('ordre').order('id').range(de, a)),
     toutLire<LigneNote>((de, a) => sb.from('notes_chapitres').select('*').order('cree_le').order('id').range(de, a)),
     // « * » : la colonne de l'adresse du flux n'existe qu'après la migration de l'emploi du temps, et son absence ne doit rien casser.
     sb.from('reglages_cours').select('*').maybeSingle<{ disponibilites: unknown; agenda_url?: string | null }>(),
+    lirePassages(sb),
   ]);
   echec(r);
-  return { cours: c.map(versCours), chapitres: h.map(versChapitre), notes: n.map(versNote), disponibilites: disponibilitesValides(r.data?.disponibilites), agendaLien: lienValide(r.data?.agenda_url ?? '') };
+  return { cours: c.map(versCours), chapitres: h.map(versChapitre), notes: n.map(versNote), disponibilites: disponibilitesValides(r.data?.disponibilites), agendaLien: lienValide(r.data?.agenda_url ?? ''), passages: j.passages, journal: j.journal };
 }
 
 export interface ChampsCours {
@@ -161,13 +218,25 @@ export async function supprimerChapitre(id: string): Promise<void> {
  * le même chapitre, rien n'est écrit — sans cela, deux appuis simultanés
  * feraient monter le chapitre de deux crans pour une seule révision.
  */
-export async function noterChapitre(id: string, note: Note, jour: string): Promise<void> {
+export interface OptionsNote {
+  /** Ce qu'on a fait : une révision (par défaut), ou un rappel, ou un examen blanc. */
+  sorte?: SortePassage;
+  /** Avant l'échéance : réussi, le passage ne fait pas monter le cran (voir `apresRappelAnticipe`). */
+  anticipe?: boolean;
+  scorePct?: number | null;
+  /** Ce qu'on a écrit de tête avant d'ouvrir la fiche. */
+  rappel?: string | null;
+  minutes?: number | null;
+}
+
+export async function noterChapitre(id: string, note: Note, jour: string, options: OptionsNote = {}): Promise<void> {
   const sb = await client();
   const lu = await sb.from('chapitres').select('niveau, derniere_revision, prochaine_revision').eq('id', id).maybeSingle<{ niveau: number; derniere_revision: string | null; prochaine_revision: string | null }>();
   echec(lu);
   if (!lu.data) throw new Error('Ce chapitre n’existe plus.');
   const avant = niveauValide(lu.data.niveau);
-  const apres = apresRevision({ niveau: avant, derniere: lu.data.derniere_revision, prochaine: lu.data.prochaine_revision }, note, jour);
+  const etat = { niveau: avant, derniere: lu.data.derniere_revision, prochaine: lu.data.prochaine_revision };
+  const apres = (options.anticipe ? apresRappelAnticipe : apresRevision)(etat, note, jour);
   const r = await sb
     .from('chapitres')
     .update({ niveau: apres.niveau, derniere_revision: apres.derniere, prochaine_revision: apres.prochaine })
@@ -176,6 +245,11 @@ export async function noterChapitre(id: string, note: Note, jour: string): Promi
     .select('id');
   echec(r);
   if (!r.data?.length) throw new Error('Ce chapitre vient d’être noté depuis un autre appareil : recharge pour voir où il en est.');
+  // Une page jamais lue qu'on « note » comme une révision est découverte : la note n'y change rien, et le journal le dit.
+  // Un examen blanc ou un rappel garde sa sorte : c'est elle qui empêche d'en proposer un autre le même jour.
+  const sorte = options.sorte ?? 'revision';
+  const decouverte = avant < 1 && sorte === 'revision';
+  await journaliser([{ chapitreId: id, jour, sorte: decouverte ? 'lecture' : sorte, note: decouverte ? null : note, minutes: options.minutes ?? null, scorePct: options.scorePct ?? null, vitesse: null, rappel: options.rappel ?? null }]);
 }
 
 /**
@@ -183,8 +257,8 @@ export async function noterChapitre(id: string, note: Note, jour: string): Promi
  * son niveau lu (voir `noterChapitre`) : si l'une échoue, les autres sont quand même notées, et le calendrier,
  * recalculé depuis la base, ne repropose que celles qui restent à faire.
  */
-export async function noterChapitres(ids: readonly string[], note: Note, jour: string): Promise<void> {
-  const resultats = await Promise.allSettled(ids.map((id) => noterChapitre(id, note, jour)));
+export async function noterChapitres(ids: readonly string[], note: Note, jour: string, options: OptionsNote = {}): Promise<void> {
+  const resultats = await Promise.allSettled(ids.map((id) => noterChapitre(id, note, jour, options)));
   const echec = resultats.find((r): r is PromiseRejectedResult => r.status === 'rejected');
   if (echec) throw echec.reason instanceof Error ? echec.reason : new Error(String(echec.reason));
 }
@@ -194,8 +268,8 @@ export async function noterChapitres(ids: readonly string[], note: Note, jour: s
  * essayé de s'en souvenir (voir `apresDecouverte`). Gardé par « pas encore lu » : une page déjà validée depuis
  * un autre appareil n'est pas remise à son premier cran.
  */
-export async function validerLecture(ids: readonly string[], jour: string): Promise<void> {
-  if (ids.length === 0) return;
+async function marquerLues(ids: readonly string[], jour: string): Promise<string[]> {
+  if (ids.length === 0) return [];
   const sb = await client();
   const apres = apresDecouverte(jour);
   const r = await sb
@@ -206,6 +280,12 @@ export async function validerLecture(ids: readonly string[], jour: string): Prom
     .select('id');
   echec(r);
   if (!r.data?.length) throw new Error('Ces pages sont déjà validées (depuis un autre appareil ?) : recharge pour voir où elles en sont.');
+  return r.data.map((x: { id: string }) => x.id);
+}
+
+export async function validerLecture(ids: readonly string[], jour: string): Promise<void> {
+  const faites = await marquerLues(ids, jour);
+  await journaliser(faites.map((id) => ({ chapitreId: id, jour, sorte: 'lecture' as const, note: null, minutes: null, scorePct: null, vitesse: null, rappel: null })));
 }
 
 /**
@@ -215,7 +295,9 @@ export async function validerLecture(ids: readonly string[], jour: string): Prom
 export async function marquerRelu(ids: readonly string[], jour: string): Promise<void> {
   if (ids.length === 0) return;
   const sb = await client();
-  echec(await sb.from('chapitres').update({ derniere_revision: jour }).in('id', [...ids]).gte('niveau', 1));
+  const r = await sb.from('chapitres').update({ derniere_revision: jour }).in('id', [...ids]).gte('niveau', 1).select('id');
+  echec(r);
+  await journaliser((r.data ?? []).map((x: { id: string }) => ({ chapitreId: x.id, jour, sorte: 'relecture' as const, note: null, minutes: null, scorePct: null, vitesse: null, rappel: null })));
 }
 
 /** Remet un chapitre « à découvrir » : on s'est trompé de touche, ou on repart de zéro avant un rattrapage. */
@@ -268,8 +350,24 @@ export type MesureVitesse = { ressenti: Ressenti } | { reelles: number | null; p
  * appareil), la vitesse ne bouge pas, une même lecture ne comptant qu'une fois.
  */
 export async function validerLectureEtVitesse(userId: string, ids: readonly string[], jour: string, mesure: MesureVitesse): Promise<void> {
-  await validerLecture(ids, jour);
-  await ajusterVitesse(userId, (v) => ('ressenti' in mesure ? vitesseApresCoche(v, mesure.ressenti) : vitesseApresChrono(v, mesure.reelles, mesure.prevues)));
+  const faites = await marquerLues(ids, jour);
+  const vitesse = await ajusterVitesse(userId, (v) => ('ressenti' in mesure ? vitesseApresCoche(v, mesure.ressenti) : vitesseApresChrono(v, mesure.reelles, mesure.prevues)));
+  // Le temps d'une seule page est connu quand le chrono a servi à elle seule ; pour un bloc, on ne le répartit pas.
+  const minutes = faites.length === 1 && 'reelles' in mesure && mesure.reelles !== null && mesure.reelles > 0 ? Math.min(1440, Math.round(mesure.reelles)) : null;
+  await journaliser(faites.map((id) => ({ chapitreId: id, jour, sorte: 'lecture' as const, note: null, minutes, scorePct: null, vitesse, rappel: null })));
+}
+
+/**
+ * Valide un examen blanc : le temps passé et, si on le donne, le score. Le score fixe la note de la page (voir
+ * `noteDepuisPct`), avec la règle d'un passage avant l'échéance : un bon score ne fait pas monter le cran. Sans
+ * score, on retient seulement que la page a été refaite aujourd'hui.
+ */
+export async function validerExamen(chapitreId: string, jour: string, mesure: { minutes: number | null; scorePct: number | null }): Promise<void> {
+  const minutes = mesure.minutes !== null && mesure.minutes > 0 ? Math.min(1440, Math.round(mesure.minutes)) : null;
+  if (mesure.scorePct !== null) return noterChapitre(chapitreId, noteDepuisPct(mesure.scorePct), jour, { sorte: 'examen', anticipe: true, scorePct: mesure.scorePct, minutes });
+  const sb = await client();
+  echec(await sb.from('chapitres').update({ derniere_revision: jour }).eq('id', chapitreId).gte('niveau', 1));
+  await journaliser([{ chapitreId, jour, sorte: 'examen', note: null, minutes, scorePct: null, vitesse: null, rappel: null }]);
 }
 
 /** L'adresse du flux d'emploi du temps (null pour la retirer). Un upsert qui ne touche qu'à cette colonne : le temps disponible reste. */
@@ -290,6 +388,7 @@ export function ecouterCours(userId: string, rappel: () => void): () => void {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chapitres' }, rappel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notes_chapitres' }, rappel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reglages_cours' }, rappel)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'passages' }, rappel)
       .subscribe();
     retirer = () => void sb.removeChannel(canal);
   });
@@ -321,6 +420,9 @@ export function lireCacheCours(userId: string): DonneesCours | null {
       notes: d.notes,
       disponibilites: disponibilitesValides(d.disponibilites),
       agendaLien: lienValide(typeof d.agendaLien === 'string' ? d.agendaLien : ''),
+      // Un cache écrit avant le journal n'en a pas : il se remplira au premier chargement.
+      passages: Array.isArray(d.passages) ? d.passages.map(passageValide).filter((p): p is Passage => p !== null) : [],
+      journal: d.journal === true,
     };
   } catch {
     return null;

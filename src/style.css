@@ -784,3 +784,30 @@ div.ag-partiel p { margin: 0; }
 .ressenti-plus-lent:hover { border-color: #ffb547; background: rgba(255, 181, 71, .12); }
 .carte-cours.en-pause { opacity: .55; border-left-style: dashed; }
 .ligne-pause { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+
+/* Rappels mensuels */
+.rappels { display: grid; gap: 8px; margin-bottom: 12px; }
+.rappel-du { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; background: rgba(255, 181, 71, .12); border: 1px solid rgba(255, 181, 71, .5); border-left: 4px solid #ffb547; border-radius: 14px; padding: 10px 14px; }
+.rappel-texte { display: grid; gap: 2px; min-width: 0; flex: 1 1 240px; }
+.rappel-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Rappel du jour, pages fragiles, score, examen blanc, bilan */
+.rappel-du-jour { display: grid; gap: 8px; background: var(--fond-2); border: 1px dashed var(--bord-fort); border-radius: 14px; padding: 12px 14px; }
+.rappel-page { display: grid; gap: 10px; background: var(--carte); border: 1px solid var(--bord); border-left: 4px solid var(--teinte, var(--accent)); border-radius: 12px; padding: 10px 12px; }
+.rappel-saisie { display: grid; gap: 8px; justify-items: start; }
+.rappel-saisie textarea { width: 100%; }
+.rappel-ecrit { font-style: italic; }
+.badge-fragile { margin-left: 8px; border-radius: 99px; padding: 1px 8px; font-size: 12px; font-weight: 700; background: rgba(255, 112, 112, .15); color: var(--rouge); }
+.saisie-score { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.saisie-score input { width: 64px; text-align: center; }
+.ligne-examen { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; }
+.ligne-examen label { display: grid; gap: 4px; font-size: 13px; }
+.ligne-examen input { width: 76px; }
+.bilan summary { cursor: pointer; font-weight: 700; font-size: 17px; }
+.bilan-chiffres { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin: 12px 0 8px; }
+.bilan-chiffres div { display: grid; gap: 2px; background: var(--fond-2); border-radius: 12px; padding: 10px 12px; text-align: center; }
+.bilan-chiffres b { font-size: 22px; font-variant-numeric: tabular-nums; }
+.bilan-chiffres span { font-size: 12.5px; color: var(--texte-2); }
+.bilan-chiffres .en-retard-chiffre b { color: var(--rouge); }
+.bilan-cours, .bilan-fragiles { list-style: none; padding: 0 !important; display: grid; gap: 6px; margin: 6px 0 10px; }
+.bilan-cours li, .bilan-fragiles li { display: grid; gap: 2px; border-left: 4px solid var(--teinte, var(--accent)); padding: 4px 10px; }

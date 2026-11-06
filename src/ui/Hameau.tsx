@@ -12,15 +12,17 @@ import type { Construction, Session } from '../core/types.ts';
 import { accord, batiment, casesDeplacement, coutAmelioration, habitants, NIVEAU_MAX, niveauRequisAmelioration, refusAmelioration, refusConstruction, tailleTerrain, type Batiment } from '../core/village.ts';
 import type { Depot } from '../data/depot.ts';
 import { lireLocal } from '../data/local.ts';
-import { marquerRelu, noterChapitres, validerLectureEtVitesse } from '../data/cours.ts';
+import { marquerRelu, noterChapitres, validerExamen, validerLectureEtVitesse } from '../data/cours.ts';
 import type { TypeSeance } from '../core/planning.ts';
 import { NOTES, type Note } from '../core/revision.ts';
 import { lienSillage, marquerTache, synchroniser, type LienSillage } from '../data/sillage.ts';
 import type { TacheSillage } from '../core/sillage.ts';
 import { useAlerteObjectif } from './alertes.ts';
 import { Boutique } from './Boutique.tsx';
+import { Rappels } from './Rappels.tsx';
 import { Anneau, CATEGORIES_PROPOSEES, Chrono, ecrirePreference, etatChrono, lirePreference } from './Chrono.tsx';
 import { DialogueFin } from './DialogueFin.tsx';
+import { FinExamen } from './FinExamen.tsx';
 import { GardeRobe } from './GardeRobe.tsx';
 import { IconeAmis, IconeCintre, IconeCours, IconeCoche, IconeEtincelle, IconeEtoile, IconeFenetre, IconeFlamme, IconeHistorique, IconeMarteau, IconeReglages, IconeStats, IconeTaches, IconeVillage } from './Icones.tsx';
 import { miniChronoDisponible, useMiniChrono } from './MiniChrono.tsx';
@@ -602,6 +604,8 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
           </button>
         )}
 
+        {depot.synchronise && depot.userId && <Rappels userId={depot.userId} jour={cleJour(new Date(maintenant))} />}
+
         <main className="contenu">
           {onglet === 'village' && (
             <div className="grille-village">
@@ -877,7 +881,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                 <h2>Tu as fini « {aNoter.titre} » ?</h2>
                 <p className="aide">
                   {aNoter.reelles !== null ? `Tu y as passé ${formatDuree(aNoter.reelles)} pour ${formatDuree(aNoter.prevues)} prévues. ` : ''}
-                  Valider marque ces pages comme lues : elles reviennent demain, puis de plus en plus espacées. Le temps réel précise ta vitesse de lecture, donc les durées des prochaines séances.
+                  Avant de valider : ferme la fiche et redis l’essentiel de tête. Valider marque ces pages comme apprises : elles reviennent demain, puis de plus en plus espacées. Le temps réel précise ta vitesse, donc les durées des prochaines séances.
                 </p>
                 <div className="actions">
                   <button className="bouton discret" onClick={() => setANoter(null)}>
@@ -900,6 +904,21 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                   </button>
                 </div>
               </>
+            ) : aNoter.type === 'examen' ? (
+              <FinExamen
+                titre={aNoter.titre}
+                prevues={aNoter.prevues}
+                reelles={aNoter.reelles}
+                surPlusTard={() => setANoter(null)}
+                surValider={(minutes, pct) => {
+                  const c = aNoter;
+                  setANoter(null);
+                  validerExamen(c.chapitreIds[0], cleJour(new Date()), { minutes, scorePct: pct }).then(
+                    () => toast('Examen blanc enregistré.'),
+                    (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
+                  );
+                }}
+              />
             ) : aNoter.type === 'relecture' ? (
               <>
                 <h2>Tu as relu « {aNoter.titre} » ?</h2>

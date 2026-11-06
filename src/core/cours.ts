@@ -1,5 +1,6 @@
 // Cours, chapitres, notes : les types, et ce qu'on en déduit. Pur.
 import { ecartJours, estJour } from './jours.ts';
+import type { Passage } from './passages.ts';
 import { maitrise } from './revision.ts';
 
 export interface Cours {
@@ -60,6 +61,11 @@ export interface Disponibilites {
    * plus. Elle se règle à la main, et se précise à chaque lecture cochée (voir vitesse.ts).
    */
   vitesse?: number;
+  /**
+   * Nombre de pages du rappel du jour (de 0 à 10) : celles qu'on se rappelle de tête avant d'ouvrir la fiche,
+   * prises parmi les révisions du jour, de cours mélangés. 0 : pas de rappel. Absent : 3.
+   */
+  rappel?: number;
 }
 
 export interface DonneesCours {
@@ -69,6 +75,10 @@ export interface DonneesCours {
   disponibilites: Disponibilites;
   /** Adresse du flux d'emploi du temps de l'université ; c'est un secret (quiconque l'a lit l'emploi du temps). */
   agendaLien: string | null;
+  /** Les passages des quatre derniers mois (voir passages.ts) : pages fragiles, bilan, examens blancs faits. */
+  passages: Passage[];
+  /** La table du journal existe-t-elle ? Sinon, tout le reste marche, sans pages fragiles ni bilan. */
+  journal: boolean;
 }
 
 export const DUREE_DEFAUT_MIN = 20;
@@ -82,11 +92,13 @@ export const MAX_CHAPITRES_PAR_AJOUT = 100;
 export const REDUCTION_DEFAUT = 50;
 export const REDUCTION_MAX = 90;
 export const RELECTURE_MAX = 120;
+export const RAPPEL_DEFAUT = 3;
+export const RAPPEL_MAX = 10;
 export const VITESSE_MIN = 0.5;
 export const VITESSE_MAX = 2.5;
 
 /** Une heure en semaine, une heure et demie le week-end : un point de départ, à régler. */
-export const DISPONIBILITES_DEFAUT: Disponibilites = { semaine: [60, 60, 60, 60, 60, 90, 90], libres: [], reduction: REDUCTION_DEFAUT, relecture: 0, vitesse: 1 };
+export const DISPONIBILITES_DEFAUT: Disponibilites = { semaine: [60, 60, 60, 60, 60, 90, 90], libres: [], reduction: REDUCTION_DEFAUT, relecture: 0, vitesse: 1, rappel: RAPPEL_DEFAUT };
 
 /** Une vitesse lue en base ou sur l'appareil : bornée, arrondie au centième, 1 si elle n'a pas de sens. */
 export const vitesseValide = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.min(VITESSE_MAX, Math.max(VITESSE_MIN, v)) * 100) / 100 : 1);
@@ -112,7 +124,9 @@ export function disponibilitesValides(brut: unknown): Disponibilites {
   const reduction = typeof r === 'number' && r >= 0 && r <= REDUCTION_MAX ? Math.round(r) : REDUCTION_DEFAUT;
   const rel = o.relecture;
   const relecture = typeof rel === 'number' && Number.isFinite(rel) && rel >= 0 && rel <= RELECTURE_MAX ? Math.round(rel) : 0;
-  return { semaine, libres, reduction, relecture, vitesse: vitesseValide(o.vitesse) };
+  const rap = o.rappel;
+  const rappel = typeof rap === 'number' && Number.isFinite(rap) && rap >= 0 && rap <= RAPPEL_MAX ? Math.round(rap) : RAPPEL_DEFAUT;
+  return { semaine, libres, reduction, relecture, vitesse: vitesseValide(o.vitesse), rappel };
 }
 
 /** Maîtrise moyenne d'un cours, de 0 à 100 : chaque chapitre pèse pareil, quelle que soit sa durée. */

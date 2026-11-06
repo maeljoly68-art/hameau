@@ -62,6 +62,20 @@ export function apresRevision(etat: EtatRevision, note: Note, jour: string): Eta
   return { niveau: suivant, derniere: jour, prochaine: ajouterJours(jour, ECART_JOURS[suivant]) };
 }
 
+/**
+ * Un passage noté AVANT l'échéance (rappel d'une page qui n'est pas encore due, micro-révision d'une page
+ * fragile). Le cycle compte sur l'oubli : revoir trop tôt ne vaut pas un cran, donc un passage réussi n'en fait
+ * pas monter — il est seulement retenu comme dernier passage. Un passage raté, lui, compte pour de vrai, sans
+ * jamais reculer l'échéance déjà prévue.
+ */
+export function apresRappelAnticipe(etat: EtatRevision, note: Note, jour: string): EtatRevision {
+  if (etat.niveau < 1) return apresDecouverte(jour);
+  if (note === 'bien' || note === 'facile') return { ...etat, derniere: jour };
+  const apres = apresRevision(etat, note, jour);
+  const prevue = etat.prochaine;
+  return prevue !== null && apres.prochaine !== null && prevue < apres.prochaine ? { ...apres, prochaine: prevue } : apres;
+}
+
 /** Maîtrise de 0 à 100 %, linéaire sur l'échelle. */
 export function maitrise(niveau: number): number {
   return Math.round((niveauValide(niveau) / NIVEAU_MAX) * 100);

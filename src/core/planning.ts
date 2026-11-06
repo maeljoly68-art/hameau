@@ -12,8 +12,9 @@ import { ECART_JOURS, NIVEAU_MAX, niveauValide } from './revision.ts';
 /**
  * `relecture` : un passage sans note sur un chapitre déjà vu des cours les plus proches de leur partiel, les jours
  * de cours (voir `Disponibilites.relecture`). Il ne touche pas au cycle : seul un passage noté le fait avancer.
+ * `examen` : un examen blanc, en conditions, dans les deux semaines qui précèdent le partiel.
  */
-export type TypeSeance = 'decouverte' | 'revision' | 'consolidation' | 'relecture';
+export type TypeSeance = 'decouverte' | 'revision' | 'consolidation' | 'relecture' | 'examen';
 
 export interface Seance {
   jour: string;
@@ -32,6 +33,8 @@ export interface Seance {
   complete: boolean;
   /** Jours de retard sur l'échéance du cycle (0 : à l'heure, ou séance sans échéance). */
   retard: number;
+  /** La page est fragile (plusieurs notes basses de suite) : le calendrier la revoit en priorité. */
+  fragile: boolean;
 }
 
 export type Alerte =
@@ -58,6 +61,12 @@ export interface EntreePlan {
   charge?: ReadonlyMap<string, number>;
   /** Premier jour de cours de chaque matière (par identifiant), quand l'emploi du temps le dit. */
   debuts?: ReadonlyMap<string, string>;
+  /** Les pages fragiles (voir passages.ts) : à urgence égale, leurs révisions passent devant les autres. */
+  fragiles?: ReadonlySet<string>;
+  /** Durée de l'épreuve de chaque matière en minutes, d'après l'emploi du temps : celle d'un examen blanc. */
+  examens?: ReadonlyMap<string, number>;
+  /** Les matières qui ont eu leur examen blanc récemment : pas besoin d'un autre. */
+  examensFaits?: ReadonlySet<string>;
 }
 
 /** Aucune lecture nouvelle dans les derniers jours : on consolide, on n'apprend plus. */
@@ -77,6 +86,18 @@ export const JOURS_AVANT_DEBUT = 28;
 /** Jusqu'à 4 h de cours dans la journée, le temps de révision ne bouge pas ; à 8 h, il est réduit au maximum. */
 export const SEUIL_COURS = 240;
 export const PLEIN_COURS = 480;
+/** Une page fragile passe devant : son score de révision est multiplié par ce coefficient. */
+export const FRAGILE_COEF = 1.5;
+/** Un examen blanc se place entre 14 et 4 jours avant le partiel : assez tôt pour corriger, assez tard pour être prêt. */
+export const EXAMEN_FENETRE_DEBUT = 14;
+export const EXAMEN_FENETRE_FIN = 4;
+/** Sans l'emploi du temps pour le dire, une épreuve dure 1 h 30. En dessous de 45 min, ce n'est plus un examen blanc. */
+export const EXAMEN_DUREE_DEFAUT = 90;
+export const EXAMEN_MIN = 45;
+
+/** Les pages qui servent d'examen blanc : sujets, TD, exercices (« TD1 corrigé », « E2 · Pareto », « Exercices corrigés »). */
+export const estPageExamen = (titre: string): boolean => /\b(td\d*|exercices?|examens?|sujets?)\b/i.test(titre) || /^e\d+\s*·/i.test(titre);
+
 /** Un chapitre n'est relu (sans note) que s'il n'a pas été touché depuis au moins ce nombre de jours : relire hier puis aujourd'hui n'apprend rien de plus. */
 export const RELECTURE_ECART_MIN = 2;
 
@@ -124,6 +145,7 @@ interface Suivi {
 
 export function planifier(entree: EntreePlan): Plan {
   const { cours, chapitres, disponibilites, aujourdhui, charge, debuts } = entree;
+  const fragiles = entree.fragiles ?? new Set<string>();
   const seances: Seance[] = [];
   const alertes: Alerte[] = [];
   const libres = new Set(disponibilites.libres);
@@ -263,15 +285,44 @@ export function planifier(entree: EntreePlan): Plan {
           if (ecartJours(echeance, jour) < 0) continue;
           const retard = ecartJours(echeance, jour);
           const final = avant !== null && avant <= FENETRE_FINALE && !s.dernierFait;
+          const coef = fragiles.has(s.ch.id) ? FRAGILE_COEF : 1;
           candidat = final
-            ? { score: urgence * (4 + (NIVEAU_MAX - s.niveau) * 0.3 + retard), cours: c, suivi: s, type: 'consolidation', retard, avant }
-            : { score: urgence * (2 + retard), cours: c, suivi: s, type: 'revision', retard, avant };
+            ? { score: urgence * (4 + (NIVEAU_MAX - s.niveau) * 0.3 + retard) * coef, cours: c, suivi: s, type: 'consolidation', retard, avant }
+            : { score: urgence * (2 + retard) * coef, cours: c, suivi: s, type: 'revision', retard, avant };
         }
         if (best === null || comparer(candidat, best) > 0) best = candidat;
       }
     }
     return best;
   };
+
+  // Un examen blanc par matière, entre 14 et 4 jours avant son partiel : le jour qui laisse le plus de temps (le
+  // week-end, en pratique), et le plus tard possible. Deux matières ne se partagent pas un jour. Ce qui est déjà fait
+  // aujourd'hui est retiré du temps d'aujourd'hui, comme pour le reste du calendrier.
+  const examensDuJour = new Map<string, { cours: Cours; page: Chapitre; minutes: number }>();
+  const parPartiel = actifs.filter((c) => c.partiel !== null && !entree.examensFaits?.has(c.id)).sort((a, b) => a.partiel!.localeCompare(b.partiel!) || a.ordre - b.ordre || a.id.localeCompare(b.id));
+  for (const c of parPartiel) {
+    const pages = chapitres.filter((h) => h.coursId === c.id && estPageExamen(h.titre));
+    if (pages.length === 0) continue;
+    const debut = ajouterJours(c.partiel!, -EXAMEN_FENETRE_DEBUT);
+    const dernier = ajouterJours(c.partiel!, -EXAMEN_FENETRE_FIN);
+    let choisi: string | null = null;
+    let libre = 0;
+    for (let j = ecartJours(aujourdhui, debut) > 0 ? debut : aujourdhui; ecartJours(j, dernier) >= 0; j = ajouterJours(j, 1)) {
+      if (examensDuJour.has(j)) continue;
+      const cap = capacite(j) - (j === aujourdhui ? minutesFaites : 0);
+      if (cap < EXAMEN_MIN) continue;
+      // Les jours défilent du plus tôt au plus tard : à temps libre égal, c'est le plus tardif qui reste.
+      if (choisi === null || cap >= libre) {
+        choisi = j;
+        libre = cap;
+      }
+    }
+    if (choisi === null) continue;
+    // On refait la page qu'on a le moins vue : un sujet jamais travaillé est le meilleur test.
+    const page = pages.slice().sort((a, b) => (a.derniere ?? '').localeCompare(b.derniere ?? '') || a.ordre - b.ordre || a.id.localeCompare(b.id))[0];
+    examensDuJour.set(choisi, { cours: c, page, minutes: entree.examens?.get(c.id) ?? EXAMEN_DUREE_DEFAUT });
+  }
 
   /**
    * Les chapitres à relire ce jour-là, du plus important au moins important : le partiel le plus proche d'abord,
@@ -306,6 +357,15 @@ export function planifier(entree: EntreePlan): Plan {
     const faites = jour === aujourdhui ? minutesFaites : 0;
     // Négatif si on a déjà fait plus que le temps du jour : il n'y a alors plus rien à planifier aujourd'hui.
     let reste = capacite(jour) - faites;
+    // L'examen blanc d'abord : c'est lui qui a choisi ce jour-là.
+    const examen = examensDuJour.get(jour);
+    if (examen) {
+      const minutes = Math.min(examen.minutes, reste);
+      seances.push({ jour, coursId: examen.cours.id, chapitreId: examen.page.id, type: 'examen', minutes, raison: `Examen blanc · partiel dans ${ecartJours(jour, examen.cours.partiel!)} j`, suite: false, complete: true, retard: 0, fragile: false });
+      reste -= minutes;
+      const suivi = parCours.get(examen.cours.id)!.find((x) => x.ch.id === examen.page.id);
+      if (suivi) suivi.vuLe = jour;
+    }
     // Les jours de cours, un bloc de relecture passe AVANT toute lecture neuve. Ce qu'il ne remplit pas
     // (rien à relire encore) retourne à la journée : le bloc est réservé, pas perdu. Une fois la journée
     // commencée (quelque chose de fait), il n'est plus proposé : il ne revient pas après chaque validation.
@@ -314,7 +374,7 @@ export function planifier(entree: EntreePlan): Plan {
       for (const { s, c, avant } of aRelire(jour)) {
         const minutes = Math.min(dureeRevision(s.ch, vitesse), budget);
         if (minutes < CRENEAU_MIN) break;
-        seances.push({ jour, coursId: c.id, chapitreId: s.ch.id, type: 'relecture', minutes, raison: avant === null ? 'Relecture' : `Relecture avant le partiel (dans ${avant} j)`, suite: false, complete: true, retard: 0 });
+        seances.push({ jour, coursId: c.id, chapitreId: s.ch.id, type: 'relecture', minutes, raison: avant === null ? 'Relecture' : `Relecture avant le partiel (dans ${avant} j)`, suite: false, complete: true, retard: 0, fragile: fragiles.has(s.ch.id) });
         s.vuLe = jour;
         reste -= minutes;
         budget -= minutes;
@@ -331,7 +391,7 @@ export function planifier(entree: EntreePlan): Plan {
       if (type === 'decouverte') raison = dejaCommence ? 'Suite de la lecture' : avant === null ? 'À découvrir' : `À découvrir avant le partiel (dans ${avant} j)`;
       else if (type === 'consolidation') raison = 'Dernier passage avant le partiel';
       else raison = retard > 0 ? `En retard de ${retard} j` : `Révision espacée (niveau ${s.niveau})`;
-      seances.push({ jour, coursId: c.id, chapitreId: s.ch.id, type, minutes, raison, suite: type === 'decouverte' && dejaCommence, complete: type !== 'decouverte' || minutes >= s.restant, retard });
+      seances.push({ jour, coursId: c.id, chapitreId: s.ch.id, type, minutes, raison, suite: type === 'decouverte' && dejaCommence, complete: type !== 'decouverte' || minutes >= s.restant, retard, fragile: fragiles.has(s.ch.id) });
       reste -= minutes;
       s.vuLe = jour;
       if (type === 'decouverte') {

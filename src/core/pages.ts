@@ -58,6 +58,8 @@ export interface Bloc {
   /** Au moins une lecture continue un autre jour. */
   suite: boolean;
   retard: number;
+  /** Au moins une page du bloc est fragile (plusieurs notes basses de suite). */
+  fragile: boolean;
   raison: string;
 }
 
@@ -92,6 +94,7 @@ export function regrouper(seances: readonly Seance[], chapitres: readonly Chapit
       minutes: triees.reduce((t, s) => t + s.minutes, 0),
       suite: triees.some((s) => s.suite),
       retard,
+      fragile: triees.some((s) => s.fragile),
       raison,
     };
   });

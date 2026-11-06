@@ -1,8 +1,10 @@
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import { emploiDuTemps, partielProbable, plageHeures, salleCourte, type Creneau, type EmploiDuTemps } from '../../core/agenda.ts';
-import { COULEURS_COURS, DISPONIBILITES_DEFAUT, MAX_LIBRES, MINUTES_JOUR_MAX, REDUCTION_DEFAUT, REDUCTION_MAX, RELECTURE_MAX, VITESSE_MAX, VITESSE_MIN, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, vitesseValide, type Chapitre, type Cours as CoursT, type Disponibilites, type DonneesCours } from '../../core/cours.ts';
-import { ajouterJours, debutDuMois, estJour, grilleDuMois, jourCourt, moisSuivant, versDate } from '../../core/jours.ts';
+import { COULEURS_COURS, DISPONIBILITES_DEFAUT, MAX_LIBRES, MINUTES_JOUR_MAX, RAPPEL_DEFAUT, RAPPEL_MAX, REDUCTION_DEFAUT, REDUCTION_MAX, RELECTURE_MAX, VITESSE_MAX, VITESSE_MIN, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, vitesseValide, type Chapitre, type Cours as CoursT, type Disponibilites, type DonneesCours } from '../../core/cours.ts';
+import { ajouterJours, debutDuMois, estJour, grilleDuMois, jourCourt, jourSemaine, moisSuivant, versDate } from '../../core/jours.ts';
 import { arrondi5, libellePages, regrouper, sansCoupure } from '../../core/pages.ts';
+import { examensFaits as calculerExamensFaits, pagesFragiles } from '../../core/passages.ts';
+import { construireRappel } from '../../core/rappel.ts';
 import { JOURS_AVANT_DEBUT, PLEIN_COURS, SEUIL_COURS, planifier, resumeParJour, seancesDuJour, type Alerte, type Plan, type TypeSeance } from '../../core/planning.ts';
 import { cleJour, formatDuree } from '../../core/temps.ts';
 import { libelleVitesse } from '../../core/vitesse.ts';
@@ -11,8 +13,10 @@ import { ajouterCours, enregistrerAgendaLien, enregistrerDisponibilites } from '
 import { IconeChevron } from '../Icones.tsx';
 import { useAgenda } from '../useAgenda.ts';
 import { useCours } from '../useCours.ts';
+import { Bilan } from './Bilan.tsx';
 import { TYPES, ValiderBloc } from './Blocs.tsx';
 import { PageCours, type Faire } from './CoursDetail.tsx';
+import { RappelDuJour } from './Rappel.tsx';
 import { ListeCreneaux, NoteCharge, ReglageAgenda } from './Creneaux.tsx';
 
 /** Une séance lancée au chrono : une page, ou un bloc de pages (« Pages 1 à 7 »). */
@@ -38,9 +42,13 @@ const couleurCreneau = (edt: EmploiDuTemps | null, cours: readonly CoursT[]) => 
   return id ? (cours.find((x) => x.id === id)?.couleur ?? null) : null;
 };
 
-function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; faire: Faire; surLancer: (l: LancerChapitre) => void; edt: EmploiDuTemps | null; userId: string }) {
+function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId, fragiles }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; faire: Faire; surLancer: (l: LancerChapitre) => void; edt: EmploiDuTemps | null; userId: string; fragiles: ReadonlySet<string> }) {
   const seances = seancesDuJour(plan, aujourdhui);
-  const blocs = regrouper(seances, donnees.chapitres);
+  // Quelques révisions du jour se font par rappel (de tête, cours mélangés) ; le reste, en blocs, se note d'un geste.
+  // Sans le journal on ne saurait pas combien de rappels sont déjà faits aujourd'hui : pas de rappel, plutôt qu'un rappel sans fin.
+  const dejaFaits = donnees.passages.filter((p) => p.sorte === 'rappel' && p.jour === aujourdhui).length;
+  const rappel = construireRappel({ seances, chapitres: donnees.chapitres, cours: donnees.cours, fragiles, aujourdhui, max: donnees.journal ? (donnees.disponibilites.rappel ?? RAPPEL_DEFAUT) : 0, dejaFaits, chargeJour: edt?.charge.get(aujourdhui) ?? 0 });
+  const blocs = regrouper(rappel.restantes, donnees.chapitres);
   const cours = edt?.parJour.get(aujourdhui) ?? [];
   const total = seances.reduce((t, s) => t + s.minutes, 0);
   const faits = donnees.chapitres.filter((c) => c.derniere === aujourdhui);
@@ -57,7 +65,8 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId }
           <NoteCharge jour={aujourdhui} minutesDeCours={edt?.charge.get(aujourdhui) ?? 0} disponibilites={donnees.disponibilites} />
         </div>
       )}
-      {seances.length === 0 && <p className="aide">{faits.length > 0 ? 'Tout est fait pour aujourd’hui.' : 'Rien de prévu aujourd’hui : ni révision à faire, ni temps disponible. Le calendrier ci-dessous montre la suite.'}</p>}
+      {seances.length === 0 && rappel.items.length === 0 && <p className="aide">{faits.length > 0 ? 'Tout est fait pour aujourd’hui.' : 'Rien de prévu aujourd’hui : ni révision à faire, ni temps disponible. Le calendrier ci-dessous montre la suite.'}</p>}
+      <RappelDuJour rappel={rappel} donnees={donnees} aujourdhui={aujourdhui} faire={faire} />
       <ul className="seances">
         {blocs.map((b) => {
           const c = donnees.cours.find((x) => x.id === b.coursId);
@@ -74,6 +83,7 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId }
                   {seule ? `Page ${b.pages[0]} · ` : ''}
                   {sansCoupure(`${TYPES[b.type]} · ≈ ${formatDuree(arrondi5(b.minutes))} · `)}
                   <span className={b.retard > 0 ? 'en-retard' : undefined}>{sansCoupure(b.raison)}</span>
+                  {b.fragile && <span className="badge-fragile">Page fragile</span>}
                 </span>
                 {!seule && <span className="aide petite pages-titres">{titres.join(' · ')}</span>}
               </div>
@@ -250,6 +260,7 @@ function TempsDisponible({ valeur, avecEmploiDuTemps, surEnregistrer }: { valeur
   const [reduction, setReduction] = useState(String(valeur.reduction ?? REDUCTION_DEFAUT));
   const [relecture, setRelecture] = useState(String(valeur.relecture ?? 0));
   const [vitesse, setVitesse] = useState(String(valeur.vitesse ?? 1));
+  const [rappel, setRappel] = useState(String(valeur.rappel ?? RAPPEL_DEFAUT));
   const [libres, setLibres] = useState(valeur.libres);
   const [nouveau, setNouveau] = useState('');
   const minutes = semaine.map((v) => Math.min(MINUTES_JOUR_MAX, Math.max(0, Math.round(Number(v) || 0))));
@@ -265,6 +276,7 @@ function TempsDisponible({ valeur, avecEmploiDuTemps, surEnregistrer }: { valeur
           reduction: Math.min(REDUCTION_MAX, Math.max(0, Math.round(Number(reduction) || 0))),
           relecture: Math.min(RELECTURE_MAX, Math.max(0, Math.round(Number(relecture) || 0))),
           vitesse: vitesseValide(Number(vitesse) || 1),
+          rappel: Math.min(RAPPEL_MAX, Math.max(0, Math.round(Number(rappel) || 0))),
         });
       }}
     >
@@ -296,8 +308,13 @@ function TempsDisponible({ valeur, avecEmploiDuTemps, surEnregistrer }: { valeur
         </label>
       )}
       <label>
+        Pages du rappel du jour
+        <input type="number" inputMode="numeric" min={0} max={RAPPEL_MAX} step={1} value={rappel} onChange={(e) => setRappel(e.target.value)} />
+        <span className="aide petite">Chaque jour, quelques révisions se font de tête : tu écris l’essentiel sans regarder, tu ouvres la fiche pour comparer, puis tu te notes. 0 : pas de rappel, toutes les révisions se notent d’un geste.</span>
+      </label>
+      <label>
         Ta vitesse de lecture
-        <input type="number" inputMode="decimal" min={VITESSE_MIN} max={VITESSE_MAX} step={0.05} value={vitesse} onChange={(e) => setVitesse(e.target.value)} />
+        <input type="number" inputMode="decimal" min={VITESSE_MIN} max={VITESSE_MAX} step="any" value={vitesse} onChange={(e) => setVitesse(e.target.value)} />
         <span className="aide petite">
           Aujourd’hui : {libelleVitesse(Number(vitesse))}. 1 = la durée tirée de la taille des pages ; 1,3 = tu mets 30 % de plus. Elle se précise toute seule à chaque séance que tu valides (« plus vite », « plus lent ») ou chronomètres.
         </span>
@@ -410,7 +427,24 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
   );
 
   const edt = useMemo(() => (donnees && agenda.creneaux ? emploiDuTemps(agenda.creneaux, donnees.cours.map((c) => ({ id: c.id, titre: c.titre, motifs: c.motifs, ordre: c.ordre }))) : null), [donnees, agenda.creneaux]);
-  const plan = useMemo(() => (donnees ? planifier({ cours: donnees.cours, chapitres: donnees.chapitres, disponibilites: donnees.disponibilites, aujourdhui, charge: edt?.charge, debuts: edt?.debuts }) : null), [donnees, aujourdhui, edt]);
+  const passages = donnees?.passages;
+  const chapitresDonnees = donnees?.chapitres;
+  const fragiles = useMemo(() => pagesFragiles(passages ?? [], aujourdhui), [passages, aujourdhui]);
+  // Sans le journal, on ne saurait pas qu'un examen blanc a été passé : il reviendrait sans fin. Pas d'examen blanc alors.
+  const journal = donnees?.journal ?? false;
+  const coursDonnees = donnees?.cours;
+  const examensFaits = useMemo(() => (journal ? calculerExamensFaits(passages ?? [], chapitresDonnees ?? [], aujourdhui) : new Set((coursDonnees ?? []).map((c) => c.id))), [journal, passages, chapitresDonnees, coursDonnees, aujourdhui]);
+  // La durée d'un examen blanc est celle de l'épreuve, quand l'emploi du temps la donne (le dernier cours magistral du cours).
+  const examens = useMemo(() => {
+    const m = new Map<string, number>();
+    if (!donnees || !edt) return m;
+    for (const c of donnees.cours) {
+      const p = c.partiel ? partielProbable(edt.parCours.get(c.id) ?? [], aujourdhui) : null;
+      if (p && p.jour === c.partiel && p.fin > p.debut) m.set(c.id, p.fin - p.debut);
+    }
+    return m;
+  }, [donnees, edt, aujourdhui]);
+  const plan = useMemo(() => (donnees ? planifier({ cours: donnees.cours, chapitres: donnees.chapitres, disponibilites: donnees.disponibilites, aujourdhui, charge: edt?.charge, debuts: edt?.debuts, fragiles, examens, examensFaits }) : null), [donnees, aujourdhui, edt, fragiles, examens, examensFaits]);
 
   if (!synchronise || !userId)
     return (
@@ -520,7 +554,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
         </section>
       ) : (
         <>
-          <Aujourdhui plan={plan} donnees={donnees} aujourdhui={aujourdhui} faire={faire} surLancer={surLancer} edt={edt} userId={userId} />
+          <Aujourdhui plan={plan} donnees={donnees} aujourdhui={aujourdhui} faire={faire} surLancer={surLancer} edt={edt} userId={userId} fragiles={fragiles} />
           <Alertes alertes={plan.alertes} donnees={donnees} aujourdhui={aujourdhui} ouvrir={setVue} />
           {/* Sans emploi du temps lu (jamais, ou plus de cache), le calendrier ignore les cours : on le dit, au lieu de laisser croire qu'il en tient compte. Hors ligne avec un cache, rien à dire : le panneau montre l'erreur. */}
           {donnees.agendaLien && agenda.erreur && agenda.creneaux === null && <p className="alerte douce">Emploi du temps : {agenda.erreur}</p>}
@@ -531,6 +565,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
             </details>
           )}
           <Calendrier plan={plan} donnees={donnees} aujourdhui={aujourdhui} edt={edt} />
+          <Bilan donnees={donnees} aujourdhui={aujourdhui} fragiles={fragiles} ouvert={jourSemaine(aujourdhui) === 6} />
           <section className="carte">
             <div className="entete">
               <h2>Mes cours</h2>
@@ -574,11 +609,15 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
         <summary>Comment le calendrier est calculé</summary>
         <ol>
           <li>Le partiel le plus proche passe en premier.</li>
-          <li>Une page = un tableau de l’artefact. Sa durée vient de sa taille, multipliée par TA vitesse de lecture ; le calendrier te dit « pages 1 à 7 » plutôt qu’un chapitre pour une heure.</li>
-          <li>Une page lue est revue dès le lendemain, puis après 3, 7, 14, 30 jours : l’écart grandit à chaque révision réussie.</li>
-          <li>Ta note ajuste l’écart : « À revoir » ramène à demain, « Difficile » le divise par deux, « Facile » saute un cran. C’est toi qui te notes : Hameau ne te fait pas passer de test.</li>
+          <li>Une page = un tableau de l’artefact. Sa durée vient de sa taille, multipliée par TA vitesse ; le calendrier te dit « pages 1 à 7 » plutôt qu’un chapitre pour une heure.</li>
+          <li>« Apprendre », c’est lire puis te rappeler de tête (ferme la fiche et redis l’essentiel avant de valider) : le temps annoncé est celui d’un apprentissage, pas d’un survol. « Réviser », c’est le retour espacé de la page ; « Relire », c’est la revoir sans te noter.</li>
+          <li>Une page apprise est revue dès le lendemain, puis après 3, 7, 14, 30 jours : l’écart grandit à chaque révision réussie.</li>
+          <li>Ta note ajuste l’écart : « À revoir » ramène à demain, « Difficile » le divise par deux, « Facile » saute un cran. Un score (« 14 sur 20 ») donne la note : 90 % facile, 70 % bien, 50 % difficile.</li>
+          <li>Le rappel du jour te fait te tester toi-même : quelques révisions, de cours mélangés, où tu écris de tête avant d’ouvrir la fiche. Un jour chargé en cours, il peut y ajouter une micro-révision de pages fragiles (réussie, elle ne fait pas monter le cran : on ne gagne rien à réviser trop tôt).</li>
+          <li>Une page fragile (plusieurs notes basses de suite) passe devant dans tes révisions, jusqu’à ce que deux bons passages de suite la libèrent.</li>
           <li>Les pages neuves se lisent dans l’ordre, jamais dans les 3 derniers jours avant le partiel.</li>
-          <li>Ce que tu ne valides pas n’est pas perdu : le calendrier est recalculé depuis où tu en es vraiment. Une révision non faite revient « en retard », une lecture non faite se replace.</li>
+          <li>Entre 14 et 4 jours avant un partiel, un examen blanc est placé le jour le plus libre : refais un sujet ou un TD en conditions, à la durée de l’épreuve (celle de ton emploi du temps), puis donne ton score.</li>
+          <li>Ce que tu ne valides pas n’est pas perdu : le calendrier est recalculé depuis où tu en es vraiment. Une révision non faite revient « en retard », une page non apprise se replace.</li>
           <li>Les jours de cours, un bloc de relecture (réglable) passe avant toute lecture neuve : les pages déjà vues des cours dont le partiel est le plus proche, une page n’étant jamais relue deux jours de suite.</li>
           <li>Dans les 4 derniers jours, chaque chapitre a un dernier passage, sans rien de nouveau.</li>
           <li>Si ton temps disponible ne suffit pas, Hameau le dit et chiffre ce qui manque.</li>
