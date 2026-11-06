@@ -168,7 +168,7 @@ export function BlocAgendaCours({ cours, creneaux, aujourdhui, faire }: { cours:
       {probable &&
         (probable.jour === cours.partiel ? (
           <p className="ag-partiel ok" style={teinte(cours.couleur)}>
-            ✓ L’emploi du temps confirme le partiel : <strong>{jourEtHeure(probable)}</strong>
+            ✓ C’est la date du dernier cours magistral de l’emploi du temps : <strong>{jourEtHeure(probable)}</strong>
             {salleCourte(probable.lieu) && <> · {salleCourte(probable.lieu)}</>}
           </p>
         ) : (

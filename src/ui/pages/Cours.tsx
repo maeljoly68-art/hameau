@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
-import { emploiDuTemps, type Creneau, type EmploiDuTemps } from '../../core/agenda.ts';
+import { emploiDuTemps, partielProbable, plageHeures, salleCourte, type Creneau, type EmploiDuTemps } from '../../core/agenda.ts';
 import { COULEURS_COURS, DISPONIBILITES_DEFAUT, MAX_LIBRES, MINUTES_JOUR_MAX, REDUCTION_DEFAUT, REDUCTION_MAX, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, type Chapitre, type Cours as CoursT, type Disponibilites, type DonneesCours } from '../../core/cours.ts';
 import { ajouterJours, debutDuMois, estJour, grilleDuMois, jourCourt, moisSuivant, versDate } from '../../core/jours.ts';
 import { JOURS_AVANT_DEBUT, PLEIN_COURS, SEUIL_COURS, planifier, resumeParJour, seancesDuJour, type Alerte, type Plan, type TypeSeance } from '../../core/planning.ts';
@@ -443,20 +443,32 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
       </>
     );
 
-  const prochain = donnees.cours
-    .filter((c) => c.partiel !== null && c.partiel > aujourdhui)
-    .sort((a, b) => (a.partiel! < b.partiel! ? -1 : 1))[0];
-  const avantProchain = prochain ? joursAvantPartiel(prochain, aujourdhui) : null;
+  // Le prochain jour de partiels, avec TOUS les partiels de ce jour-là (il peut y en avoir deux), l'heure et la salle quand l'emploi du temps les donne.
+  const aVenir = donnees.cours.filter((c) => c.partiel !== null && c.partiel > aujourdhui);
+  const jourProchain = aVenir.reduce<string | null>((m, c) => (m === null || c.partiel! < m ? c.partiel : m), null);
+  const prochains = aVenir.filter((c) => c.partiel === jourProchain);
+  const avantProchain = jourProchain !== null ? joursAvantPartiel({ partiel: jourProchain }, aujourdhui) : null;
+  const heureDuPartiel = (c: CoursT): string | null => {
+    const p = edt ? partielProbable(edt.parCours.get(c.id) ?? [], aujourdhui) : null;
+    if (!p || p.jour !== c.partiel) return null;
+    const salle = salleCourte(p.lieu);
+    return `${plageHeures(p)}${salle ? ` · ${salle}` : ''}`;
+  };
 
   return (
     <div className="page cours">
       {bandeau}
-      {prochain && avantProchain !== null && (
-        <section className="carte prochain-partiel" style={teinte(prochain.couleur)}>
-          <span className="sur-titre">Prochain partiel</span>
-          <strong>{prochain.titre}</strong>
+      {jourProchain !== null && avantProchain !== null && (
+        <section className="carte prochain-partiel" style={teinte(prochains[0].couleur)}>
+          <span className="sur-titre">Prochain{prochains.length > 1 ? 's' : ''} partiel{prochains.length > 1 ? 's' : ''}</span>
+          {prochains.map((c) => (
+            <div key={c.id} className="partiel-ligne">
+              <strong>{c.titre}</strong>
+              {heureDuPartiel(c) && <span className="aide">{heureDuPartiel(c)}</span>}
+            </div>
+          ))}
           <span className="aide">
-            {jourCourt(prochain.partiel!)} · dans {avantProchain} jour{avantProchain > 1 ? 's' : ''}
+            {jourCourt(jourProchain)} · dans {avantProchain} jour{avantProchain > 1 ? 's' : ''}
           </span>
         </section>
       )}

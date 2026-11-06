@@ -661,6 +661,7 @@ a.bouton { text-decoration: none; }
 .page.cours, .page.cours-detail { display: grid; gap: 16px; }
 .prochain-partiel { border-left: 4px solid var(--teinte, var(--accent)); gap: 4px; }
 .prochain-partiel strong { font-size: 18px; }
+.partiel-ligne { display: grid; gap: 1px; }
 .alertes-cours { display: grid; gap: 8px; }
 .alertes-cours .alerte { cursor: pointer; }
 
