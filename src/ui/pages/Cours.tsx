@@ -1,26 +1,33 @@
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import { emploiDuTemps, partielProbable, plageHeures, salleCourte, type Creneau, type EmploiDuTemps } from '../../core/agenda.ts';
-import { COULEURS_COURS, DISPONIBILITES_DEFAUT, MAX_LIBRES, MINUTES_JOUR_MAX, REDUCTION_DEFAUT, REDUCTION_MAX, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, type Chapitre, type Cours as CoursT, type Disponibilites, type DonneesCours } from '../../core/cours.ts';
+import { COULEURS_COURS, DISPONIBILITES_DEFAUT, MAX_LIBRES, MINUTES_JOUR_MAX, REDUCTION_DEFAUT, REDUCTION_MAX, RELECTURE_MAX, VITESSE_MAX, VITESSE_MIN, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, vitesseValide, type Chapitre, type Cours as CoursT, type Disponibilites, type DonneesCours } from '../../core/cours.ts';
 import { ajouterJours, debutDuMois, estJour, grilleDuMois, jourCourt, moisSuivant, versDate } from '../../core/jours.ts';
+import { arrondi5, libellePages, regrouper, sansCoupure } from '../../core/pages.ts';
 import { JOURS_AVANT_DEBUT, PLEIN_COURS, SEUIL_COURS, planifier, resumeParJour, seancesDuJour, type Alerte, type Plan, type TypeSeance } from '../../core/planning.ts';
 import { cleJour, formatDuree } from '../../core/temps.ts';
+import { libelleVitesse } from '../../core/vitesse.ts';
 import { viderCacheAgenda } from '../../data/agenda.ts';
-import { ajouterCours, enregistrerAgendaLien, enregistrerDisponibilites, noterChapitre } from '../../data/cours.ts';
+import { ajouterCours, enregistrerAgendaLien, enregistrerDisponibilites } from '../../data/cours.ts';
 import { IconeChevron } from '../Icones.tsx';
 import { useAgenda } from '../useAgenda.ts';
 import { useCours } from '../useCours.ts';
-import { Notation, PageCours, type Faire } from './CoursDetail.tsx';
+import { TYPES, ValiderBloc } from './Blocs.tsx';
+import { PageCours, type Faire } from './CoursDetail.tsx';
 import { ListeCreneaux, NoteCharge, ReglageAgenda } from './Creneaux.tsx';
 
+/** Une séance lancée au chrono : une page, ou un bloc de pages (« Pages 1 à 7 »). */
 export interface LancerChapitre {
   coursId: string;
   titreCours: string;
-  chapitreId: string;
-  titreChapitre: string;
+  /** Ce qu'on travaille, pour le chrono et la fenêtre de fin : le titre de la page, ou « Pages 1 à 7 ». */
+  titre: string;
+  chapitreIds: string[];
+  /** Les pages que cette séance finit : seules elles passent pour lues à la validation. */
+  termines: string[];
+  type: TypeSeance;
+  /** Durée prévue : l'objectif du chrono, et ce à quoi la durée réelle sera comparée pour préciser ta vitesse. */
   minutes: number;
 }
-
-const TYPES: Record<TypeSeance, string> = { decouverte: 'Lecture', revision: 'Révision', consolidation: 'Dernier passage' };
 const JOURS_COURTS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
 const teinte = (c: string) => ({ '--teinte': c }) as CSSProperties;
@@ -31,8 +38,9 @@ const couleurCreneau = (edt: EmploiDuTemps | null, cours: readonly CoursT[]) => 
   return id ? (cours.find((x) => x.id === id)?.couleur ?? null) : null;
 };
 
-function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; faire: Faire; surLancer: (l: LancerChapitre) => void; edt: EmploiDuTemps | null }) {
+function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; faire: Faire; surLancer: (l: LancerChapitre) => void; edt: EmploiDuTemps | null; userId: string }) {
   const seances = seancesDuJour(plan, aujourdhui);
+  const blocs = regrouper(seances, donnees.chapitres);
   const cours = edt?.parJour.get(aujourdhui) ?? [];
   const total = seances.reduce((t, s) => t + s.minutes, 0);
   const faits = donnees.chapitres.filter((c) => c.derniere === aujourdhui);
@@ -40,7 +48,7 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt }: { plan
     <section className="carte">
       <div className="entete">
         <h2>À faire aujourd’hui</h2>
-        <span className="pastille">{seances.length > 0 ? formatDuree(total) : 'Rien de prévu'}</span>
+        <span className="pastille">{seances.length > 0 ? `≈ ${formatDuree(arrondi5(total))}` : 'Rien de prévu'}</span>
       </div>
       {cours.length > 0 && (
         <div className="cours-du-jour">
@@ -51,22 +59,27 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt }: { plan
       )}
       {seances.length === 0 && <p className="aide">{faits.length > 0 ? 'Tout est fait pour aujourd’hui.' : 'Rien de prévu aujourd’hui : ni révision à faire, ni temps disponible. Le calendrier ci-dessous montre la suite.'}</p>}
       <ul className="seances">
-        {seances.map((s) => {
-          const c = donnees.cours.find((x) => x.id === s.coursId);
-          const ch = donnees.chapitres.find((x) => x.id === s.chapitreId);
-          if (!c || !ch) return null;
+        {blocs.map((b) => {
+          const c = donnees.cours.find((x) => x.id === b.coursId);
+          if (!c) return null;
+          const titres = b.chapitreIds.map((id) => donnees.chapitres.find((x) => x.id === id)?.titre ?? '');
+          const seule = b.chapitreIds.length === 1;
+          const nom = seule ? titres[0] : libellePages(b.pages);
           return (
-            <li key={s.chapitreId} style={teinte(c.couleur)}>
+            <li key={`${b.coursId}-${b.type}`} style={teinte(c.couleur)}>
               <div className="seance-corps">
                 <span className="seance-cours">{c.titre}</span>
-                <strong>{ch.titre}</strong>
+                <strong>{nom}</strong>
                 <span className="aide">
-                  {TYPES[s.type]} · {formatDuree(s.minutes)} · {s.raison}
+                  {seule ? `Page ${b.pages[0]} · ` : ''}
+                  {sansCoupure(`${TYPES[b.type]} · ≈ ${formatDuree(arrondi5(b.minutes))} · `)}
+                  <span className={b.retard > 0 ? 'en-retard' : undefined}>{sansCoupure(b.raison)}</span>
                 </span>
+                {!seule && <span className="aide petite pages-titres">{titres.join(' · ')}</span>}
               </div>
               <div className="seance-actions">
-                <Notation niveau={ch.niveau} surNote={(n) => faire(() => noterChapitre(ch.id, n, aujourdhui), 'Noté : le calendrier est recalculé.')} />
-                <button className="lien" onClick={() => surLancer({ coursId: c.id, titreCours: c.titre, chapitreId: ch.id, titreChapitre: ch.titre, minutes: s.minutes })}>
+                <ValiderBloc bloc={b} aujourdhui={aujourdhui} userId={userId} faire={faire} />
+                <button className="lien" onClick={() => surLancer({ coursId: c.id, titreCours: c.titre, titre: nom, chapitreIds: b.chapitreIds, termines: b.termines, type: b.type, minutes: b.minutes })}>
                   Lancer le chrono
                 </button>
               </div>
@@ -74,6 +87,7 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt }: { plan
           );
         })}
       </ul>
+      {seances.length > 0 && <p className="aide petite">Ce que tu ne valides pas revient demain : une révision en retard est signalée, une lecture se replace au calendrier.</p>}
       {faits.length > 0 && (
         <p className="aide petite">
           Déjà travaillé aujourd’hui : {faits.map((c) => c.titre).join(', ')}.
@@ -126,12 +140,12 @@ function Calendrier({ plan, donnees, aujourdhui, edt }: { plan: Plan; donnees: D
   const resume = useMemo(() => resumeParJour(plan), [plan]);
   const partiels = useMemo(() => {
     const m = new Map<string, CoursT[]>();
-    for (const c of donnees.cours) if (c.partiel) m.set(c.partiel, [...(m.get(c.partiel) ?? []), c]);
+    for (const c of donnees.cours) if (c.partiel && !c.enPause) m.set(c.partiel, [...(m.get(c.partiel) ?? []), c]);
     return m;
   }, [donnees.cours]);
   const grille = grilleDuMois(mois);
   const titreMois = versDate(mois).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-  const duJour = seancesDuJour(plan, choisi);
+  const duJour = regrouper(seancesDuJour(plan, choisi), donnees.chapitres);
   const couleur = (id: string) => donnees.cours.find((c) => c.id === id)?.couleur ?? '#888888';
   const coursDuChoisi = edt?.parJour.get(choisi) ?? [];
 
@@ -167,7 +181,7 @@ function Calendrier({ plan, donnees, aujourdhui, edt }: { plan: Plan; donnees: D
                 {r?.cours.slice(0, 3).map((id) => <span key={id} className="ag-point" style={{ background: couleur(id) }} />)}
                 {p && <span className="ag-drapeau" aria-hidden>★</span>}
               </span>
-              <span className="ag-minutes">{r ? formatDuree(r.minutes) : ''}</span>
+              <span className="ag-minutes">{r ? formatDuree(arrondi5(r.minutes)) : ''}</span>
               {charge > 0 && <span className="ag-barre" style={{ '--charge': Math.min(1, charge / PLEIN_COURS) } as CSSProperties} aria-hidden />}
             </button>
           );
@@ -188,17 +202,18 @@ function Calendrier({ plan, donnees, aujourdhui, edt }: { plan: Plan; donnees: D
         )}
         {duJour.length === 0 && !partiels.has(choisi) && <p className="aide">{choisi < aujourdhui ? 'Jour passé.' : coursDuChoisi.length > 0 ? 'Pas de révision prévue ce jour-là.' : 'Rien de prévu ce jour-là.'}</p>}
         <ul className="seances compactes">
-          {duJour.map((s) => {
-            const c = donnees.cours.find((x) => x.id === s.coursId);
-            const ch = donnees.chapitres.find((x) => x.id === s.chapitreId);
-            if (!c || !ch) return null;
+          {duJour.map((b) => {
+            const c = donnees.cours.find((x) => x.id === b.coursId);
+            if (!c) return null;
+            const seule = b.chapitreIds.length === 1;
             return (
-              <li key={`${s.chapitreId}-${s.type}`} style={teinte(c.couleur)}>
+              <li key={`${b.coursId}-${b.type}`} style={teinte(c.couleur)}>
                 <div className="seance-corps">
                   <span className="seance-cours">{c.titre}</span>
-                  <strong>{ch.titre}</strong>
+                  <strong>{seule ? (donnees.chapitres.find((x) => x.id === b.chapitreIds[0])?.titre ?? libellePages(b.pages)) : libellePages(b.pages)}</strong>
                   <span className="aide">
-                    {TYPES[s.type]} · {formatDuree(s.minutes)}
+                    {seule ? `Page ${b.pages[0]} · ` : ''}
+                    {TYPES[b.type]} · ≈ {formatDuree(arrondi5(b.minutes))}
                   </span>
                 </div>
               </li>
@@ -215,16 +230,16 @@ function CarteCours({ cours, chapitres, aujourdhui, debut, ouvrir }: { cours: Co
   const avant = joursAvantPartiel(cours, aujourdhui);
   const badge = avant === null ? (debut && debut > aujourdhui ? `Dès le ${jourCourt(debut)}` : 'Pas de date') : avant < 0 ? 'Passé' : avant === 0 ? 'Aujourd’hui' : `J−${avant}`;
   return (
-    <button className="carte-cours" style={teinte(cours.couleur)} onClick={ouvrir}>
+    <button className={cours.enPause ? 'carte-cours en-pause' : 'carte-cours'} style={teinte(cours.couleur)} onClick={ouvrir}>
       <span className="carte-cours-tete">
         <strong>{cours.titre}</strong>
-        <span className={avant !== null && avant >= 0 && avant <= 14 ? 'badge-partiel proche' : 'badge-partiel'}>{badge}</span>
+        <span className={!cours.enPause && avant !== null && avant >= 0 && avant <= 14 ? 'badge-partiel proche' : 'badge-partiel'}>{cours.enPause ? 'En pause' : badge}</span>
       </span>
       <span className="jauge">
         <span style={{ width: `${maitrise}%`, background: cours.couleur }} />
       </span>
       <span className="aide">
-        {chapitres.filter((c) => c.niveau >= 1).length} / {chapitres.length} chapitres vus · maîtrise {maitrise} %{cours.partiel ? ` · partiel ${jourCourt(cours.partiel)}` : ''}
+        {chapitres.filter((c) => c.niveau >= 1).length} / {chapitres.length} pages vues · maîtrise {maitrise} %{cours.partiel ? ` · partiel ${jourCourt(cours.partiel)}` : ''}
       </span>
     </button>
   );
@@ -233,6 +248,8 @@ function CarteCours({ cours, chapitres, aujourdhui, debut, ouvrir }: { cours: Co
 function TempsDisponible({ valeur, avecEmploiDuTemps, surEnregistrer }: { valeur: Disponibilites; avecEmploiDuTemps: boolean; surEnregistrer: (d: Disponibilites) => void }) {
   const [semaine, setSemaine] = useState(valeur.semaine.map(String));
   const [reduction, setReduction] = useState(String(valeur.reduction ?? REDUCTION_DEFAUT));
+  const [relecture, setRelecture] = useState(String(valeur.relecture ?? 0));
+  const [vitesse, setVitesse] = useState(String(valeur.vitesse ?? 1));
   const [libres, setLibres] = useState(valeur.libres);
   const [nouveau, setNouveau] = useState('');
   const minutes = semaine.map((v) => Math.min(MINUTES_JOUR_MAX, Math.max(0, Math.round(Number(v) || 0))));
@@ -242,7 +259,13 @@ function TempsDisponible({ valeur, avecEmploiDuTemps, surEnregistrer }: { valeur
       className="carte"
       onSubmit={(e) => {
         e.preventDefault();
-        surEnregistrer({ semaine: minutes, libres, reduction: Math.min(REDUCTION_MAX, Math.max(0, Math.round(Number(reduction) || 0))) });
+        surEnregistrer({
+          semaine: minutes,
+          libres,
+          reduction: Math.min(REDUCTION_MAX, Math.max(0, Math.round(Number(reduction) || 0))),
+          relecture: Math.min(RELECTURE_MAX, Math.max(0, Math.round(Number(relecture) || 0))),
+          vitesse: vitesseValide(Number(vitesse) || 1),
+        });
       }}
     >
       <h2>Temps disponible</h2>
@@ -265,6 +288,20 @@ function TempsDisponible({ valeur, avecEmploiDuTemps, surEnregistrer }: { valeur
           </span>
         </label>
       )}
+      {avecEmploiDuTemps && (
+        <label>
+          Relecture les jours de cours (minutes)
+          <input type="number" inputMode="numeric" min={0} max={RELECTURE_MAX} step={5} value={relecture} onChange={(e) => setRelecture(e.target.value)} />
+          <span className="aide petite">Prise SUR ton temps du jour (1 h 30 dont 30 min de relecture), avant toute lecture neuve : les pages déjà vues des cours dont le partiel est le plus proche, sans note. 0 : aucune relecture.</span>
+        </label>
+      )}
+      <label>
+        Ta vitesse de lecture
+        <input type="number" inputMode="decimal" min={VITESSE_MIN} max={VITESSE_MAX} step={0.05} value={vitesse} onChange={(e) => setVitesse(e.target.value)} />
+        <span className="aide petite">
+          Aujourd’hui : {libelleVitesse(Number(vitesse))}. 1 = la durée tirée de la taille des pages ; 1,3 = tu mets 30 % de plus. Elle se précise toute seule à chaque séance que tu valides (« plus vite », « plus lent ») ou chronomètres.
+        </span>
+      </label>
       <div>
         <h3 className="sous-titre">Jours sans étude</h3>
         <div className="puces">
@@ -444,7 +481,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
     );
 
   // Le prochain jour de partiels, avec TOUS les partiels de ce jour-là (il peut y en avoir deux), l'heure et la salle quand l'emploi du temps les donne.
-  const aVenir = donnees.cours.filter((c) => c.partiel !== null && c.partiel > aujourdhui);
+  const aVenir = donnees.cours.filter((c) => !c.enPause && c.partiel !== null && c.partiel > aujourdhui);
   const jourProchain = aVenir.reduce<string | null>((m, c) => (m === null || c.partiel! < m ? c.partiel : m), null);
   const prochains = aVenir.filter((c) => c.partiel === jourProchain);
   const avantProchain = jourProchain !== null ? joursAvantPartiel({ partiel: jourProchain }, aujourdhui) : null;
@@ -483,7 +520,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
         </section>
       ) : (
         <>
-          <Aujourdhui plan={plan} donnees={donnees} aujourdhui={aujourdhui} faire={faire} surLancer={surLancer} edt={edt} />
+          <Aujourdhui plan={plan} donnees={donnees} aujourdhui={aujourdhui} faire={faire} surLancer={surLancer} edt={edt} userId={userId} />
           <Alertes alertes={plan.alertes} donnees={donnees} aujourdhui={aujourdhui} ouvrir={setVue} />
           {/* Sans emploi du temps lu (jamais, ou plus de cache), le calendrier ignore les cours : on le dit, au lieu de laisser croire qu'il en tient compte. Hors ligne avec un cache, rien à dire : le panneau montre l'erreur. */}
           {donnees.agendaLien && agenda.erreur && agenda.creneaux === null && <p className="alerte douce">Emploi du temps : {agenda.erreur}</p>}
@@ -537,9 +574,12 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
         <summary>Comment le calendrier est calculé</summary>
         <ol>
           <li>Le partiel le plus proche passe en premier.</li>
-          <li>Un chapitre lu est revu dès le lendemain, puis après 3, 7, 14, 30 jours : l’écart grandit à chaque révision réussie.</li>
-          <li>Ta note ajuste l’écart : « À revoir » ramène à demain, « Difficile » le divise par deux, « Facile » saute un cran.</li>
-          <li>Les chapitres neufs se lisent dans l’ordre, jamais dans les 3 derniers jours avant le partiel.</li>
+          <li>Une page = un tableau de l’artefact. Sa durée vient de sa taille, multipliée par TA vitesse de lecture ; le calendrier te dit « pages 1 à 7 » plutôt qu’un chapitre pour une heure.</li>
+          <li>Une page lue est revue dès le lendemain, puis après 3, 7, 14, 30 jours : l’écart grandit à chaque révision réussie.</li>
+          <li>Ta note ajuste l’écart : « À revoir » ramène à demain, « Difficile » le divise par deux, « Facile » saute un cran. C’est toi qui te notes : Hameau ne te fait pas passer de test.</li>
+          <li>Les pages neuves se lisent dans l’ordre, jamais dans les 3 derniers jours avant le partiel.</li>
+          <li>Ce que tu ne valides pas n’est pas perdu : le calendrier est recalculé depuis où tu en es vraiment. Une révision non faite revient « en retard », une lecture non faite se replace.</li>
+          <li>Les jours de cours, un bloc de relecture (réglable) passe avant toute lecture neuve : les pages déjà vues des cours dont le partiel est le plus proche, une page n’étant jamais relue deux jours de suite.</li>
           <li>Dans les 4 derniers jours, chaque chapitre a un dernier passage, sans rien de nouveau.</li>
           <li>Si ton temps disponible ne suffit pas, Hameau le dit et chiffre ce qui manque.</li>
           <li>Avec ton emploi du temps : à partir de {SEUIL_COURS / 60} h de cours dans la journée, je retire de plus en plus de temps de révision (réglable), et un cours qui n’a pas commencé n’est mis au calendrier que le mois qui précède son premier cours.</li>

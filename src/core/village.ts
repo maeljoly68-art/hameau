@@ -119,6 +119,35 @@ export function solde(sessions: readonly Session[], constructions: readonly Cons
 
 export type RefusConstruction = 'inconnu' | 'niveau' | 'solde' | 'hors-terrain' | 'occupee';
 
+export type RefusDeplacement = 'hors-terrain' | 'occupee';
+
+/**
+ * Pourquoi un bâtiment ne peut pas aller sur cette case, ou null si c'est possible. Déplacer ne coûte rien et
+ * ne demande aucun niveau : seul compte le terrain. Toute case occupée est refusée, la sienne comprise (ce ne
+ * serait pas un déplacement) — même si le bâtiment n'est plus dans la liste, supprimé entre-temps.
+ */
+export function refusDeplacement(
+  c: Pick<Construction, 'x' | 'y'>,
+  x: number,
+  y: number,
+  etat: { niveau: number; constructions: readonly Pick<Construction, 'x' | 'y'>[] },
+): RefusDeplacement | null {
+  const t = tailleTerrain(etat.niveau);
+  if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= t || y >= t) return 'hors-terrain';
+  if (x === FEU.x && y === FEU.y) return 'occupee';
+  if (x === c.x && y === c.y) return 'occupee';
+  if (etat.constructions.some((k) => k.x === x && k.y === y)) return 'occupee';
+  return null;
+}
+
+/** Les cases (« x,y ») où ce bâtiment peut aller, pour les mettre en surbrillance. */
+export function casesDeplacement(c: Pick<Construction, 'x' | 'y'>, etat: { niveau: number; constructions: readonly Pick<Construction, 'x' | 'y'>[] }): Set<string> {
+  const t = tailleTerrain(etat.niveau);
+  const libres = new Set<string>();
+  for (let y = 0; y < t; y++) for (let x = 0; x < t; x++) if (refusDeplacement(c, x, y, etat) === null) libres.add(`${x},${y}`);
+  return libres;
+}
+
 /** Pourquoi on ne peut pas construire ici, ou null si c'est possible. */
 export function refusConstruction(
   id: string,

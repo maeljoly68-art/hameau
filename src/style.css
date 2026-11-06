@@ -774,3 +774,13 @@ div.ag-partiel p { margin: 0; }
 /* Une fenêtre de saisie est ouverte : les notifications passent en haut, sinon elles couvrent ses boutons. */
 .toasts.en-haut { bottom: auto; top: calc(env(safe-area-inset-top) + 14px); }
 @media (min-width: 960px) { .toasts.en-haut { top: 22px; } }
+
+/* Séances en blocs de pages, validation, pause */
+.valider-bloc { display: grid; gap: 4px; }
+.pages-titres { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.en-retard { color: var(--rouge); font-weight: 600; }
+.ressenti-plus-vite:hover { border-color: #6fb4ff; background: rgba(111, 180, 255, .12); }
+.ressenti-prevu:hover { border-color: var(--vert); background: rgba(111, 211, 154, .12); }
+.ressenti-plus-lent:hover { border-color: #ffb547; background: rgba(255, 181, 71, .12); }
+.carte-cours.en-pause { opacity: .55; border-left-style: dashed; }
+.ligne-pause { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }

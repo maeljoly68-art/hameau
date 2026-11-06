@@ -1,9 +1,10 @@
 // Cours, chapitres, notes, temps disponible : lecture et écriture dans Supabase.
 // Réservé au compte : le calendrier doit être le même sur le téléphone, l'iPad
 // et le PC, ce qu'un stockage sur l'appareil ne ferait pas.
-import { disponibilitesValides, dureeValide, lienValide, type Chapitre, type Cours, type Disponibilites, type DonneesCours, type NoteChapitre } from '../core/cours.ts';
+import { disponibilitesValides, dureeValide, lienValide, vitesseValide, type Chapitre, type Cours, type Disponibilites, type DonneesCours, type NoteChapitre } from '../core/cours.ts';
 import { estJour } from '../core/jours.ts';
-import { apresRevision, niveauValide, type Note } from '../core/revision.ts';
+import { apresDecouverte, apresRevision, niveauValide, type Note } from '../core/revision.ts';
+import { vitesseApresChrono, vitesseApresCoche, type Ressenti } from '../core/vitesse.ts';
 import { client } from './config.ts';
 import { MESSAGE_MIGRATION } from './distant.ts';
 
@@ -16,6 +17,8 @@ interface LigneCours {
   ordre: number;
   /** Absente tant que la migration de l'emploi du temps n'est pas passée. */
   motifs?: string | null;
+  /** Absente tant que la migration de la pause n'est pas passée. */
+  en_pause?: boolean | null;
 }
 interface LigneChapitre {
   id: string;
@@ -36,7 +39,7 @@ interface LigneNote {
   cree_le: string;
 }
 
-const versCours = (l: LigneCours): Cours => ({ id: l.id, titre: l.titre, couleur: l.couleur, partiel: l.partiel && estJour(l.partiel) ? l.partiel : null, lien: l.lien, ordre: l.ordre, motifs: typeof l.motifs === 'string' ? l.motifs : '' });
+const versCours = (l: LigneCours): Cours => ({ id: l.id, titre: l.titre, couleur: l.couleur, partiel: l.partiel && estJour(l.partiel) ? l.partiel : null, lien: l.lien, ordre: l.ordre, motifs: typeof l.motifs === 'string' ? l.motifs : '', enPause: l.en_pause === true });
 const versChapitre = (l: LigneChapitre): Chapitre => ({
   id: l.id,
   coursId: l.cours_id,
@@ -101,6 +104,8 @@ export interface ChampsCours {
   ordre: number;
   /** Les mots qui rattachent les créneaux de l'emploi du temps à ce cours. */
   motifs?: string;
+  /** Un cours en pause n'est plus au calendrier ; il reste dans la liste. */
+  enPause?: boolean;
 }
 
 export async function ajouterCours(c: Omit<ChampsCours, 'ordre'> & { ordre: number }, chapitres: { titre: string; dureeMin: number }[]): Promise<void> {
@@ -119,7 +124,11 @@ export async function ajouterCours(c: Omit<ChampsCours, 'ordre'> & { ordre: numb
 
 export async function modifierCours(id: string, champs: Partial<ChampsCours>): Promise<void> {
   const sb = await client();
-  echec(await sb.from('cours').update(champs).eq('id', id));
+  const { enPause, ...autres } = champs;
+  // La colonne s'écrit en_pause : on ne laisse pas passer le nom de l'objet tel quel.
+  const ligne: Record<string, unknown> = { ...autres };
+  if (enPause !== undefined) ligne.en_pause = enPause;
+  echec(await sb.from('cours').update(ligne).eq('id', id));
 }
 
 export async function supprimerCours(id: string): Promise<void> {
@@ -169,6 +178,46 @@ export async function noterChapitre(id: string, note: Note, jour: string): Promi
   if (!r.data?.length) throw new Error('Ce chapitre vient d’être noté depuis un autre appareil : recharge pour voir où il en est.');
 }
 
+/**
+ * Note d'un coup toutes les pages d'une séance de révision. Chaque page est notée pour elle-même et gardée par
+ * son niveau lu (voir `noterChapitre`) : si l'une échoue, les autres sont quand même notées, et le calendrier,
+ * recalculé depuis la base, ne repropose que celles qui restent à faire.
+ */
+export async function noterChapitres(ids: readonly string[], note: Note, jour: string): Promise<void> {
+  const resultats = await Promise.allSettled(ids.map((id) => noterChapitre(id, note, jour)));
+  const echec = resultats.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (echec) throw echec.reason instanceof Error ? echec.reason : new Error(String(echec.reason));
+}
+
+/**
+ * Marque lues les pages d'une séance de lecture. Sans note : on ne juge pas ce qu'on retient avant d'avoir
+ * essayé de s'en souvenir (voir `apresDecouverte`). Gardé par « pas encore lu » : une page déjà validée depuis
+ * un autre appareil n'est pas remise à son premier cran.
+ */
+export async function validerLecture(ids: readonly string[], jour: string): Promise<void> {
+  if (ids.length === 0) return;
+  const sb = await client();
+  const apres = apresDecouverte(jour);
+  const r = await sb
+    .from('chapitres')
+    .update({ niveau: apres.niveau, derniere_revision: apres.derniere, prochaine_revision: apres.prochaine })
+    .in('id', [...ids])
+    .eq('niveau', 0)
+    .select('id');
+  echec(r);
+  if (!r.data?.length) throw new Error('Ces pages sont déjà validées (depuis un autre appareil ?) : recharge pour voir où elles en sont.');
+}
+
+/**
+ * Une relecture sans note : on retient seulement le jour, pour que la prochaine relecture fasse le tour des
+ * autres pages. Le niveau et la prochaine révision ne bougent pas — seul un passage noté fait avancer le cycle.
+ */
+export async function marquerRelu(ids: readonly string[], jour: string): Promise<void> {
+  if (ids.length === 0) return;
+  const sb = await client();
+  echec(await sb.from('chapitres').update({ derniere_revision: jour }).in('id', [...ids]).gte('niveau', 1));
+}
+
 /** Remet un chapitre « à découvrir » : on s'est trompé de touche, ou on repart de zéro avant un rattrapage. */
 export async function remettreAZero(id: string): Promise<void> {
   const sb = await client();
@@ -193,6 +242,34 @@ export async function supprimerNote(id: string): Promise<void> {
 export async function enregistrerDisponibilites(userId: string, d: Disponibilites): Promise<void> {
   const sb = await client();
   echec(await sb.from('reglages_cours').upsert({ user_id: userId, disponibilites: d, maj_le: new Date().toISOString() }));
+}
+
+/**
+ * Change la vitesse enregistrée à partir de celle qui est LUE en base à l'instant, pas de celle de l'écran :
+ * deux appareils qui la précisent l'un après l'autre se cumulent au lieu de s'écraser. Les autres réglages
+ * (temps par jour, jours sans étude…) sont réécrits tels qu'ils sont en base. Rien n'est écrit si la vitesse ne bouge pas.
+ */
+export async function ajusterVitesse(userId: string, f: (vitesse: number) => number): Promise<number> {
+  const sb = await client();
+  const lu = await sb.from('reglages_cours').select('disponibilites').maybeSingle<{ disponibilites: unknown }>();
+  echec(lu);
+  const d = disponibilitesValides(lu.data?.disponibilites);
+  const avant = vitesseValide(d.vitesse);
+  const apres = vitesseValide(f(avant));
+  if (apres !== avant) echec(await sb.from('reglages_cours').upsert({ user_id: userId, disponibilites: { ...d, vitesse: apres }, maj_le: new Date().toISOString() }));
+  return apres;
+}
+
+/** Ce qui précise la vitesse : ce que tu en as ressenti, ou ce que le chrono a mesuré (`reelles` null : pas de mesure). */
+export type MesureVitesse = { ressenti: Ressenti } | { reelles: number | null; prevues: number };
+
+/**
+ * Valide les pages lues ET précise ta vitesse. Les pages d'abord : si elles étaient déjà validées (autre
+ * appareil), la vitesse ne bouge pas, une même lecture ne comptant qu'une fois.
+ */
+export async function validerLectureEtVitesse(userId: string, ids: readonly string[], jour: string, mesure: MesureVitesse): Promise<void> {
+  await validerLecture(ids, jour);
+  await ajusterVitesse(userId, (v) => ('ressenti' in mesure ? vitesseApresCoche(v, mesure.ressenti) : vitesseApresChrono(v, mesure.reelles, mesure.prevues)));
 }
 
 /** L'adresse du flux d'emploi du temps (null pour la retirer). Un upsert qui ne touche qu'à cette colonne : le temps disponible reste. */
@@ -239,7 +316,7 @@ export function lireCacheCours(userId: string): DonneesCours | null {
     if (!Array.isArray(d.cours) || !Array.isArray(d.chapitres) || !Array.isArray(d.notes)) return null;
     // Un cache écrit avant l'emploi du temps n'a ni mots de cours ni adresse du flux : on les complète.
     return {
-      cours: d.cours.map((c) => ({ ...c, motifs: typeof c.motifs === 'string' ? c.motifs : '' })),
+      cours: d.cours.map((c) => ({ ...c, motifs: typeof c.motifs === 'string' ? c.motifs : '', enPause: c.enPause === true })),
       chapitres: d.chapitres,
       notes: d.notes,
       disponibilites: disponibilitesValides(d.disponibilites),

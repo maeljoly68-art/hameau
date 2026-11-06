@@ -13,6 +13,8 @@ export interface Cours {
   ordre: number;
   /** Les mots qui rattachent les créneaux de l'emploi du temps à ce cours (« droit spécial des sociétés, SAE droit… »). */
   motifs: string;
+  /** Un cours en pause n'est pas dans le calendrier (ni alerte) : on le garde, on ne le travaille pas. */
+  enPause: boolean;
 }
 
 export interface Chapitre {
@@ -48,6 +50,16 @@ export interface Disponibilites {
    * Absente des réglages enregistrés avant l'emploi du temps : la valeur par défaut s'applique alors.
    */
   reduction?: number;
+  /**
+   * Minutes de relecture les jours de cours, prises SUR le temps du jour (1 h 30 dont 30 min de relecture) :
+   * les cours dont le partiel est le plus proche, déjà lus, avant toute lecture nouvelle.
+   */
+  relecture?: number;
+  /**
+   * Ta vitesse d'apprentissage : 1 = comme l'estimation tirée de la taille des pages ; 1,3 = tu mets 30 % de
+   * plus. Elle se règle à la main, et se précise à chaque lecture cochée (voir vitesse.ts).
+   */
+  vitesse?: number;
 }
 
 export interface DonneesCours {
@@ -69,9 +81,15 @@ export const MAX_CHAPITRES_PAR_AJOUT = 100;
 /** Moitié moins de temps pour huit heures de cours : un point de départ, réglable. */
 export const REDUCTION_DEFAUT = 50;
 export const REDUCTION_MAX = 90;
+export const RELECTURE_MAX = 120;
+export const VITESSE_MIN = 0.5;
+export const VITESSE_MAX = 2.5;
 
 /** Une heure en semaine, une heure et demie le week-end : un point de départ, à régler. */
-export const DISPONIBILITES_DEFAUT: Disponibilites = { semaine: [60, 60, 60, 60, 60, 90, 90], libres: [], reduction: REDUCTION_DEFAUT };
+export const DISPONIBILITES_DEFAUT: Disponibilites = { semaine: [60, 60, 60, 60, 60, 90, 90], libres: [], reduction: REDUCTION_DEFAUT, relecture: 0, vitesse: 1 };
+
+/** Une vitesse lue en base ou sur l'appareil : bornée, arrondie au centième, 1 si elle n'a pas de sens. */
+export const vitesseValide = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.min(VITESSE_MAX, Math.max(VITESSE_MIN, v)) * 100) / 100 : 1);
 
 /** Teintes des étiquettes de cours, assez écartées pour se distinguer sur un calendrier. */
 export const COULEURS_COURS = ['#6b8afd', '#ff9f5a', '#4fd1a5', '#e873a8', '#b98cf2', '#f2c14e', '#5ec7e8', '#a3d65c'] as const;
@@ -92,7 +110,9 @@ export function disponibilitesValides(brut: unknown): Disponibilites {
   const libres = Array.isArray(o.libres) ? [...new Set(o.libres.filter(estJour))].sort().slice(0, MAX_LIBRES) : [];
   const r = o.reduction;
   const reduction = typeof r === 'number' && r >= 0 && r <= REDUCTION_MAX ? Math.round(r) : REDUCTION_DEFAUT;
-  return { semaine, libres, reduction };
+  const rel = o.relecture;
+  const relecture = typeof rel === 'number' && Number.isFinite(rel) && rel >= 0 && rel <= RELECTURE_MAX ? Math.round(rel) : 0;
+  return { semaine, libres, reduction, relecture, vitesse: vitesseValide(o.vitesse) };
 }
 
 /** Maîtrise moyenne d'un cours, de 0 à 100 : chaque chapitre pèse pareil, quelle que soit sa durée. */

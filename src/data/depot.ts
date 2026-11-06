@@ -33,6 +33,11 @@ export interface Depot {
    */
   ameliorer(c: Construction, cout: number): Promise<void>;
   demolir(id: string): Promise<void>;
+  /**
+   * Change un bâtiment de case, sans rien payer ni perdre : son niveau et ce qu'il a coûté restent. Refusé si
+   * la case est prise entre-temps (autre appareil) : la base ne garde qu'un bâtiment par case.
+   */
+  deplacer(id: string, x: number, y: number): Promise<void>;
   enregistrerProfil(p: Profil): Promise<void>;
   /** Prévient quand les données ont changé ailleurs (autre onglet, autre appareil). */
   ecouter(rappel: () => void): () => void;

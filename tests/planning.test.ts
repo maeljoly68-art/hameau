@@ -2,13 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DISPONIBILITES_DEFAUT, type Chapitre, type Cours, type Disponibilites } from '../src/core/cours.ts';
 import { ajouterJours, ecartJours, jourSemaine } from '../src/core/jours.ts';
-import { FENETRE_FINALE, JOURS_AVANT_DEBUT, JOURS_SANS_NOUVEAU, PLEIN_COURS, SEUIL_COURS, capaciteDuJour, dureeRevision, planifier, resumeParJour, seancesDuJour, type EntreePlan, type Seance } from '../src/core/planning.ts';
+import { FENETRE_FINALE, JOURS_AVANT_DEBUT, JOURS_SANS_NOUVEAU, PLEIN_COURS, SEUIL_COURS, capaciteDuJour, dureeLecture, dureeRevision, planifier, resumeParJour, seancesDuJour, type EntreePlan, type Seance } from '../src/core/planning.ts';
 
 const AUJ = '2026-11-05'; // jeudi
 const PARTIEL = '2026-12-04'; // vendredi, 29 jours plus tard : celui du plan de révision de Droit des sociétés
 
 const dispo = (m: number, libres: string[] = []): Disponibilites => ({ semaine: [m, m, m, m, m, m, m], libres });
-const cours = (id: string, partiel: string | null, ordre = 0): Cours => ({ id, titre: id, couleur: '#6b8afd', partiel, lien: null, ordre, motifs: '' });
+const cours = (id: string, partiel: string | null, ordre = 0): Cours => ({ id, titre: id, couleur: '#6b8afd', partiel, lien: null, ordre, motifs: '', enPause: false });
 const chap = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}-${ordre}`, coursId, titre: `Ch ${ordre}`, ordre, dureeMin: 30, niveau: 0, derniere: null, prochaine: null, lien: null, ...extra });
 const chapitres = (coursId: string, n: number, extra: Partial<Chapitre> = {}) => Array.from({ length: n }, (_, i) => chap(coursId, i, extra));
 const plan = (e: Partial<EntreePlan> & Pick<EntreePlan, 'cours' | 'chapitres'>) => planifier({ disponibilites: dispo(60), aujourdhui: AUJ, ...e });
@@ -312,4 +312,265 @@ test('lire un chapitre en avance, ou avoir une date de partiel, fait entrer un c
   assert.ok(!enAvance.alertes.some((a) => a.type === 'pas-commence'));
   const datee = plan({ cours: [cours('B', PARTIEL)], chapitres: chapitres('B', 4), debuts });
   assert.ok(datee.seances.length > 0 && !datee.alertes.some((a) => a.type === 'pas-commence'), 'avec un partiel, le cours compte');
+});
+
+// ---- Vitesse d'apprentissage ----
+
+test('ta vitesse allonge (ou raccourcit) toutes les durées : lecture, révision, et ce qui manque', () => {
+  // 3 chapitres de 30 min : à la vitesse 1 on en lit deux par jour de 60 min, à la vitesse 2 un seul.
+  const base = { cours: [cours('A', PARTIEL)], chapitres: chapitres('A', 3), disponibilites: dispo(60) };
+  const normal = seancesDuJour(plan(base), AUJ);
+  assert.deepEqual(normal.map((s) => s.minutes), [30, 30]);
+  const lent = seancesDuJour(plan({ ...base, disponibilites: { ...dispo(60), vitesse: 2 } }), AUJ);
+  assert.deepEqual(lent.map((s) => s.minutes), [60], 'un chapitre de 30 min en prend 60');
+  const vite = seancesDuJour(plan({ ...base, disponibilites: { ...dispo(60), vitesse: 0.5 } }), AUJ);
+  assert.deepEqual(vite.map((s) => s.minutes), [15, 15, 15, 15].slice(0, vite.length), 'et 15 si tu vas deux fois plus vite');
+  assert.ok(vite.length >= 3);
+  assert.ok(vite.every((s) => !s.suite && s.complete && s.raison.startsWith('À découvrir')), 'à 0,5 un chapitre neuf n’est pas déjà « commencé »');
+  // Coupé par manque de temps à la vitesse 2 (60 min pour 40 par jour) : la suite est une suite.
+  const coupe = plan({ cours: [cours('A', PARTIEL)], chapitres: chapitres('A', 1), disponibilites: { ...dispo(40), vitesse: 2 } }).seances.filter((x) => x.type === 'decouverte');
+  assert.deepEqual(coupe.map((s) => [s.minutes, s.suite, s.complete]), [[40, false, false], [20, true, true]]);
+  // Une révision aussi : 30 min × 2 × 40 % = 24 → 25 ; à la vitesse 1 : 12 → 10.
+  assert.equal(dureeRevision({ dureeMin: 30 }, 2), 25);
+  assert.equal(dureeRevision({ dureeMin: 30 }), 10);
+  const rev = (v: number) => seancesDuJour(plan({ cours: [cours('A', PARTIEL)], chapitres: [chap('A', 0, { niveau: 2, derniere: '2026-11-01', prochaine: AUJ })], disponibilites: { ...dispo(60), vitesse: v } }), AUJ)[0];
+  assert.equal(rev(2).minutes, 25);
+  assert.equal(rev(1).minutes, 10);
+  // Ce qui manque avant le partiel est chiffré à ta vitesse.
+  const manque = (v: number) => plan({ cours: [cours('A', PARTIEL)], chapitres: chapitres('A', 2), disponibilites: { ...dispo(0), vitesse: v } }).alertes.find((a) => a.type === 'surcharge');
+  assert.deepEqual(manque(1), { type: 'surcharge', coursId: 'A', minutes: 60 });
+  assert.deepEqual(manque(2), { type: 'surcharge', coursId: 'A', minutes: 120 });
+  // Idem pour un dernier passage qui manque : 40 % de 30 min = 10 min, 25 min à la vitesse 2.
+  const dernierPassage = (v: number) => plan({ cours: [cours('A', '2026-11-12')], chapitres: [chap('A', 0, { niveau: 2, derniere: '2026-11-01', prochaine: '2026-11-08' })], disponibilites: { ...dispo(0), vitesse: v } }).alertes.find((a) => a.type === 'surcharge');
+  assert.deepEqual(dernierPassage(1), { type: 'surcharge', coursId: 'A', minutes: 10 });
+  assert.deepEqual(dernierPassage(2), { type: 'surcharge', coursId: 'A', minutes: 25 });
+});
+
+test('la vitesse 1 ne change rien : 47 min restent 47 min, une vitesse absurde revient dans ses bornes', () => {
+  assert.equal(dureeLecture({ dureeMin: 47 }), 47);
+  assert.equal(dureeLecture({ dureeMin: 47 }, 1), 47);
+  assert.equal(dureeLecture({ dureeMin: 40 }, 2.5), 100);
+  assert.equal(dureeLecture({ dureeMin: 40 }, 99), 100, 'plafonnée à 2,5');
+  assert.equal(dureeLecture({ dureeMin: 40 }, Number.NaN), 40, 'illisible : 1');
+  assert.equal(dureeLecture({ dureeMin: 5 }, 0.01), 5, 'jamais sous 5 min');
+  assert.equal(dureeLecture({ dureeMin: 40 }, 0.5), 20);
+});
+
+// ---- Cours en pause ----
+
+test('un cours en pause n’a ni séance ni alerte, et ne change rien au reste du calendrier', () => {
+  const sansPause = plan({ cours: [cours('A', PARTIEL)], chapitres: chapitres('A', 6), disponibilites: dispo(60) });
+  const pause = { ...cours('P', null, 1), enPause: true };
+  const avec = plan({ cours: [cours('A', PARTIEL), pause], chapitres: [...chapitres('A', 6), ...chapitres('P', 5)], disponibilites: dispo(60) });
+  assert.deepEqual(avec, sansPause, 'comme si le cours en pause n’existait pas');
+  assert.ok(!avec.seances.some((s) => s.coursId === 'P'));
+  assert.ok(!avec.alertes.some((a) => a.coursId === 'P'), 'pas même « sans date »');
+  // Remis en route, il revient (la pause est bien ce qui l’écartait).
+  const repris = plan({ cours: [cours('A', PARTIEL), { ...pause, enPause: false }], chapitres: [...chapitres('A', 6), ...chapitres('P', 5)], disponibilites: dispo(60) });
+  assert.ok(repris.seances.some((s) => s.coursId === 'P'));
+  assert.ok(repris.alertes.some((a) => a.type === 'sans-date' && a.coursId === 'P'));
+});
+
+// ---- Séance finie ou coupée, retard ----
+
+test('une lecture coupée sur plusieurs jours n’est « finie » que le dernier jour', () => {
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: [chap('A', 0, { dureeMin: 100 })], disponibilites: dispo(60) });
+  const lectures = p.seances.filter((s) => s.type === 'decouverte');
+  assert.deepEqual(lectures.map((s) => [s.minutes, s.complete]), [[60, false], [40, true]]);
+  const revision = plan({ cours: [cours('A', PARTIEL)], chapitres: [chap('A', 0, { niveau: 2, derniere: '2026-11-01', prochaine: AUJ })] }).seances[0];
+  assert.equal(revision.complete, true, 'une révision tient toujours dans sa séance');
+});
+
+test('une séance dit de combien de jours elle est en retard', () => {
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: [chap('A', 0, { niveau: 2, derniere: '2026-10-30', prochaine: '2026-11-02' }), chap('A', 1, { niveau: 2, derniere: '2026-11-02', prochaine: AUJ })], disponibilites: dispo(60) });
+  const du = seancesDuJour(p, AUJ);
+  const enRetard = du.find((s) => s.chapitreId === 'A-0')!;
+  const alHeure = du.find((s) => s.chapitreId === 'A-1')!;
+  assert.equal(enRetard.retard, 3);
+  assert.equal(enRetard.raison, 'En retard de 3 j');
+  assert.equal(alHeure.retard, 0);
+  assert.ok(p.seances.filter((s) => s.type === 'decouverte').every((s) => s.retard === 0));
+});
+
+// ---- Relecture les jours de cours ----
+
+const COURS_2H = new Map<string, number>([[AUJ, 120]]); // 2 h de cours : pas de réduction de temps
+const tousLesJours = (n: number) => new Map<string, number>(Array.from({ length: n }, (_, i): [string, number] => [ajouterJours(AUJ, i), 120]));
+const dispoRel = (m = 90, relecture = 30): Disponibilites => ({ ...dispo(m), relecture });
+/** Des chapitres déjà vus, pas dus avant la fenêtre finale : ni découverte ni révision ne les concernent. */
+const lus = (coursId: string, derniers: string[]) => derniers.map((d, i) => chap(coursId, i, { niveau: 3, derniere: d, prochaine: '2026-12-30' }));
+const relectures = (p: { seances: Seance[] }, jour?: string) => p.seances.filter((s) => s.type === 'relecture' && (jour === undefined || s.jour === jour));
+
+test('un jour de cours, 30 min de relecture : les pages les moins récemment vues, jamais plus que le bloc', () => {
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: lus('A', ['2026-10-26', '2026-10-20', '2026-10-24', '2026-10-22', '2026-10-28', '2026-10-21']), disponibilites: dispoRel(), charge: COURS_2H });
+  const du = seancesDuJour(p, AUJ);
+  assert.deepEqual(du.map((s) => s.type), ['relecture', 'relecture', 'relecture']);
+  assert.deepEqual(du.map((s) => s.chapitreId), ['A-1', 'A-5', 'A-3'], 'les plus anciennes d’abord : 20, 21 et 22 octobre');
+  assert.equal(minutesDe(p.seances, AUJ), 30);
+  assert.ok(du.every((s) => s.complete && s.retard === 0 && !s.suite));
+  assert.match(du[0].raison, /^Relecture avant le partiel \(dans 29 j\)$/);
+});
+
+test('sans cours ce jour-là, ou sans emploi du temps, ou sans minutes de relecture : aucune relecture', () => {
+  const base = { cours: [cours('A', PARTIEL)], chapitres: lus('A', ['2026-10-20', '2026-10-21', '2026-10-22']) };
+  assert.equal(relectures(plan({ ...base, disponibilites: dispoRel() })).length, 0, 'emploi du temps inconnu');
+  assert.equal(relectures(plan({ ...base, disponibilites: dispoRel(), charge: new Map([[AUJ, 0]]) })).length, 0, 'zéro minute de cours');
+  assert.equal(relectures(plan({ ...base, disponibilites: dispoRel(90, 0), charge: COURS_2H })).length, 0, 'bloc à 0');
+  assert.equal(relectures(plan({ ...base, disponibilites: dispo(90), charge: COURS_2H })).length, 0, 'réglage absent');
+  const unJour = relectures(plan({ ...base, disponibilites: dispoRel(), charge: COURS_2H }));
+  assert.ok(unJour.length > 0 && unJour.every((s) => s.jour === AUJ), 'seulement le jour de cours');
+});
+
+test('la relecture passe avant toute lecture neuve, et ce qu’elle ne remplit pas retourne à la journée', () => {
+  const premier = plan({ cours: [cours('A', PARTIEL)], chapitres: [chap('A', 0, { niveau: 3, derniere: '2026-10-25', prochaine: '2026-12-30' }), ...chapitres('A', 4, { dureeMin: 40 }).map((c) => ({ ...c, id: `N-${c.ordre}`, ordre: c.ordre + 1 }))], disponibilites: dispoRel(), charge: COURS_2H });
+  const du = seancesDuJour(premier, AUJ);
+  assert.equal(du[0].type, 'relecture');
+  assert.equal(du[0].chapitreId, 'A-0');
+  assert.ok(du.slice(1).every((s) => s.type === 'decouverte'));
+  assert.equal(minutesDe(premier.seances, AUJ), 90, 'la relecture prend 10 min, les 80 autres vont à la lecture');
+  // Rien à relire : le bloc de 30 min n'est pas perdu.
+  const neuf = plan({ cours: [cours('A', PARTIEL)], chapitres: chapitres('A', 6), disponibilites: dispoRel(), charge: COURS_2H });
+  assert.equal(relectures(neuf).length, 0);
+  assert.equal(minutesDe(neuf.seances, AUJ), 90);
+});
+
+test('la relecture ne dépasse ni son bloc ni le temps du jour', () => {
+  const chs = lus('A', ['2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25']);
+  const sur = (m: number, rel: number) => plan({ cours: [cours('A', PARTIEL)], chapitres: chs, disponibilites: dispoRel(m, rel), charge: COURS_2H });
+  assert.equal(minutesDe(relectures(sur(90, 30)).filter((s) => s.jour === AUJ), AUJ), 30);
+  assert.equal(minutesDe(relectures(sur(90, 20)).filter((s) => s.jour === AUJ), AUJ), 20, 'bloc réglé à 20');
+  assert.equal(minutesDe(relectures(sur(20, 30)).filter((s) => s.jour === AUJ), AUJ), 20, 'le temps du jour borne le bloc');
+  assert.equal(relectures(sur(5, 30)).length, 0, 'moins de 10 min : pas la peine');
+  const libre = plan({ cours: [cours('A', PARTIEL)], chapitres: chs, disponibilites: { ...dispoRel(), libres: [AUJ] }, charge: COURS_2H });
+  assert.equal(relectures(libre).length, 0, 'un jour sans étude reste sans étude');
+});
+
+test('on ne relit pas ce que le cycle demande ce jour-là (c’est la révision, notée), ni ce qu’on a touché hier', () => {
+  const du = (derniere: string, prochaine: string) => seancesDuJour(plan({ cours: [cours('A', PARTIEL)], chapitres: [chap('A', 0, { niveau: 3, derniere, prochaine })], disponibilites: dispoRel(), charge: COURS_2H }), AUJ);
+  assert.deepEqual(du('2026-10-20', AUJ).map((s) => s.type), ['revision'], 'dû aujourd’hui : révision');
+  assert.deepEqual(du('2026-10-20', '2026-11-02').map((s) => s.type), ['revision'], 'en retard : révision');
+  assert.deepEqual(du('2026-10-20', '2026-11-09').map((s) => s.type), ['relecture'], 'pas dû : relecture');
+  assert.deepEqual(du('2026-11-04', '2026-11-09').map((s) => s.type), [], 'touché hier : pas relu');
+  assert.deepEqual(du('2026-11-03', '2026-11-09').map((s) => s.type), ['relecture'], 'touché avant-hier : relu');
+  assert.deepEqual(du(AUJ, '2026-11-09').map((s) => s.type), [], 'touché aujourd’hui : pas relu');
+});
+
+test('le cours dont le partiel est le plus proche est relu en premier', () => {
+  const p = plan({
+    cours: [cours('loin', '2026-12-20', 0), cours('proche', '2026-11-16', 1)],
+    chapitres: [...lus('loin', ['2026-10-01', '2026-10-02', '2026-10-03']), ...lus('proche', ['2026-10-25', '2026-10-26', '2026-10-27'])],
+    disponibilites: dispoRel(),
+    charge: COURS_2H,
+  });
+  assert.deepEqual(seancesDuJour(p, AUJ).map((s) => s.coursId), ['proche', 'proche', 'proche'], 'même si « loin » est bien plus ancien');
+  for (const [ordreSans, ordreDate] of [[0, 1], [1, 0]]) {
+    const sansDate = plan({ cours: [cours('sans', null, ordreSans), cours('date', '2026-12-20', ordreDate), cours('tard', '2027-01-20', 2)], chapitres: [...lus('sans', ['2026-10-01']), ...lus('date', ['2026-10-25']), ...lus('tard', ['2026-10-02'])], disponibilites: dispoRel(), charge: COURS_2H });
+    assert.deepEqual(seancesDuJour(sansDate, AUJ).map((s) => s.coursId), ['date', 'tard', 'sans'], `un cours sans date passe après tous les autres (ordres ${ordreSans}/${ordreDate})`);
+  }
+});
+
+test('la relecture fait le tour des pages au lieu de reprendre toujours les mêmes', () => {
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: lus('A', ['2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24']), disponibilites: dispoRel(), charge: tousLesJours(7) });
+  const par = (j: number) => relectures(p, ajouterJours(AUJ, j)).map((s) => s.chapitreId);
+  assert.deepEqual(par(0), ['A-0', 'A-1', 'A-2']);
+  assert.deepEqual(par(1), ['A-3', 'A-4'], 'les trois d’hier sont écartées, il en reste deux');
+  assert.deepEqual(par(2), ['A-0', 'A-1', 'A-2'], 'et on recommence');
+  for (let j = 0; j < 6; j++) assert.ok(!par(j).some((id) => par(j + 1).includes(id)), `jamais la même page deux jours de suite (jour ${j})`);
+});
+
+test('relire ne fait pas avancer le cycle : la révision reste à sa date', () => {
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: [chap('A', 0, { niveau: 2, derniere: '2026-11-01', prochaine: '2026-11-08' })], disponibilites: dispoRel(), charge: COURS_2H });
+  assert.deepEqual(seancesDuJour(p, AUJ).map((s) => s.type), ['relecture']);
+  const rev = p.seances.find((s) => s.type === 'revision')!;
+  assert.equal(rev.jour, '2026-11-08');
+  assert.equal(rev.raison, 'Révision espacée (niveau 2)', 'toujours le niveau 2 : la relecture ne l’a pas monté');
+});
+
+test('un cours en pause n’est pas relu, ni un partiel passé', () => {
+  const p = plan({ cours: [{ ...cours('P', PARTIEL), enPause: true }, cours('Z', '2026-11-01', 1)], chapitres: [...lus('P', ['2026-10-20']), ...lus('Z', ['2026-10-20'])], disponibilites: dispoRel(), charge: COURS_2H });
+  assert.deepEqual(p.seances, []);
+});
+
+test('pas de relecture d’un cours après son partiel, même si un autre cours prolonge le calendrier', () => {
+  const p = plan({ cours: [cours('A', '2026-11-10'), cours('B', '2026-11-30', 1)], chapitres: [...lus('A', ['2026-10-20', '2026-10-21', '2026-10-22']), ...lus('B', ['2026-10-23'])], disponibilites: dispoRel(), charge: tousLesJours(30) });
+  const deA = relectures(p).filter((s) => s.coursId === 'A');
+  assert.ok(deA.length > 0, 'A est relu avant son partiel');
+  assert.ok(deA.every((s) => ecartJours(s.jour, '2026-11-10') >= 1), 'jamais le jour du partiel ni après');
+});
+
+test('la relecture suit ta vitesse : une page plus longue à relire en laisse moins dans le bloc', () => {
+  const chs = lus('A', ['2026-10-20', '2026-10-21', '2026-10-22']);
+  const du = (v: number) => seancesDuJour(plan({ cours: [cours('A', PARTIEL)], chapitres: chs, disponibilites: { ...dispoRel(), vitesse: v }, charge: COURS_2H }), AUJ).map((s) => s.minutes);
+  assert.deepEqual(du(1), [10, 10, 10]);
+  assert.deepEqual(du(2), [25], '30 × 2 × 40 % = 24 → 25 min ; les 5 min restantes ne valent pas une page');
+});
+
+test('une page dont on ne sait pas quand elle a été vue passe pour la plus ancienne, où qu’elle soit dans le cours', () => {
+  for (const nul of [0, 2]) {
+    const chs = [0, 1, 2].map((i) => chap('A', i, { niveau: 3, derniere: i === nul ? null : `2026-10-2${i}`, prochaine: '2026-12-30' }));
+    const p = plan({ cours: [cours('A', PARTIEL)], chapitres: chs, disponibilites: dispoRel(10), charge: COURS_2H });
+    assert.deepEqual(seancesDuJour(p, AUJ).map((s) => s.chapitreId), [`A-${nul}`], `page ${nul} sans date, 10 min : une seule page, celle-là`);
+  }
+});
+
+test('la relecture est prise sur le temps du jour : la lecture neuve n’a que le reste', () => {
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: [...lus('A', ['2026-10-20', '2026-10-21', '2026-10-22']), ...chapitres('A', 4).map((c) => ({ ...c, id: `N-${c.ordre}`, ordre: c.ordre + 3 }))], disponibilites: dispoRel(), charge: COURS_2H });
+  const du = seancesDuJour(p, AUJ);
+  assert.deepEqual(du.map((s) => s.type), ['relecture', 'relecture', 'relecture', 'decouverte', 'decouverte']);
+  assert.equal(minutesDe(p.seances, AUJ), 90, '30 de relecture + 2 chapitres de 30, pas 3 : le jour ne dépasse pas ses 90 min');
+});
+
+test('à ancienneté égale, la page la moins sue est relue d’abord', () => {
+  const vue = { derniere: '2026-10-20', prochaine: '2026-12-30' };
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: [chap('A', 0, { niveau: 4, ...vue }), chap('A', 1, { niveau: 2, ...vue }), chap('A', 2, { niveau: 3, ...vue })], disponibilites: dispoRel(), charge: COURS_2H });
+  assert.deepEqual(seancesDuJour(p, AUJ).map((s) => s.chapitreId), ['A-1', 'A-2', 'A-0']);
+});
+
+// ---- Ce qui est déjà fait aujourd'hui ----
+
+test('ce qui est déjà fait aujourd’hui compte sur le temps d’aujourd’hui : valider ne fait pas apparaître une autre séance à la place', () => {
+  // 60 min par jour, 30 déjà lues aujourd'hui (cran 1, dernier passage aujourd'hui) : il en reste 30.
+  const fait = chap('A', 0, { niveau: 1, derniere: AUJ, prochaine: '2026-11-06' });
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: [fait, ...chapitres('A', 6).slice(1).map((c) => ({ ...c, ordre: c.ordre }))], disponibilites: dispo(60) });
+  assert.equal(minutesDe(p.seances, AUJ), 30, 'une seule lecture de plus aujourd’hui');
+  const sansFait = plan({ cours: [cours('A', PARTIEL)], chapitres: chapitres('A', 6), disponibilites: dispo(60) });
+  assert.equal(minutesDe(sansFait.seances, AUJ), 60, 'sans rien de fait : deux lectures');
+  assert.ok(minutesDe(p.seances, '2026-11-06') >= 40, 'demain, la journée n’est pas rognée');
+  // Tout le temps est déjà pris : plus rien aujourd'hui, mais le calendrier continue.
+  const deux = [fait, chap('A', 1, { niveau: 1, derniere: AUJ, prochaine: '2026-11-06' }), ...chapitres('A', 6).slice(2)];
+  const plein = plan({ cours: [cours('A', PARTIEL)], chapitres: deux, disponibilites: dispo(60) });
+  assert.deepEqual(seancesDuJour(plein, AUJ), []);
+  assert.ok(plein.seances.length > 0 && plein.seances.every((s) => s.jour > AUJ));
+});
+
+test('un passage de révision déjà fait aujourd’hui coûte une durée de révision, pas de lecture', () => {
+  const revu = chap('A', 0, { dureeMin: 30, niveau: 3, derniere: AUJ, prochaine: '2026-11-12' }); // 10 min de révision
+  // Des pages neuves de 20 min : il reste 60 − 10 = 50 min, donc deux lectures (40 min), pas une seule (30 min restants si la
+  // révision était comptée comme une lecture de 30 min).
+  const neuves = (n: number, dureeMin: number) => chapitres('A', n + 1, { dureeMin }).slice(1);
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: [revu, ...neuves(6, 20)], disponibilites: dispo(60) });
+  assert.equal(minutesDe(p.seances, AUJ), 40);
+  // À la vitesse 2, la révision dure 25 min (pas 10) et une page de 10 min en demande 20 : il reste 35 min, soit une seule lecture.
+  const lent = plan({ cours: [cours('A', PARTIEL)], chapitres: [revu, ...neuves(6, 10)], disponibilites: { ...dispo(60), vitesse: 2 } });
+  assert.equal(minutesDe(lent.seances, AUJ), 20);
+  // Et une première lecture faite aujourd'hui à la vitesse 2 compte à cette vitesse : 30 min d'estimation = 60 min passées.
+  const lue = chap('A', 0, { dureeMin: 30, niveau: 1, derniere: AUJ, prochaine: '2026-11-06' });
+  const lente = plan({ cours: [cours('A', PARTIEL)], chapitres: [lue, ...neuves(6, 15)], disponibilites: { ...dispo(90), vitesse: 2 } });
+  assert.equal(minutesDe(lente.seances, AUJ), 30, '90 − 60 = 30 min : une seule page de 30 min (15 × 2)');
+});
+
+test('la journée commencée, la relecture ne revient pas après chaque validation', () => {
+  const lus3 = lus('A', ['2026-10-20', '2026-10-21', '2026-10-22']);
+  const sans = plan({ cours: [cours('A', PARTIEL)], chapitres: lus3, disponibilites: dispoRel(), charge: tousLesJours(3) });
+  assert.equal(relectures(sans, AUJ).length, 3);
+  // Une page déjà relue aujourd'hui (dernier passage aujourd'hui) : le bloc d'aujourd'hui est fait, demain il reviendra.
+  const apres = plan({ cours: [cours('A', PARTIEL)], chapitres: [{ ...lus3[0], derniere: AUJ }, lus3[1], lus3[2]], disponibilites: dispoRel(), charge: tousLesJours(3) });
+  assert.equal(relectures(apres, AUJ).length, 0);
+  assert.ok(relectures(apres, ajouterJours(AUJ, 2)).length > 0, 'les jours suivants, la relecture continue');
+});
+
+test('le temps déjà fait ne compte que pour aujourd’hui, et pas ce qui a été fait un autre jour', () => {
+  const hier = chap('A', 0, { niveau: 3, derniere: '2026-11-04', prochaine: '2026-11-20' });
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: [hier, ...chapitres('A', 4).slice(1)], disponibilites: dispo(60) });
+  assert.equal(minutesDe(p.seances, AUJ), 60, 'un travail d’hier ne mange pas la journée d’aujourd’hui');
 });

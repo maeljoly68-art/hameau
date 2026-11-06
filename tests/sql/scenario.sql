@@ -254,6 +254,24 @@ do $$ begin
   raise exception 'ÉCHEC : niveau 4 accepté';
 exception when check_violation then null; end $$;
 
+-- Déplacer = changer de case : le niveau et ce qu'il a coûté suivent ; une case prise refuse ; la base garde un bâtiment par case.
+insert into public.constructions (batiment, x, y, cout) values ('fleurs', 1, 3, 10);
+update public.constructions set x = 4, y = 4 where id = :'cid';
+do $$ begin
+  if (select x || ',' || y from public.constructions where id = current_setting('test.cid')::uuid) <> '4,4' then raise exception 'ÉCHEC : déplacement non enregistré'; end if;
+  if (select niveau from public.constructions where id = current_setting('test.cid')::uuid) <> 2 or (select cout from public.constructions where id = current_setting('test.cid')::uuid) <> 162 then raise exception 'ÉCHEC : le déplacement a touché au niveau ou au coût'; end if;
+end $$;
+do $$ begin
+  update public.constructions set x = 1, y = 3 where id = current_setting('test.cid')::uuid;
+  raise exception 'ÉCHEC : déplacement sur une case occupée accepté';
+exception when unique_violation then null; end $$;
+do $$ begin
+  if (select x || ',' || y from public.constructions where id = current_setting('test.cid')::uuid) <> '4,4' then raise exception 'ÉCHEC : un déplacement refusé a quand même bougé le bâtiment'; end if;
+end $$;
+do $$ begin update public.constructions set x = -1 where id = current_setting('test.cid')::uuid; raise exception 'ÉCHEC : case négative acceptée'; exception when check_violation then null; end $$;
+update public.constructions set x = 3, y = 3 where id = :'cid';
+delete from public.constructions where batiment = 'fleurs' and x = 1 and y = 3;
+
 -- Amis : profil public, code, ajout, classement, retrait.
 reset role;
 insert into auth.users values ('33333333-3333-3333-3333-333333333333');
@@ -430,6 +448,23 @@ do $$ begin
   if (select disponibilites->'semaine'->>0 from public.reglages_cours) <> '30' then raise exception 'ÉCHEC : retirer le flux a touché au temps disponible'; end if;
 end $$;
 update public.reglages_cours set agenda_url = 'https://monemploidutemps.unistra.fr/api/calendar/00000000-0000-0000-0000-000000000000/export';
+
+-- Migration 7 : cours en pause — un état du cours, qui ne touche ni aux chapitres ni aux notes.
+do $$ begin
+  if (select en_pause from public.cours where id = current_setting('test.cid')::uuid) is distinct from false then raise exception 'ÉCHEC : un cours neuf est en pause (ou sa pause est nulle)'; end if;
+end $$;
+select count(*) as nb_chapitres_avant from public.chapitres where cours_id = :'cid' \gset
+select set_config('test.nbch', :'nb_chapitres_avant', false) \gset
+update public.cours set en_pause = true where id = :'cid';
+do $$ begin
+  if (select en_pause from public.cours where id = current_setting('test.cid')::uuid) is distinct from true then raise exception 'ÉCHEC : pause non enregistrée'; end if;
+  if (select count(*) from public.chapitres where cours_id = current_setting('test.cid')::uuid) <> current_setting('test.nbch')::int or current_setting('test.nbch')::int = 0 then raise exception 'ÉCHEC : la pause a touché aux chapitres (ou il n''y en avait pas à vérifier)'; end if;
+end $$;
+do $$ begin update public.cours set en_pause = null where id = current_setting('test.cid')::uuid; raise exception 'ÉCHEC : pause nulle acceptée'; exception when not_null_violation then null; end $$;
+update public.cours set en_pause = false where id = :'cid';
+do $$ begin
+  if (select en_pause from public.cours where id = current_setting('test.cid')::uuid) is distinct from false then raise exception 'ÉCHEC : pause non levée'; end if;
+end $$;
 
 -- La date de modification se met à jour toute seule.
 select maj_le as avant from public.chapitres where id = :'hid' \gset

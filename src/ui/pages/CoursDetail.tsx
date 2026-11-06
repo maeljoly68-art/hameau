@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Creneau } from '../../core/agenda.ts';
 import { COULEURS_COURS, lienValide, lignesVersChapitres, maitriseCours, type Chapitre, type Cours, type NoteChapitre } from '../../core/cours.ts';
 import { estJour, jourCourt } from '../../core/jours.ts';
+import { numerosDePages } from '../../core/pages.ts';
 import { NIVEAU_MAX, NOTES, type Note } from '../../core/revision.ts';
 import { ajouterChapitres, ajouterNote, modifierChapitre, modifierCours, modifierNote, noterChapitre, remettreAZero, supprimerChapitre, supprimerCours, supprimerNote } from '../../data/cours.ts';
 import { IconeChevron, IconeCoche, IconeLien } from '../Icones.tsx';
@@ -10,13 +11,8 @@ import { BlocAgendaCours } from './Creneaux.tsx';
 export type Faire = (f: () => Promise<unknown>, message?: string) => void;
 
 /** « Lu » pour un chapitre neuf, les quatre notes pour un chapitre déjà vu. */
-export function Notation({ niveau, surNote }: { niveau: number; surNote: (n: Note) => void }) {
-  if (niveau === 0)
-    return (
-      <button className="bouton petit" onClick={() => surNote('bien')}>
-        <IconeCoche taille={14} /> Lu
-      </button>
-    );
+/** Les quatre notes d'un passage de révision : « À revoir » ramène à demain, « Facile » saute un cran. */
+export function NotesRevision({ surNote }: { surNote: (n: Note) => void }) {
   return (
     <div className="notation" role="group" aria-label="Comment s’est passée la révision ?">
       {NOTES.map((n) => (
@@ -26,6 +22,16 @@ export function Notation({ niveau, surNote }: { niveau: number; surNote: (n: Not
       ))}
     </div>
   );
+}
+
+export function Notation({ niveau, surNote }: { niveau: number; surNote: (n: Note) => void }) {
+  if (niveau === 0)
+    return (
+      <button className="bouton petit" onClick={() => surNote('bien')}>
+        <IconeCoche taille={14} /> Lu
+      </button>
+    );
+  return <NotesRevision surNote={surNote} />;
 }
 
 function Crans({ niveau }: { niveau: number }) {
@@ -147,7 +153,7 @@ function EditionChapitre({ chapitre, faire, surFermer }: { chapitre: Chapitre; f
   );
 }
 
-function LigneChapitre({ chapitre, cours, notes, aujourdhui, faire }: { chapitre: Chapitre; cours: Cours; notes: NoteChapitre[]; aujourdhui: string; faire: Faire }) {
+function LigneChapitre({ chapitre, numero, cours, notes, aujourdhui, faire }: { chapitre: Chapitre; numero: number; cours: Cours; notes: NoteChapitre[]; aujourdhui: string; faire: Faire }) {
   const [ouvert, setOuvert] = useState<'notes' | 'edition' | null>(null);
   const lien = chapitre.lien ?? cours.lien;
   const enRetard = chapitre.prochaine !== null && chapitre.prochaine <= aujourdhui;
@@ -158,7 +164,7 @@ function LigneChapitre({ chapitre, cours, notes, aujourdhui, faire }: { chapitre
         <div className="chapitre-titre">
           <strong>{chapitre.titre}</strong>
           <span className="aide">
-            {chapitre.dureeMin} min
+            Page {numero} · {chapitre.dureeMin} min
             {chapitre.niveau === 0 ? ' · à découvrir' : chapitre.derniere ? ` · vu le ${jourCourt(chapitre.derniere)}` : ''}
             {chapitre.niveau > 0 && chapitre.prochaine && <span className={enRetard ? 'retard' : undefined}> · à revoir {enRetard ? 'maintenant' : `le ${jourCourt(chapitre.prochaine)}`}</span>}
           </span>
@@ -195,6 +201,7 @@ export function PageCours({ cours, chapitres, notes, aujourdhui, faire, creneaux
   const maitrise = maitriseCours(chapitres);
   const notesDe = (id: string) => notes.filter((n) => n.chapitreId === id);
   const suivant = chapitres.reduce((m, c) => Math.max(m, c.ordre + 1), 0);
+  const numeros = numerosDePages(chapitres);
 
   return (
     <div className="page cours-detail">
@@ -221,8 +228,18 @@ export function PageCours({ cours, chapitres, notes, aujourdhui, faire, creneaux
             <span style={{ width: `${maitrise}%`, background: cours.couleur }} />
           </span>
           <span className="aide">
-            Maîtrise : <strong>{maitrise} %</strong> · {chapitres.filter((c) => c.niveau >= 1).length} / {chapitres.length} chapitres vus
+            Maîtrise : <strong>{maitrise} %</strong> · {chapitres.filter((c) => c.niveau >= 1).length} / {chapitres.length} pages vues
           </span>
+        </div>
+        <div className="ligne-pause">
+          <button
+            className={cours.enPause ? 'bouton petit' : 'bouton petit discret'}
+            aria-pressed={cours.enPause}
+            onClick={() => faire(() => modifierCours(cours.id, { enPause: !cours.enPause }), cours.enPause ? 'Cours remis au calendrier.' : 'Cours en pause : il sort du calendrier, rien n’est perdu.')}
+          >
+            {cours.enPause ? 'Remettre au calendrier' : 'Mettre en pause'}
+          </button>
+          <span className="aide petite">{cours.enPause ? 'En pause : ni séance, ni alerte, ni partiel affiché.' : 'En pause, un cours reste ici mais sort du calendrier.'}</span>
         </div>
         <div className="deux">
           <label>
@@ -273,7 +290,7 @@ export function PageCours({ cours, chapitres, notes, aujourdhui, faire, creneaux
         {chapitres.length === 0 && <p className="aide">Aucun chapitre. Colle la liste ci-dessous, un par ligne.</p>}
         <ol className="chapitres">
           {chapitres.map((ch) => (
-            <LigneChapitre key={ch.id} chapitre={ch} cours={cours} notes={notesDe(ch.id)} aujourdhui={aujourdhui} faire={faire} />
+            <LigneChapitre key={ch.id} chapitre={ch} numero={numeros.get(ch.id) ?? 0} cours={cours} notes={notesDe(ch.id)} aujourdhui={aujourdhui} faire={faire} />
           ))}
         </ol>
       </section>

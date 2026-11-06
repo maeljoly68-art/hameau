@@ -120,6 +120,15 @@ export function depotLocal(): Depot {
     async demolir(id) {
       modifier((d) => void (d.constructions = d.constructions.filter((c) => c.id !== id)));
     },
+    async deplacer(id, x, y) {
+      modifier((d) => {
+        const c = d.constructions.find((k) => k.id === id);
+        if (!c) throw new Error('Ce bâtiment n’existe plus.');
+        if (d.constructions.some((k) => k.id !== id && k.x === x && k.y === y)) throw new Error('Case déjà occupée');
+        c.x = x;
+        c.y = y;
+      });
+    },
     async enregistrerProfil(p) {
       modifier((d) => void (d.profil = p));
     },

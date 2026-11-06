@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DISPONIBILITES_DEFAUT, DUREE_DEFAUT_MIN, REDUCTION_DEFAUT, REDUCTION_MAX, disponibilitesValides, dureeValide, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, type Chapitre } from '../src/core/cours.ts';
+import { DISPONIBILITES_DEFAUT, DUREE_DEFAUT_MIN, REDUCTION_DEFAUT, REDUCTION_MAX, RELECTURE_MAX, VITESSE_MAX, VITESSE_MIN, disponibilitesValides, dureeValide, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, type Chapitre } from '../src/core/cours.ts';
 
 const ch = (niveau: number): Chapitre => ({ id: String(niveau), coursId: 'c', titre: 't', ordre: 0, dureeMin: 20, niveau, derniere: null, prochaine: null, lien: null });
 
@@ -72,4 +72,25 @@ test('la réduction les jours de cours : celle qui est enregistrée si elle est 
   assert.equal(disponibilitesValides({ reduction: 33.4 }).reduction, 33);
   for (const v of [REDUCTION_MAX + 1, -1, Number.NaN, Infinity, 'beaucoup', null, undefined]) assert.equal(disponibilitesValides({ reduction: v }).reduction, REDUCTION_DEFAUT, String(v));
   assert.equal(disponibilitesValides({ semaine: [1, 2, 3, 4, 5, 6, 7] }).reduction, REDUCTION_DEFAUT, 'réglages d’avant l’emploi du temps');
+});
+
+test('la relecture des jours de cours : en minutes entières, de 0 au plafond, sinon 0 (pas de relecture)', () => {
+  assert.equal(disponibilitesValides({ relecture: 30 }).relecture, 30);
+  assert.equal(disponibilitesValides({ relecture: 0 }).relecture, 0);
+  assert.equal(disponibilitesValides({ relecture: RELECTURE_MAX }).relecture, RELECTURE_MAX);
+  assert.equal(disponibilitesValides({ relecture: 29.6 }).relecture, 30);
+  for (const v of [RELECTURE_MAX + 1, -1, Number.NaN, Infinity, 'trente', null, undefined]) assert.equal(disponibilitesValides({ relecture: v }).relecture, 0, String(v));
+  assert.equal(disponibilitesValides({ semaine: [1, 2, 3, 4, 5, 6, 7] }).relecture, 0, 'réglages d’avant la relecture');
+});
+
+test('la vitesse d’apprentissage : bornée, arrondie au centième, 1 si elle n’a pas de sens', () => {
+  assert.equal(disponibilitesValides({ vitesse: 1.3 }).vitesse, 1.3);
+  assert.equal(disponibilitesValides({ vitesse: 0.754 }).vitesse, 0.75);
+  assert.equal(disponibilitesValides({ vitesse: 99 }).vitesse, VITESSE_MAX);
+  assert.equal(disponibilitesValides({ vitesse: 0.01 }).vitesse, VITESSE_MIN);
+  assert.equal(disponibilitesValides({ vitesse: VITESSE_MIN }).vitesse, VITESSE_MIN);
+  for (const v of [Number.NaN, Infinity, -Infinity, 'vite', null, undefined]) assert.equal(disponibilitesValides({ vitesse: v }).vitesse, 1, String(v));
+  assert.equal(disponibilitesValides({ semaine: [1, 2, 3, 4, 5, 6, 7] }).vitesse, 1, 'réglages d’avant la vitesse');
+  assert.equal(DISPONIBILITES_DEFAUT.vitesse, 1);
+  assert.equal(DISPONIBILITES_DEFAUT.relecture, 0, 'par défaut : pas de relecture imposée');
 });

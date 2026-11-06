@@ -5,11 +5,15 @@
 // l'état réel des chapitres. Un plan gardé en base finirait par ne plus
 // correspondre à ce qu'on a vraiment fait (deux sources de vérité).
 import type { Chapitre, Cours, Disponibilites } from './cours.ts';
-import { MINUTES_JOUR_MAX, REDUCTION_DEFAUT, REDUCTION_MAX } from './cours.ts';
+import { MINUTES_JOUR_MAX, REDUCTION_DEFAUT, REDUCTION_MAX, RELECTURE_MAX, vitesseValide } from './cours.ts';
 import { ajouterJours, ecartJours, estJour, jourSemaine } from './jours.ts';
 import { ECART_JOURS, NIVEAU_MAX, niveauValide } from './revision.ts';
 
-export type TypeSeance = 'decouverte' | 'revision' | 'consolidation';
+/**
+ * `relecture` : un passage sans note sur un chapitre déjà vu des cours les plus proches de leur partiel, les jours
+ * de cours (voir `Disponibilites.relecture`). Il ne touche pas au cycle : seul un passage noté le fait avancer.
+ */
+export type TypeSeance = 'decouverte' | 'revision' | 'consolidation' | 'relecture';
 
 export interface Seance {
   jour: string;
@@ -21,6 +25,13 @@ export interface Seance {
   raison: string;
   /** Suite d'une lecture commencée un autre jour : le chapitre ne tenait pas dans une seule séance. */
   suite: boolean;
+  /**
+   * La séance finit le chapitre. Faux pour une lecture coupée (le reste vient un autre jour) : la cocher ne
+   * doit pas faire passer le chapitre pour lu.
+   */
+  complete: boolean;
+  /** Jours de retard sur l'échéance du cycle (0 : à l'heure, ou séance sans échéance). */
+  retard: number;
 }
 
 export type Alerte =
@@ -66,6 +77,8 @@ export const JOURS_AVANT_DEBUT = 28;
 /** Jusqu'à 4 h de cours dans la journée, le temps de révision ne bouge pas ; à 8 h, il est réduit au maximum. */
 export const SEUIL_COURS = 240;
 export const PLEIN_COURS = 480;
+/** Un chapitre n'est relu (sans note) que s'il n'a pas été touché depuis au moins ce nombre de jours : relire hier puis aujourd'hui n'apprend rien de plus. */
+export const RELECTURE_ECART_MIN = 2;
 
 /**
  * Minutes de révision possibles ce jour-là. Après huit heures de cours on n'a plus
@@ -83,8 +96,17 @@ export function capaciteDuJour(d: Disponibilites, jour: string, minutesDeCours =
   return Math.round((base * (1 - reduction * part)) / 5) * 5;
 }
 
-export function dureeRevision(c: Pick<Chapitre, 'dureeMin'>): number {
-  return Math.max(REVISION_MIN, Math.round((c.dureeMin * RATIO_REVISION) / 5) * 5);
+/**
+ * Minutes pour lire un chapitre en entier, à TA vitesse : l'estimation tirée de la taille des pages, multipliée
+ * par `vitesse` (1 = l'estimation telle quelle, 1,3 = tu mets 30 % de plus). Arrondie à la minute : avec la
+ * vitesse 1, une durée de 47 min reste 47 min.
+ */
+export function dureeLecture(c: Pick<Chapitre, 'dureeMin'>, vitesse = 1): number {
+  return Math.max(5, Math.round(c.dureeMin * vitesseValide(vitesse)));
+}
+
+export function dureeRevision(c: Pick<Chapitre, 'dureeMin'>, vitesse = 1): number {
+  return Math.max(REVISION_MIN, Math.round((c.dureeMin * vitesseValide(vitesse) * RATIO_REVISION) / 5) * 5);
 }
 
 interface Suivi {
@@ -106,10 +128,19 @@ export function planifier(entree: EntreePlan): Plan {
   const alertes: Alerte[] = [];
   const libres = new Set(disponibilites.libres);
   const capacite = (jour: string) => capaciteDuJour(disponibilites, jour, charge?.get(jour) ?? 0, libres);
+  const vitesse = vitesseValide(disponibilites.vitesse);
+  // Ce qui est déjà fait aujourd'hui compte sur le temps d'aujourd'hui. Sans cela, valider une séance libérerait
+  // du temps et une autre apparaîtrait à sa place : la journée ne finirait jamais. Le plan n'étant pas stocké, on
+  // estime à partir des chapitres travaillés aujourd'hui : une première lecture (cran 1) coûte sa durée de
+  // lecture, tout autre passage (révision, relecture) une durée de révision.
+  const minutesFaites = chapitres.reduce((t, ch) => (ch.derniere === aujourdhui ? t + (niveauValide(ch.niveau) === 1 ? dureeLecture(ch, vitesse) : dureeRevision(ch, vitesse)) : t), 0);
+  const relecture = typeof disponibilites.relecture === 'number' && Number.isFinite(disponibilites.relecture) ? Math.min(RELECTURE_MAX, Math.max(0, Math.round(disponibilites.relecture))) : 0;
 
   // Seuls comptent les cours dont le partiel est à venir (ou sans date).
   const actifs = cours
     .filter((c) => {
+      // Un cours en pause reste dans la liste mais n'a ni séance ni alerte : on ne le travaille pas, on ne s'en inquiète pas.
+      if (c.enPause) return false;
       if (c.partiel !== null && !estJour(c.partiel)) return false;
       if (c.partiel !== null && ecartJours(aujourdhui, c.partiel) < 0) {
         alertes.push({ type: 'partiel-passe', coursId: c.id });
@@ -143,7 +174,7 @@ export function planifier(entree: EntreePlan): Plan {
           ch,
           niveau,
           prochaine: niveau >= 1 ? (ch.prochaine && estJour(ch.prochaine) ? ch.prochaine : aujourdhui) : null,
-          restant: niveau === 0 ? Math.max(5, ch.dureeMin) : 0,
+          restant: niveau === 0 ? dureeLecture(ch, vitesse) : 0,
           // Déjà passé en revue dans la fenêtre finale, pour de vrai : pas besoin de le refaire.
           dernierFait: debutFenetre !== null && niveau >= 1 && ch.derniere !== null && estJour(ch.derniere) && ecartJours(debutFenetre, ch.derniere) >= 0,
           vuLe: ch.derniere !== null && estJour(ch.derniere) ? ch.derniere : null,
@@ -174,6 +205,17 @@ export function planifier(entree: EntreePlan): Plan {
     let dispo = 0;
     for (let j = jour; ecartJours(j, limite) >= 0; j = ajouterJours(j, 1)) dispo += capacite(j);
     return Math.min(3, 1 + aLire / Math.max(1, dispo * 0.6));
+  };
+
+  /** Jour à partir duquel un chapitre vu est dû : son échéance du cycle, ramenée au début de la fenêtre finale s'il n'a pas eu son dernier passage. */
+  const echeanceDe = (c: Cours, s: Suivi, jour: string): string => {
+    let echeance = s.prochaine ?? jour;
+    // Un dernier passage est dû dès l'entrée dans la fenêtre finale, même si le cycle dirait « plus tard ».
+    if (c.partiel !== null && !s.dernierFait) {
+      const debut = ajouterJours(c.partiel, -FENETRE_FINALE);
+      if (ecartJours(debut, echeance) > 0) echeance = debut;
+    }
+    return echeance;
   };
 
   interface Choix {
@@ -217,12 +259,7 @@ export function planifier(entree: EntreePlan): Plan {
           if (s.restant > reste && s.restant <= capaMax && presse < 1.5) continue;
           candidat = { score: urgence * 1.6 * presse, cours: c, suivi: s, type: 'decouverte', retard: 0, avant };
         } else {
-          let echeance = s.prochaine ?? jour;
-          // Un dernier passage est dû dès l'entrée dans la fenêtre finale, même si le cycle dirait « plus tard ».
-          if (c.partiel !== null && !s.dernierFait) {
-            const debut = ajouterJours(c.partiel, -FENETRE_FINALE);
-            if (ecartJours(debut, echeance) > 0) echeance = debut;
-          }
+          const echeance = echeanceDe(c, s, jour);
           if (ecartJours(echeance, jour) < 0) continue;
           const retard = ecartJours(echeance, jour);
           const final = avant !== null && avant <= FENETRE_FINALE && !s.dernierFait;
@@ -236,19 +273,65 @@ export function planifier(entree: EntreePlan): Plan {
     return best;
   };
 
+  /**
+   * Les chapitres à relire ce jour-là, du plus important au moins important : le partiel le plus proche d'abord,
+   * puis ce qui n'a pas été touché depuis le plus longtemps (pour que la relecture fasse le tour au lieu de
+   * reprendre toujours les mêmes), puis le moins su. Jamais un chapitre que le cycle demande ce jour-là — c'est
+   * la révision, notée, qui le prend — ni un chapitre touché la veille ou le jour même.
+   */
+  const aRelire = (jour: string) => {
+    const liste: { s: Suivi; c: Cours; avant: number | null }[] = [];
+    for (const c of actifs) {
+      const avant = c.partiel === null ? null : ecartJours(jour, c.partiel);
+      if (avant !== null && avant <= 0) continue;
+      for (const s of parCours.get(c.id)!) {
+        if (s.niveau < 1) continue;
+        if (s.vuLe !== null && ecartJours(s.vuLe, jour) < RELECTURE_ECART_MIN) continue;
+        if (ecartJours(echeanceDe(c, s, jour), jour) >= 0) continue;
+        liste.push({ s, c, avant });
+      }
+    }
+    return liste.sort((a, b) => {
+      const ea = a.avant ?? Infinity;
+      const eb = b.avant ?? Infinity;
+      if (ea !== eb) return ea < eb ? -1 : 1;
+      const va = a.s.vuLe ?? '';
+      const vb = b.s.vuLe ?? '';
+      if (va !== vb) return va < vb ? -1 : 1;
+      return a.s.niveau - b.s.niveau || a.c.ordre - b.c.ordre || a.s.ch.ordre - b.s.ch.ordre || a.s.ch.id.localeCompare(b.s.ch.id);
+    });
+  };
+
   for (let jour = aujourdhui; ecartJours(jour, fin) >= 0; jour = ajouterJours(jour, 1)) {
-    let reste = capacite(jour);
+    const faites = jour === aujourdhui ? minutesFaites : 0;
+    // Négatif si on a déjà fait plus que le temps du jour : il n'y a alors plus rien à planifier aujourd'hui.
+    let reste = capacite(jour) - faites;
+    // Les jours de cours, un bloc de relecture passe AVANT toute lecture neuve. Ce qu'il ne remplit pas
+    // (rien à relire encore) retourne à la journée : le bloc est réservé, pas perdu. Une fois la journée
+    // commencée (quelque chose de fait), il n'est plus proposé : il ne revient pas après chaque validation.
+    if (relecture > 0 && reste > 0 && faites === 0 && (charge?.get(jour) ?? 0) > 0) {
+      let budget = Math.min(relecture, reste);
+      for (const { s, c, avant } of aRelire(jour)) {
+        const minutes = Math.min(dureeRevision(s.ch, vitesse), budget);
+        if (minutes < CRENEAU_MIN) break;
+        seances.push({ jour, coursId: c.id, chapitreId: s.ch.id, type: 'relecture', minutes, raison: avant === null ? 'Relecture' : `Relecture avant le partiel (dans ${avant} j)`, suite: false, complete: true, retard: 0 });
+        s.vuLe = jour;
+        reste -= minutes;
+        budget -= minutes;
+        if (budget < CRENEAU_MIN) break;
+      }
+    }
     while (reste >= CRENEAU_MIN) {
       const choix = meilleur(jour, reste);
       if (!choix) break;
       const { cours: c, suivi: s, type, retard, avant } = choix;
-      const dejaCommence = s.restant < Math.max(5, s.ch.dureeMin);
-      const minutes = type === 'decouverte' ? Math.min(s.restant, reste) : Math.min(dureeRevision(s.ch), reste);
+      const dejaCommence = s.restant < dureeLecture(s.ch, vitesse);
+      const minutes = type === 'decouverte' ? Math.min(s.restant, reste) : Math.min(dureeRevision(s.ch, vitesse), reste);
       let raison: string;
       if (type === 'decouverte') raison = dejaCommence ? 'Suite de la lecture' : avant === null ? 'À découvrir' : `À découvrir avant le partiel (dans ${avant} j)`;
       else if (type === 'consolidation') raison = 'Dernier passage avant le partiel';
       else raison = retard > 0 ? `En retard de ${retard} j` : `Révision espacée (niveau ${s.niveau})`;
-      seances.push({ jour, coursId: c.id, chapitreId: s.ch.id, type, minutes, raison, suite: type === 'decouverte' && dejaCommence });
+      seances.push({ jour, coursId: c.id, chapitreId: s.ch.id, type, minutes, raison, suite: type === 'decouverte' && dejaCommence, complete: type !== 'decouverte' || minutes >= s.restant, retard });
       reste -= minutes;
       s.vuLe = jour;
       if (type === 'decouverte') {
@@ -272,7 +355,7 @@ export function planifier(entree: EntreePlan): Plan {
     let manque = 0;
     for (const s of parCours.get(c.id)!) {
       if (s.niveau === 0) manque += s.restant;
-      else if (!s.dernierFait) manque += dureeRevision(s.ch);
+      else if (!s.dernierFait) manque += dureeRevision(s.ch, vitesse);
     }
     if (manque > 0) alertes.push({ type: 'surcharge', coursId: c.id, minutes: manque });
   }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CATALOGUE, FEU, refusConstruction, solde, tailleTerrain } from '../src/core/village.ts';
+import { CATALOGUE, FEU, casesDeplacement, refusConstruction, refusDeplacement, solde, tailleTerrain } from '../src/core/village.ts';
 import { construction, session } from './aide.ts';
 
 test('le solde = points gagnés − coûts PAYÉS, pas les prix du catalogue', () => {
@@ -106,4 +106,48 @@ test('les messages s’accordent avec le nom du bâtiment', () => {
   assert.equal(accord(batiment('moulin'), 'démoli'), 'démoli');
   assert.equal(accord(batiment('tour'), 'amélioré'), 'améliorée');
   assert.equal(accord(undefined, 'construit'), 'construit');
+});
+
+test('déplacer : seule compte la case — libre, dans le terrain, ni le feu ni un autre bâtiment ni la sienne', () => {
+  const a = construction('arbre', 0, 0, 15);
+  const b = construction('cabane', 1, 0, 40);
+  const etat = { niveau: 1, constructions: [a, b] };
+  assert.equal(refusDeplacement(a, 0, 1, etat), null, 'case libre');
+  assert.equal(refusDeplacement(a, 4, 4, etat), null, 'dernière case du terrain de départ');
+  assert.equal(refusDeplacement(a, 1, 0, etat), 'occupee', 'un autre bâtiment');
+  assert.equal(refusDeplacement(a, 0, 0, etat), 'occupee', 'sa propre case n’est pas une destination');
+  assert.equal(refusDeplacement(a, FEU.x, FEU.y, etat), 'occupee', 'le feu de camp');
+  assert.equal(refusDeplacement(a, 5, 0, etat), 'hors-terrain');
+  assert.equal(refusDeplacement(a, 0, 5, etat), 'hors-terrain');
+  assert.equal(refusDeplacement(a, -1, 0, etat), 'hors-terrain');
+  assert.equal(refusDeplacement(a, 0, -1, etat), 'hors-terrain');
+  assert.equal(refusDeplacement(a, 1.5, 0, etat), 'hors-terrain');
+  assert.equal(refusDeplacement(a, Number.NaN, 0, etat), 'hors-terrain');
+  // Le terrain grandit avec le niveau : la case (5, 0) n'existe qu'à partir du niveau 3.
+  assert.equal(refusDeplacement(a, 5, 0, { ...etat, niveau: 3 }), null);
+  // Libérer une case la rend disponible : sans b, (1, 0) est libre.
+  assert.equal(refusDeplacement(a, 1, 0, { niveau: 1, constructions: [a] }), null);
+  // Son bâtiment n'est plus dans la liste (supprimé ailleurs) : sa case reste refusée, ce n'est pas un déplacement.
+  assert.equal(refusDeplacement(a, 0, 0, { niveau: 1, constructions: [] }), 'occupee');
+});
+
+test('déplacer ne coûte rien ni ne demande de niveau : le village le plus petit suffit, même à court de points', () => {
+  const moulin = construction('moulin', 0, 1, 200, 3);
+  assert.equal(refusDeplacement(moulin, 1, 1, { niveau: 1, constructions: [moulin] }), null);
+});
+
+test('les cases proposées pour un déplacement : exactement les libres, ni la sienne ni le feu', () => {
+  const a = construction('arbre', 0, 0, 15);
+  const etat = { niveau: 1, constructions: [a, construction('cabane', 1, 0, 40), construction('fleurs', 3, 3, 10)] };
+  const cases = casesDeplacement(a, etat);
+  const t = tailleTerrain(1);
+  assert.equal(cases.size, t * t - 1 /* feu */ - 3 /* les trois bâtiments, le sien compris */);
+  for (const interdite of ['0,0', '1,0', '3,3', `${FEU.x},${FEU.y}`, '5,0', '-1,0']) assert.ok(!cases.has(interdite), interdite);
+  for (const libre of ['0,1', '4,4', '2,3']) assert.ok(cases.has(libre), libre);
+  assert.equal(casesDeplacement(a, { ...etat, niveau: 3 }).size, 6 * 6 - 1 - 3);
+});
+
+test('« déplacé » s’accorde avec le nom du bâtiment', () => {
+  assert.equal(accord(CATALOGUE.find((b) => b.id === 'cabane'), 'déplacé'), 'déplacée');
+  assert.equal(accord(CATALOGUE.find((b) => b.id === 'arbre'), 'déplacé'), 'déplacé');
 });

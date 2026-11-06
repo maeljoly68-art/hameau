@@ -9,10 +9,11 @@ import { meilleureSerie, minutesAujourdhui, serie } from '../core/stats.ts';
 import { nouveauxSucces, succes as calculerSucces } from '../core/succes.ts';
 import { cleJour, formatChrono, formatDuree } from '../core/temps.ts';
 import type { Construction, Session } from '../core/types.ts';
-import { accord, batiment, coutAmelioration, habitants, NIVEAU_MAX, niveauRequisAmelioration, refusAmelioration, refusConstruction, tailleTerrain, type Batiment } from '../core/village.ts';
+import { accord, batiment, casesDeplacement, coutAmelioration, habitants, NIVEAU_MAX, niveauRequisAmelioration, refusAmelioration, refusConstruction, tailleTerrain, type Batiment } from '../core/village.ts';
 import type { Depot } from '../data/depot.ts';
 import { lireLocal } from '../data/local.ts';
-import { noterChapitre } from '../data/cours.ts';
+import { marquerRelu, noterChapitres, validerLectureEtVitesse } from '../data/cours.ts';
+import type { TypeSeance } from '../core/planning.ts';
 import { NOTES, type Note } from '../core/revision.ts';
 import { lienSillage, marquerTache, synchroniser, type LienSillage } from '../data/sillage.ts';
 import type { TacheSillage } from '../core/sillage.ts';
@@ -31,6 +32,36 @@ import { Dessin, SaisonContexte } from './village/dessins.tsx';
 
 // Les onglets secondaires ne sont chargés qu'à la première visite : l'écran
 // d'ouverture n'a besoin que du village et du chrono.
+/** La séance de travail en cours qui vient d'un bloc du calendrier (gardée sur l'appareil jusqu'à la fin de la session). */
+interface ChapitreEnCours {
+  session: string;
+  chapitreIds: string[];
+  termines: string[];
+  titre: string;
+  type: TypeSeance;
+  minutes: number;
+}
+/** Avant les blocs de pages : un seul chapitre, noté à la fin. Une session lancée juste avant la mise à jour doit pouvoir finir. */
+interface AncienChapitreEnCours {
+  session: string;
+  chapitreId: string;
+  titre: string;
+}
+/** Ce que la fenêtre de fin de séance demande de valider. */
+interface ATraiter {
+  chapitreIds: string[];
+  termines: string[];
+  titre: string;
+  type: TypeSeance;
+  prevues: number;
+  /** Minutes réellement passées (pauses déduites), ou null. */
+  reelles: number | null;
+}
+const aTraiter = (c: ChapitreEnCours | AncienChapitreEnCours, reelles: number | null): ATraiter =>
+  'chapitreIds' in c
+    ? { chapitreIds: c.chapitreIds, termines: c.termines, titre: c.titre, type: c.type, prevues: c.minutes, reelles }
+    : { chapitreIds: [c.chapitreId], termines: [c.chapitreId], titre: c.titre, type: 'revision', prevues: 0, reelles };
+
 const chargerHistorique = () => import('./pages/Historique.tsx');
 const chargerStatistiques = () => import('./pages/Statistiques.tsx');
 const chargerReglages = () => import('./pages/Reglages.tsx');
@@ -223,6 +254,8 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
   const [finEnCours, setFinEnCours] = useState(false);
   const [focus, setFocus] = useState(false);
   const [aConstruire, setAConstruire] = useState<Batiment | null>(null);
+  // Un bâtiment « soulevé » : on choisit sa nouvelle case, sans rien payer.
+  const [aDeplacer, setADeplacer] = useState<Construction | null>(null);
   const [boutique, setBoutique] = useState(false);
   const [selection, setSelection] = useState<Construction | null>(null);
   const [recent, setRecent] = useState<string | null>(null);
@@ -362,6 +395,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
   }, [donnees]);
 
   const posables = useMemo(() => {
+    if (aDeplacer && derive && donnees) return casesDeplacement(aDeplacer, { niveau: derive.niveau.niveau, constructions: donnees.constructions });
     if (!aConstruire || !derive || !donnees) return undefined;
     const t = tailleTerrain(derive.niveau.niveau);
     const s = new Set<string>();
@@ -369,7 +403,9 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       for (let x = 0; x < t; x++)
         if (refusConstruction(aConstruire.id, x, y, { niveau: derive.niveau.niveau, solde: derive.solde, constructions: donnees.constructions }) === null) s.add(`${x},${y}`);
     return s;
-  }, [aConstruire, derive, donnees]);
+  }, [aConstruire, aDeplacer, derive, donnees]);
+  // Pendant un déplacement, le bâtiment soulevé disparaît de sa case (et revient si l'on annule).
+  const constructionsVisibles = useMemo(() => (donnees && aDeplacer ? donnees.constructions.filter((c) => c.id !== aDeplacer.id) : donnees?.constructions), [donnees, aDeplacer]);
 
   const demarrer = useCallback((categorie: string, objectif: number | null) => void agir(() => depot.demarrer(categorie, objectif)), [agir, depot]);
 
@@ -389,18 +425,19 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       }),
     [agir, depot, toast],
   );
-  // Lancer le chrono SUR un chapitre : la catégorie est le cours, la durée prévue
-  // devient l'objectif, et le lien est retenu pour proposer la note à la fin.
-  const [aNoter, setANoter] = useState<{ chapitreId: string; titre: string } | null>(null);
+  // Lancer le chrono SUR une page (ou un bloc de pages) : la catégorie est le cours, la durée prévue
+  // devient l'objectif, et le lien est retenu pour proposer de valider la séance à la fin.
+  const [aNoter, setANoter] = useState<ATraiter | null>(null);
   const lancerChapitre = useCallback(
     (l: LancerChapitre) => {
       if (enCours) return toast('Une session tourne déjà : termine-la d’abord.');
       void agir(async () => {
         const s = await depot.demarrer(l.titreCours, Math.min(600, Math.max(5, l.minutes)));
-        ecrirePreference('hameau.chapitre-en-cours', { session: s.id, chapitreId: l.chapitreId, titre: l.titreChapitre });
+        const lien: ChapitreEnCours = { session: s.id, chapitreIds: l.chapitreIds, termines: l.termines, titre: l.titre, type: l.type, minutes: l.minutes };
+        ecrirePreference('hameau.chapitre-en-cours', lien);
       }).then(() => {
         setOnglet('village');
-        toast(`Session lancée : ${l.titreChapitre}`);
+        toast(`Session lancée : ${l.titre}`);
       });
     },
     [agir, depot, enCours, toast],
@@ -422,6 +459,20 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       });
     },
     [aConstruire, agir, depot, toast],
+  );
+
+  const deplacerVers = useCallback(
+    (x: number, y: number) => {
+      if (!aDeplacer) return;
+      const c = aDeplacer;
+      const b = batiment(c.batiment);
+      setADeplacer(null);
+      void agir(() => depot.deplacer(c.id, x, y)).then(() => {
+        toast(`${b?.nom ?? c.batiment} ${accord(b, 'déplacé')}.`, { action: { libelle: 'Annuler', faire: () => void agir(() => depot.deplacer(c.id, c.x, c.y)) } });
+        setRecent(`${x},${y}`);
+      });
+    },
+    [aDeplacer, agir, depot, toast],
   );
 
   // Supprimer et démolir s'annulent pendant quelques secondes, plutôt que de
@@ -557,7 +608,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
               <div className="col-scene">
                 <CadreVillage
                   niveau={niveau.niveau}
-                  constructions={donnees.constructions}
+                  constructions={constructionsVisibles ?? donnees.constructions}
                   actif={enCours !== null && !enPause(enCours)}
                   ciel={ciel}
                   saison={saison}
@@ -568,17 +619,24 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                   }}
                   fete={fete}
                   posables={posables}
-                  fantome={aConstruire?.id}
+                  fantome={aConstruire?.id ?? aDeplacer?.batiment}
                   recent={recentId}
-                  surCase={poser}
+                  surCase={aDeplacer ? deplacerVers : poser}
                   surConstruction={setSelection}
                   pied={
-                    aConstruire ? (
+                    aConstruire || aDeplacer ? (
                       <div className="bandeau">
                         <span>
-                          Touche une case en surbrillance pour poser : <strong>{aConstruire.nom}</strong>
+                          Touche une case en surbrillance pour {aDeplacer ? 'déplacer' : 'poser'} : <strong>{aConstruire?.nom ?? batiment(aDeplacer!.batiment)?.nom}</strong>
+                          {aDeplacer && ' (gratuit)'}
                         </span>
-                        <button className="bouton petit discret" onClick={() => setAConstruire(null)}>
+                        <button
+                          className="bouton petit discret"
+                          onClick={() => {
+                            setAConstruire(null);
+                            setADeplacer(null);
+                          }}
+                        >
                           Annuler
                         </button>
                       </div>
@@ -613,7 +671,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                     )
                   }
                 />
-                {gardeRobe && !aConstruire && progression && (
+                {gardeRobe && !aConstruire && !aDeplacer && progression && (
                   <GardeRobe
                     apparence={profil.apparence}
                     progression={progression}
@@ -622,7 +680,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                     surFermer={() => setGardeRobe(false)}
                   />
                 )}
-                {boutique && !aConstruire && (
+                {boutique && !aConstruire && !aDeplacer && (
                   <Boutique
                     niveau={niveau.niveau}
                     solde={solde}
@@ -757,13 +815,15 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
             const tache = tacheDe(enCours);
             // Le gain affiché est celui que la base retiendra : pauses déduites.
             const gain = pointsSession(dureeSession(clore(enCours, champs.fin)));
-            const chapitre = lirePreference<{ session: string; chapitreId: string; titre: string } | null>('hameau.chapitre-en-cours', null);
+            const chapitre = lirePreference<ChapitreEnCours | AncienChapitreEnCours | null>('hameau.chapitre-en-cours', null);
+            // Le temps réel, pauses déduites : c'est lui qui précise ta vitesse (null : la session n'a pas de durée).
+            const reelles = dureeSession(clore(enCours, champs.fin));
             void agir(() => depot.terminer(enCours.id, champs)).then(() => {
               toast(gain > 0 ? `+${gain} points de concentration` : 'Session enregistrée.');
               ecrirePreference('hameau.tache-en-cours', null);
               ecrirePreference('hameau.chapitre-en-cours', null);
               // Le chapitre travaillé : on propose de le noter tout de suite, c'est là que la mémoire est fraîche.
-              if (chapitre && chapitre.session === enCours.id) setANoter({ chapitreId: chapitre.chapitreId, titre: chapitre.titre });
+              if (chapitre && chapitre.session === enCours.id) setANoter(aTraiter(chapitre, reelles));
               if (tache && tacheFaite)
                 marquerTache(tache.tacheId, true).then(
                     () => toast(`« ${tache.titre} » faite dans Sillage`, { type: 'succes' }),
@@ -778,8 +838,20 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
         <div className="voile" role="dialog" aria-modal="true" onClick={() => setSelection(null)}>
           <div className="fenetre" onClick={(e) => e.stopPropagation()}>
             <FicheBatiment construction={choisie} niveauVillage={niveau.niveau} solde={solde} saison={saison} surAmeliorer={ameliorer} />
-            <p className="aide">Démolir rend tous les points dépensés, améliorations comprises : c’est aussi la façon de déplacer un bâtiment.</p>
+            <p className="aide">Déplacer ne coûte rien : le niveau et les points investis suivent. Démolir rend tous les points dépensés, améliorations comprises.</p>
             <div className="actions">
+              <button
+                className="bouton"
+                onClick={() => {
+                  setSelection(null);
+                  setBoutique(false);
+                  setGardeRobe(false);
+                  setAConstruire(null);
+                  setADeplacer(choisie);
+                }}
+              >
+                Déplacer
+              </button>
               <button
                 className="bouton danger"
                 onClick={() => {
@@ -798,33 +870,88 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       )}
 
       {aNoter && (
-        <div className="voile" role="dialog" aria-modal="true" aria-label="Noter le chapitre" onClick={() => setANoter(null)}>
+        <div className="voile" role="dialog" aria-modal="true" aria-label="Valider la séance" onClick={() => setANoter(null)}>
           <div className="fenetre" onClick={(e) => e.stopPropagation()}>
-            <h2>Comment s’est passé « {aNoter.titre} » ?</h2>
-            <p className="aide">Ta note règle quand le chapitre revient dans le calendrier. Sur une première lecture, elle n’y change rien : le chapitre est simplement marqué lu.</p>
-            <div className="notation grande" role="group" aria-label="Note du chapitre">
-              {NOTES.map((n) => (
-                <button
-                  key={n.id}
-                  className={`note note-${n.id}`}
-                  onClick={() => {
-                    const c = aNoter;
-                    setANoter(null);
-                    noterChapitre(c.chapitreId, n.id as Note, cleJour(new Date())).then(
-                      () => toast('Noté : le calendrier est recalculé.'),
-                      (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
-                    );
-                  }}
-                >
-                  {n.nom}
-                </button>
-              ))}
-            </div>
-            <div className="actions">
-              <button className="bouton discret" onClick={() => setANoter(null)}>
-                Plus tard
-              </button>
-            </div>
+            {aNoter.type === 'decouverte' ? (
+              <>
+                <h2>Tu as fini « {aNoter.titre} » ?</h2>
+                <p className="aide">
+                  {aNoter.reelles !== null ? `Tu y as passé ${formatDuree(aNoter.reelles)} pour ${formatDuree(aNoter.prevues)} prévues. ` : ''}
+                  Valider marque ces pages comme lues : elles reviennent demain, puis de plus en plus espacées. Le temps réel précise ta vitesse de lecture, donc les durées des prochaines séances.
+                </p>
+                <div className="actions">
+                  <button className="bouton discret" onClick={() => setANoter(null)}>
+                    Plus tard
+                  </button>
+                  <button
+                    className="bouton"
+                    disabled={!depot.userId || aNoter.termines.length === 0}
+                    onClick={() => {
+                      const c = aNoter;
+                      setANoter(null);
+                      if (!depot.userId) return;
+                      validerLectureEtVitesse(depot.userId, c.termines, cleJour(new Date()), { reelles: c.reelles, prevues: c.prevues }).then(
+                        () => toast('Séance validée : à revoir demain.'),
+                        (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
+                      );
+                    }}
+                  >
+                    Valider les pages
+                  </button>
+                </div>
+              </>
+            ) : aNoter.type === 'relecture' ? (
+              <>
+                <h2>Tu as relu « {aNoter.titre} » ?</h2>
+                <p className="aide">Une relecture n’a pas de note : on retient seulement le jour, pour que la prochaine fasse le tour des autres pages.</p>
+                <div className="actions">
+                  <button className="bouton discret" onClick={() => setANoter(null)}>
+                    Plus tard
+                  </button>
+                  <button
+                    className="bouton"
+                    onClick={() => {
+                      const c = aNoter;
+                      setANoter(null);
+                      marquerRelu(c.chapitreIds, cleJour(new Date())).then(
+                        () => toast('Relu : noté.'),
+                        (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
+                      );
+                    }}
+                  >
+                    Relu
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>Comment s’est passé « {aNoter.titre} » ?</h2>
+                <p className="aide">Ta note règle quand ces pages reviennent dans le calendrier : « À revoir » demain, « Difficile » plus tôt, « Facile » plus tard.</p>
+                <div className="notation grande" role="group" aria-label="Note de la séance">
+                  {NOTES.map((n) => (
+                    <button
+                      key={n.id}
+                      className={`note note-${n.id}`}
+                      onClick={() => {
+                        const c = aNoter;
+                        setANoter(null);
+                        noterChapitres(c.chapitreIds, n.id as Note, cleJour(new Date())).then(
+                          () => toast('Noté : le calendrier est recalculé.'),
+                          (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
+                        );
+                      }}
+                    >
+                      {n.nom}
+                    </button>
+                  ))}
+                </div>
+                <div className="actions">
+                  <button className="bouton discret" onClick={() => setANoter(null)}>
+                    Plus tard
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

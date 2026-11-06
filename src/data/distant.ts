@@ -202,6 +202,13 @@ export function depotDistant(obtenir: () => Promise<SupabaseClient>, userId: str
       const sb = await obtenir();
       echec(await sb.from('constructions').delete().eq('id', id));
     },
+    async deplacer(id, x, y) {
+      const sb = await obtenir();
+      const r = await sb.from('constructions').update({ x, y }).eq('id', id).select('id');
+      if (r.error?.code === '23505') throw new Error('Cette case vient d’être occupée depuis un autre appareil.');
+      echec(r);
+      if (!r.data?.length) throw new Error('Ce bâtiment n’existe plus : recharge le village.');
+    },
     async enregistrerProfil(p: Profil) {
       const sb = await obtenir();
       const base = { user_id: userId, nom_hameau: p.nomHameau, objectif_jour: p.objectifJour, maj_le: new Date().toISOString() };
