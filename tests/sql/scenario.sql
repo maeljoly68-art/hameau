@@ -400,6 +400,37 @@ do $$ begin insert into public.reglages_cours (disponibilites) values ('[1,2]');
 insert into public.notes_chapitres (chapitre_id, texte, citation) values (:'hid', 'À retenir : 100 associés au plus en SARL', 'L223-3');
 insert into public.reglages_cours (disponibilites) values ('{"semaine":[60,60,60,60,60,90,90],"libres":[]}');
 
+-- Migration 6 : emploi du temps — l'adresse du flux (un secret) et les mots qui rattachent ses créneaux à chaque cours.
+do $$ begin
+  if (select motifs from public.cours where id = current_setting('test.cid')::uuid) is distinct from '' then raise exception 'ÉCHEC : mots d''un cours neuf non vides (ou nuls)'; end if;
+  if (select agenda_url from public.reglages_cours) is not null then raise exception 'ÉCHEC : adresse du flux non vide par défaut'; end if;
+end $$;
+update public.cours set motifs = 'droit spécial des sociétés, SAE droit des sociétés' where id = :'cid';
+update public.reglages_cours set agenda_url = 'https://monemploidutemps.unistra.fr/api/calendar/00000000-0000-0000-0000-000000000000/export';
+do $$ begin
+  if (select motifs from public.cours where id = current_setting('test.cid')::uuid) <> 'droit spécial des sociétés, SAE droit des sociétés' then raise exception 'ÉCHEC : mots du cours non enregistrés'; end if;
+  if (select agenda_url from public.reglages_cours) <> 'https://monemploidutemps.unistra.fr/api/calendar/00000000-0000-0000-0000-000000000000/export' then raise exception 'ÉCHEC : adresse du flux non enregistrée'; end if;
+end $$;
+do $$ begin update public.reglages_cours set agenda_url = 'http://exemple.fr/cal.ics'; raise exception 'ÉCHEC : flux en http accepté'; exception when check_violation then null; end $$;
+do $$ begin update public.reglages_cours set agenda_url = 'javascript:alert(1)'; raise exception 'ÉCHEC : flux javascript accepté'; exception when check_violation then null; end $$;
+do $$ begin update public.reglages_cours set agenda_url = 'https://exemple.fr/un lien'; raise exception 'ÉCHEC : flux avec une espace accepté'; exception when check_violation then null; end $$;
+do $$ begin update public.reglages_cours set agenda_url = 'https://exemple.fr/' || repeat('x', 500); raise exception 'ÉCHEC : flux de plus de 500 caractères accepté'; exception when check_violation then null; end $$;
+do $$ begin update public.cours set motifs = repeat('x', 301) where id = current_setting('test.cid')::uuid; raise exception 'ÉCHEC : mots de plus de 300 caractères acceptés'; exception when check_violation then null; end $$;
+-- Enregistrer le temps disponible (upsert de l'application) ne doit pas effacer l'adresse du flux.
+insert into public.reglages_cours (user_id, disponibilites) values (auth.uid(), '{"semaine":[30,30,30,30,30,30,30],"libres":[],"reduction":50}'::jsonb)
+  on conflict (user_id) do update set disponibilites = excluded.disponibilites, maj_le = now();
+do $$ begin
+  if (select agenda_url from public.reglages_cours) is null then raise exception 'ÉCHEC : l''enregistrement du temps disponible a effacé l''adresse du flux'; end if;
+  if (select disponibilites->>'reduction' from public.reglages_cours) <> '50' then raise exception 'ÉCHEC : réduction non enregistrée'; end if;
+end $$;
+-- Retirer le flux : l'adresse s'efface sans toucher au reste.
+update public.reglages_cours set agenda_url = null;
+do $$ begin
+  if (select agenda_url from public.reglages_cours) is not null then raise exception 'ÉCHEC : adresse du flux non effaçable'; end if;
+  if (select disponibilites->'semaine'->>0 from public.reglages_cours) <> '30' then raise exception 'ÉCHEC : retirer le flux a touché au temps disponible'; end if;
+end $$;
+update public.reglages_cours set agenda_url = 'https://monemploidutemps.unistra.fr/api/calendar/00000000-0000-0000-0000-000000000000/export';
+
 -- La date de modification se met à jour toute seule.
 select maj_le as avant from public.chapitres where id = :'hid' \gset
 select set_config('test.avant', :'avant', false) \gset

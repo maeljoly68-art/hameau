@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import type { Creneau } from '../../core/agenda.ts';
 import { COULEURS_COURS, lienValide, lignesVersChapitres, maitriseCours, type Chapitre, type Cours, type NoteChapitre } from '../../core/cours.ts';
 import { estJour, jourCourt } from '../../core/jours.ts';
 import { NIVEAU_MAX, NOTES, type Note } from '../../core/revision.ts';
 import { ajouterChapitres, ajouterNote, modifierChapitre, modifierCours, modifierNote, noterChapitre, remettreAZero, supprimerChapitre, supprimerCours, supprimerNote } from '../../data/cours.ts';
 import { IconeChevron, IconeCoche, IconeLien } from '../Icones.tsx';
+import { BlocAgendaCours } from './Creneaux.tsx';
 
 export type Faire = (f: () => Promise<unknown>, message?: string) => void;
 
@@ -184,7 +186,8 @@ function LigneChapitre({ chapitre, cours, notes, aujourdhui, faire }: { chapitre
   );
 }
 
-export function PageCours({ cours, chapitres, notes, aujourdhui, faire, retour }: { cours: Cours; chapitres: Chapitre[]; notes: NoteChapitre[]; aujourdhui: string; faire: Faire; retour: () => void }) {
+/** `creneaux` : les cours de cette matière dans l'emploi du temps, ou null tant qu'aucun emploi du temps n'est branché. */
+export function PageCours({ cours, chapitres, notes, aujourdhui, faire, creneaux, retour }: { cours: Cours; chapitres: Chapitre[]; notes: NoteChapitre[]; aujourdhui: string; faire: Faire; creneaux: readonly Creneau[] | null; retour: () => void }) {
   const [titre, setTitre] = useState(cours.titre);
   const [lien, setLien] = useState(cours.lien ?? '');
   const [message, setMessage] = useState<string | null>(null);
@@ -259,6 +262,8 @@ export function PageCours({ cours, chapitres, notes, aujourdhui, faire, retour }
         </form>
         {message && <p className="alerte douce">{message}</p>}
       </section>
+
+      {creneaux && <BlocAgendaCours cours={cours} creneaux={creneaux} aujourdhui={aujourdhui} faire={faire} />}
 
       <section className="carte">
         <div className="entete">

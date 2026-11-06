@@ -1,7 +1,7 @@
 // Cours, chapitres, notes, temps disponible : lecture et écriture dans Supabase.
 // Réservé au compte : le calendrier doit être le même sur le téléphone, l'iPad
 // et le PC, ce qu'un stockage sur l'appareil ne ferait pas.
-import { disponibilitesValides, dureeValide, type Chapitre, type Cours, type Disponibilites, type DonneesCours, type NoteChapitre } from '../core/cours.ts';
+import { disponibilitesValides, dureeValide, lienValide, type Chapitre, type Cours, type Disponibilites, type DonneesCours, type NoteChapitre } from '../core/cours.ts';
 import { estJour } from '../core/jours.ts';
 import { apresRevision, niveauValide, type Note } from '../core/revision.ts';
 import { client } from './config.ts';
@@ -14,6 +14,8 @@ interface LigneCours {
   partiel: string | null;
   lien: string | null;
   ordre: number;
+  /** Absente tant que la migration de l'emploi du temps n'est pas passée. */
+  motifs?: string | null;
 }
 interface LigneChapitre {
   id: string;
@@ -34,7 +36,7 @@ interface LigneNote {
   cree_le: string;
 }
 
-const versCours = (l: LigneCours): Cours => ({ id: l.id, titre: l.titre, couleur: l.couleur, partiel: l.partiel && estJour(l.partiel) ? l.partiel : null, lien: l.lien, ordre: l.ordre });
+const versCours = (l: LigneCours): Cours => ({ id: l.id, titre: l.titre, couleur: l.couleur, partiel: l.partiel && estJour(l.partiel) ? l.partiel : null, lien: l.lien, ordre: l.ordre, motifs: typeof l.motifs === 'string' ? l.motifs : '' });
 const versChapitre = (l: LigneChapitre): Chapitre => ({
   id: l.id,
   coursId: l.cours_id,
@@ -57,6 +59,8 @@ interface ErreurBase {
 function erreur(e: ErreurBase): Error {
   // Table inconnue : la migration des cours n'est pas encore passée.
   if (e.code === 'PGRST205' || e.code === '42P01') return new Error(MESSAGE_MIGRATION);
+  // Colonne inconnue : la migration de l'emploi du temps n'est pas encore passée.
+  if (e.code === 'PGRST204' || e.code === '42703') return new Error(MESSAGE_MIGRATION);
   if (e.code === '23514') return new Error('Une valeur n’est pas acceptée (titre vide, durée hors limites, adresse qui ne commence pas par https…).');
   return new Error(e.message);
 }
@@ -82,10 +86,11 @@ export async function chargerCours(): Promise<DonneesCours> {
     toutLire<LigneCours>((de, a) => sb.from('cours').select('*').order('ordre').order('cree_le').order('id').range(de, a)),
     toutLire<LigneChapitre>((de, a) => sb.from('chapitres').select('*').order('cours_id').order('ordre').order('id').range(de, a)),
     toutLire<LigneNote>((de, a) => sb.from('notes_chapitres').select('*').order('cree_le').order('id').range(de, a)),
-    sb.from('reglages_cours').select('disponibilites').maybeSingle<{ disponibilites: unknown }>(),
+    // « * » : la colonne de l'adresse du flux n'existe qu'après la migration de l'emploi du temps, et son absence ne doit rien casser.
+    sb.from('reglages_cours').select('*').maybeSingle<{ disponibilites: unknown; agenda_url?: string | null }>(),
   ]);
   echec(r);
-  return { cours: c.map(versCours), chapitres: h.map(versChapitre), notes: n.map(versNote), disponibilites: disponibilitesValides(r.data?.disponibilites) };
+  return { cours: c.map(versCours), chapitres: h.map(versChapitre), notes: n.map(versNote), disponibilites: disponibilitesValides(r.data?.disponibilites), agendaLien: lienValide(r.data?.agenda_url ?? '') };
 }
 
 export interface ChampsCours {
@@ -94,6 +99,8 @@ export interface ChampsCours {
   partiel: string | null;
   lien: string | null;
   ordre: number;
+  /** Les mots qui rattachent les créneaux de l'emploi du temps à ce cours. */
+  motifs?: string;
 }
 
 export async function ajouterCours(c: Omit<ChampsCours, 'ordre'> & { ordre: number }, chapitres: { titre: string; dureeMin: number }[]): Promise<void> {
@@ -188,6 +195,12 @@ export async function enregistrerDisponibilites(userId: string, d: Disponibilite
   echec(await sb.from('reglages_cours').upsert({ user_id: userId, disponibilites: d, maj_le: new Date().toISOString() }));
 }
 
+/** L'adresse du flux d'emploi du temps (null pour la retirer). Un upsert qui ne touche qu'à cette colonne : le temps disponible reste. */
+export async function enregistrerAgendaLien(userId: string, lien: string | null): Promise<void> {
+  const sb = await client();
+  echec(await sb.from('reglages_cours').upsert({ user_id: userId, agenda_url: lien, maj_le: new Date().toISOString() }));
+}
+
 /** Prévient quand un cours, un chapitre ou une note change ailleurs (autre appareil, autre onglet). */
 export function ecouterCours(userId: string, rappel: () => void): () => void {
   let fini = false;
@@ -224,7 +237,14 @@ export function lireCacheCours(userId: string): DonneesCours | null {
     if (!brut) return null;
     const d = JSON.parse(brut) as Partial<DonneesCours>;
     if (!Array.isArray(d.cours) || !Array.isArray(d.chapitres) || !Array.isArray(d.notes)) return null;
-    return { cours: d.cours, chapitres: d.chapitres, notes: d.notes, disponibilites: disponibilitesValides(d.disponibilites) };
+    // Un cache écrit avant l'emploi du temps n'a ni mots de cours ni adresse du flux : on les complète.
+    return {
+      cours: d.cours.map((c) => ({ ...c, motifs: typeof c.motifs === 'string' ? c.motifs : '' })),
+      chapitres: d.chapitres,
+      notes: d.notes,
+      disponibilites: disponibilitesValides(d.disponibilites),
+      agendaLien: lienValide(typeof d.agendaLien === 'string' ? d.agendaLien : ''),
+    };
   } catch {
     return null;
   }

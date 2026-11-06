@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DISPONIBILITES_DEFAUT, DUREE_DEFAUT_MIN, disponibilitesValides, dureeValide, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, type Chapitre } from '../src/core/cours.ts';
+import { DISPONIBILITES_DEFAUT, DUREE_DEFAUT_MIN, REDUCTION_DEFAUT, REDUCTION_MAX, disponibilitesValides, dureeValide, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, type Chapitre } from '../src/core/cours.ts';
 
 const ch = (niveau: number): Chapitre => ({ id: String(niveau), coursId: 'c', titre: 't', ordre: 0, dureeMin: 20, niveau, derniere: null, prochaine: null, lien: null });
 
@@ -63,4 +63,13 @@ test('adresse d’artefact : https seulement', () => {
   assert.equal(lienValide('javascript:alert(1)'), null);
   assert.equal(lienValide('https://a b'), null);
   assert.equal(lienValide(''), null);
+});
+
+test('la réduction les jours de cours : celle qui est enregistrée si elle est valable, sinon la valeur par défaut', () => {
+  assert.equal(disponibilitesValides({ reduction: 30 }).reduction, 30);
+  assert.equal(disponibilitesValides({ reduction: 0 }).reduction, 0, '0 % est un vrai choix');
+  assert.equal(disponibilitesValides({ reduction: REDUCTION_MAX }).reduction, REDUCTION_MAX);
+  assert.equal(disponibilitesValides({ reduction: 33.4 }).reduction, 33);
+  for (const v of [REDUCTION_MAX + 1, -1, Number.NaN, Infinity, 'beaucoup', null, undefined]) assert.equal(disponibilitesValides({ reduction: v }).reduction, REDUCTION_DEFAUT, String(v));
+  assert.equal(disponibilitesValides({ semaine: [1, 2, 3, 4, 5, 6, 7] }).reduction, REDUCTION_DEFAUT, 'réglages d’avant l’emploi du temps');
 });

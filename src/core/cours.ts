@@ -11,6 +11,8 @@ export interface Cours {
   /** L'artefact d'origine (adresse), pour l'ouvrir depuis Hameau. */
   lien: string | null;
   ordre: number;
+  /** Les mots qui rattachent les créneaux de l'emploi du temps à ce cours (« droit spécial des sociétés, SAE droit… »). */
+  motifs: string;
 }
 
 export interface Chapitre {
@@ -41,6 +43,11 @@ export interface Disponibilites {
   semaine: number[];
   /** Jours précis sans travail (« AAAA-MM-JJ ») : vacances, week-end chargé. */
   libres: string[];
+  /**
+   * Part du temps retirée les journées pleines de cours (de 0 à 90 %, atteinte à 8 h de cours).
+   * Absente des réglages enregistrés avant l'emploi du temps : la valeur par défaut s'applique alors.
+   */
+  reduction?: number;
 }
 
 export interface DonneesCours {
@@ -48,6 +55,8 @@ export interface DonneesCours {
   chapitres: Chapitre[];
   notes: NoteChapitre[];
   disponibilites: Disponibilites;
+  /** Adresse du flux d'emploi du temps de l'université ; c'est un secret (quiconque l'a lit l'emploi du temps). */
+  agendaLien: string | null;
 }
 
 export const DUREE_DEFAUT_MIN = 20;
@@ -57,8 +66,12 @@ export const MINUTES_JOUR_MAX = 720;
 export const MAX_LIBRES = 366;
 export const MAX_CHAPITRES_PAR_AJOUT = 100;
 
+/** Moitié moins de temps pour huit heures de cours : un point de départ, réglable. */
+export const REDUCTION_DEFAUT = 50;
+export const REDUCTION_MAX = 90;
+
 /** Une heure en semaine, une heure et demie le week-end : un point de départ, à régler. */
-export const DISPONIBILITES_DEFAUT: Disponibilites = { semaine: [60, 60, 60, 60, 60, 90, 90], libres: [] };
+export const DISPONIBILITES_DEFAUT: Disponibilites = { semaine: [60, 60, 60, 60, 60, 90, 90], libres: [], reduction: REDUCTION_DEFAUT };
 
 /** Teintes des étiquettes de cours, assez écartées pour se distinguer sur un calendrier. */
 export const COULEURS_COURS = ['#6b8afd', '#ff9f5a', '#4fd1a5', '#e873a8', '#b98cf2', '#f2c14e', '#5ec7e8', '#a3d65c'] as const;
@@ -77,7 +90,9 @@ export function disponibilitesValides(brut: unknown): Disponibilites {
     return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MINUTES_JOUR_MAX ? Math.round(v) : defaut;
   });
   const libres = Array.isArray(o.libres) ? [...new Set(o.libres.filter(estJour))].sort().slice(0, MAX_LIBRES) : [];
-  return { semaine, libres };
+  const r = o.reduction;
+  const reduction = typeof r === 'number' && r >= 0 && r <= REDUCTION_MAX ? Math.round(r) : REDUCTION_DEFAUT;
+  return { semaine, libres, reduction };
 }
 
 /** Maîtrise moyenne d'un cours, de 0 à 100 : chaque chapitre pèse pareil, quelle que soit sa durée. */

@@ -2,13 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DISPONIBILITES_DEFAUT, type Chapitre, type Cours, type Disponibilites } from '../src/core/cours.ts';
 import { ajouterJours, ecartJours, jourSemaine } from '../src/core/jours.ts';
-import { FENETRE_FINALE, JOURS_SANS_NOUVEAU, dureeRevision, planifier, resumeParJour, seancesDuJour, type EntreePlan, type Seance } from '../src/core/planning.ts';
+import { FENETRE_FINALE, JOURS_AVANT_DEBUT, JOURS_SANS_NOUVEAU, PLEIN_COURS, SEUIL_COURS, capaciteDuJour, dureeRevision, planifier, resumeParJour, seancesDuJour, type EntreePlan, type Seance } from '../src/core/planning.ts';
 
 const AUJ = '2026-11-05'; // jeudi
 const PARTIEL = '2026-12-04'; // vendredi, 29 jours plus tard : celui du plan de révision de Droit des sociétés
 
 const dispo = (m: number, libres: string[] = []): Disponibilites => ({ semaine: [m, m, m, m, m, m, m], libres });
-const cours = (id: string, partiel: string | null, ordre = 0): Cours => ({ id, titre: id, couleur: '#6b8afd', partiel, lien: null, ordre });
+const cours = (id: string, partiel: string | null, ordre = 0): Cours => ({ id, titre: id, couleur: '#6b8afd', partiel, lien: null, ordre, motifs: '' });
 const chap = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}-${ordre}`, coursId, titre: `Ch ${ordre}`, ordre, dureeMin: 30, niveau: 0, derniere: null, prochaine: null, lien: null, ...extra });
 const chapitres = (coursId: string, n: number, extra: Partial<Chapitre> = {}) => Array.from({ length: n }, (_, i) => chap(coursId, i, extra));
 const plan = (e: Partial<EntreePlan> & Pick<EntreePlan, 'cours' | 'chapitres'>) => planifier({ disponibilites: dispo(60), aujourdhui: AUJ, ...e });
@@ -230,4 +230,86 @@ test('mais quand le temps presse, on coupe plutôt que de perdre un jour', () =>
   // Partiel dans 7 jours, beaucoup à lire : mieux vaut lire une moitié de fiche aujourd'hui que rien.
   const p = plan({ cours: [cours('A', '2026-11-12')], chapitres: chapitres('A', 12, { dureeMin: 20 }), disponibilites: dispo(30) });
   assert.ok(p.seances.some((s) => s.type === 'decouverte' && s.suite), 'au moins une lecture reprise le lendemain');
+});
+
+// ── Emploi du temps : les jours de cours et les cours qui n'ont pas commencé ──
+
+test('le temps d’un jour baisse avec les heures de cours : progressivement, jusqu’à la réduction réglée', () => {
+  const d = (reduction?: number): Disponibilites => ({ semaine: [60, 60, 60, 60, 60, 90, 90], libres: ['2026-11-11'], ...(reduction === undefined ? {} : { reduction }) });
+  const cap = (jour: string, minutesDeCours: number, reduction?: number) => capaciteDuJour(d(reduction), jour, minutesDeCours);
+  const VENDREDI = '2026-11-06';
+  assert.equal(cap(VENDREDI, 0, 50), 60);
+  assert.equal(cap(VENDREDI, SEUIL_COURS, 50), 60, 'jusqu’à 4 h de cours, rien ne change');
+  assert.equal(cap(VENDREDI, (SEUIL_COURS + PLEIN_COURS) / 2, 50), 45, 'à mi-chemin, la moitié de la réduction');
+  assert.equal(cap(VENDREDI, SEUIL_COURS + 30, 50), 55, 'une demi-heure de plus ne fait pas tomber la journée : 60 − 60 × 50 % × 30/240 = 56,25 → 55');
+  assert.equal(cap(VENDREDI, PLEIN_COURS, 50), 30);
+  // En minutes réelles, pour que le réglage annoncé (4 h → 8 h) ne dérive pas avec les constantes.
+  assert.deepEqual([240, 300, 360, 420, 480].map((m) => cap(VENDREDI, m, 50)), [60, 55, 45, 40, 30]);
+  assert.equal(cap(VENDREDI, 700, 50), 30, 'au-delà de 8 h, la réduction ne grandit plus');
+  assert.equal(cap(VENDREDI, PLEIN_COURS, 0), 60, 'à 0 %, le réglage de la semaine est respecté');
+  assert.equal(cap(VENDREDI, PLEIN_COURS, 90), 5, '90 % de 60 min : 6 min, arrondis aux 5 min');
+  assert.equal(cap(VENDREDI, PLEIN_COURS), 30, 'sans réglage enregistré : la valeur par défaut');
+  assert.equal(cap('2026-11-08', PLEIN_COURS, 50), 45, 'le dimanche, 90 → 45');
+  assert.equal(cap('2026-11-11', PLEIN_COURS, 50), 0, 'un jour sans étude reste sans étude');
+  // Réglage non multiple de 5 : rendu tel quel sans cours, arrondi aux 5 min avec.
+  const bizarre: Disponibilites = { semaine: [47, 47, 47, 47, 47, 47, 47], libres: [], reduction: 50 };
+  assert.equal(capaciteDuJour(bizarre, VENDREDI, 0), 47);
+  assert.equal(capaciteDuJour(bizarre, VENDREDI, SEUIL_COURS), 47);
+  assert.equal(capaciteDuJour(bizarre, VENDREDI, PLEIN_COURS), 25);
+});
+
+test('le calendrier ne dépasse jamais le temps d’un jour de cours, et en met moins qu’un jour libre', () => {
+  const charge = new Map([['2026-11-06', 480], ['2026-11-12', 360], ['2026-11-13', 480]]);
+  const d: Disponibilites = { ...dispo(60), reduction: 50 };
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: chapitres('A', 14), disponibilites: d, charge });
+  for (const [jour, minutesDeCours] of charge) {
+    const cap = capaciteDuJour(d, jour, minutesDeCours);
+    assert.ok(minutesDe(p.seances, jour) <= cap, `${jour} : ${minutesDe(p.seances, jour)} min pour ${cap} possibles`);
+    assert.ok(minutesDe(p.seances, jour) > 0, `${jour} : de quoi travailler quand même`);
+  }
+  assert.equal(minutesDe(p.seances, '2026-11-07'), 60, 'le samedi sans cours est plein');
+  const sans = plan({ cours: [cours('A', PARTIEL)], chapitres: chapitres('A', 14), disponibilites: d });
+  const avant = (ps: Seance[]) => ps.filter((x) => x.jour < '2026-11-16').reduce((t, x) => t + x.minutes, 0);
+  assert.ok(avant(p.seances) < avant(sans.seances), 'moins de temps planifié ces deux premières semaines');
+});
+
+test('un jour trop chargé pour un créneau utile reste vide', () => {
+  const p = plan({ cours: [cours('A', PARTIEL)], chapitres: chapitres('A', 6), disponibilites: { ...dispo(60), reduction: 90 }, charge: new Map([['2026-11-06', 480]]) });
+  assert.equal(minutesDe(p.seances, '2026-11-06'), 0, '5 minutes ne valent pas qu’on s’y installe');
+  assert.ok(minutesDe(p.seances, '2026-11-07') > 0);
+});
+
+test('sans emploi du temps, ou avec des jours de moins de 4 h, le calendrier est celui d’avant', () => {
+  const base = { cours: [cours('A', PARTIEL), cours('B', '2026-11-20', 1)], chapitres: [...chapitres('A', 8), ...chapitres('B', 5)] };
+  const sansRien = plan(base);
+  assert.deepEqual(plan({ ...base, charge: new Map() }), sansRien);
+  const legers = new Map<string, number>();
+  for (let j = AUJ; ecartJours(j, PARTIEL) >= 0; j = ajouterJours(j, 1)) legers.set(j, SEUIL_COURS);
+  assert.deepEqual(plan({ ...base, charge: legers }), sansRien);
+  assert.deepEqual(plan({ ...base, debuts: new Map() }), sansRien);
+});
+
+test('un cours sans partiel qui n’a pas commencé n’est pas planifié, et ne réclame pas de date', () => {
+  const debut = ajouterJours(AUJ, 60);
+  const p = plan({ cours: [cours('A', PARTIEL), cours('B', null, 1)], chapitres: [...chapitres('A', 6), ...chapitres('B', 6)], debuts: new Map([['B', debut]]) });
+  assert.ok(p.seances.length > 0 && p.seances.every((s) => s.coursId === 'A'));
+  assert.deepEqual(p.alertes.filter((a) => a.coursId === 'B'), [{ type: 'pas-commence', coursId: 'B', debut }]);
+});
+
+test('un mois avant son premier cours, il entre dans le calendrier', () => {
+  const avec = (n: number) => plan({ cours: [cours('B', null)], chapitres: chapitres('B', 4), debuts: new Map([['B', ajouterJours(AUJ, n)]]) });
+  assert.ok(avec(JOURS_AVANT_DEBUT).seances.length > 0, 'à 28 jours : on commence à le préparer');
+  assert.deepEqual(avec(JOURS_AVANT_DEBUT).alertes, [{ type: 'sans-date', coursId: 'B' }]);
+  assert.equal(avec(JOURS_AVANT_DEBUT + 1).seances.length, 0, 'à 29 jours : pas encore');
+  assert.ok(avec(0).seances.length > 0, 'un cours qui commence aujourd’hui');
+  assert.ok(avec(-100).seances.length > 0, 'un cours commencé depuis longtemps');
+});
+
+test('lire un chapitre en avance, ou avoir une date de partiel, fait entrer un cours pas commencé', () => {
+  const debuts = new Map([['B', ajouterJours(AUJ, 90)]]);
+  const enAvance = plan({ cours: [cours('B', null)], chapitres: [chap('B', 0, { niveau: 1, derniere: AUJ, prochaine: ajouterJours(AUJ, 1) }), chap('B', 1)], debuts });
+  assert.ok(enAvance.seances.some((s) => s.coursId === 'B'), 'déjà un chapitre lu');
+  assert.ok(!enAvance.alertes.some((a) => a.type === 'pas-commence'));
+  const datee = plan({ cours: [cours('B', PARTIEL)], chapitres: chapitres('B', 4), debuts });
+  assert.ok(datee.seances.length > 0 && !datee.alertes.some((a) => a.type === 'pas-commence'), 'avec un partiel, le cours compte');
 });

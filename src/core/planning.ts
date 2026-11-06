@@ -5,7 +5,7 @@
 // l'état réel des chapitres. Un plan gardé en base finirait par ne plus
 // correspondre à ce qu'on a vraiment fait (deux sources de vérité).
 import type { Chapitre, Cours, Disponibilites } from './cours.ts';
-import { MINUTES_JOUR_MAX } from './cours.ts';
+import { MINUTES_JOUR_MAX, REDUCTION_DEFAUT, REDUCTION_MAX } from './cours.ts';
 import { ajouterJours, ecartJours, estJour, jourSemaine } from './jours.ts';
 import { ECART_JOURS, NIVEAU_MAX, niveauValide } from './revision.ts';
 
@@ -28,7 +28,9 @@ export type Alerte =
   | { type: 'surcharge'; coursId: string; minutes: number }
   /** Pas de date de partiel : le cours n'a pas d'échéance, donc pas d'urgence. */
   | { type: 'sans-date'; coursId: string }
-  | { type: 'partiel-passe'; coursId: string };
+  | { type: 'partiel-passe'; coursId: string }
+  /** Le cours n'a pas commencé et n'a pas de partiel : il n'est pas planifié avant le mois qui précède son premier cours. */
+  | { type: 'pas-commence'; coursId: string; debut: string };
 
 export interface Plan {
   seances: Seance[];
@@ -41,6 +43,10 @@ export interface EntreePlan {
   disponibilites: Disponibilites;
   /** « AAAA-MM-JJ » : l'horloge n'est jamais lue ici. */
   aujourdhui: string;
+  /** Minutes de cours de chaque jour (emploi du temps) : un jour chargé laisse moins de temps de révision. Absent : on ne sait rien des cours. */
+  charge?: ReadonlyMap<string, number>;
+  /** Premier jour de cours de chaque matière (par identifiant), quand l'emploi du temps le dit. */
+  debuts?: ReadonlyMap<string, string>;
 }
 
 /** Aucune lecture nouvelle dans les derniers jours : on consolide, on n'apprend plus. */
@@ -55,6 +61,27 @@ export const CRENEAU_MIN = 10;
 /** Les cours sans date : on regarde quatre semaines devant, pas plus. */
 export const HORIZON_SANS_DATE = 28;
 const HORIZON_MAX = 180;
+/** Un cours sans partiel se prépare le mois qui précède son premier cours, pas avant. */
+export const JOURS_AVANT_DEBUT = 28;
+/** Jusqu'à 4 h de cours dans la journée, le temps de révision ne bouge pas ; à 8 h, il est réduit au maximum. */
+export const SEUIL_COURS = 240;
+export const PLEIN_COURS = 480;
+
+/**
+ * Minutes de révision possibles ce jour-là. Après huit heures de cours on n'a plus
+ * l'énergie que dit le réglage de la semaine : de 4 h à 8 h de cours, on retire de
+ * plus en plus de temps (progressivement, pour qu'une demi-heure de plus ne fasse
+ * pas tomber la journée), jusqu'à `reduction` % ; arrondi aux 5 minutes.
+ */
+export function capaciteDuJour(d: Disponibilites, jour: string, minutesDeCours = 0, libres: ReadonlySet<string> = new Set(d.libres)): number {
+  if (libres.has(jour)) return 0;
+  const base = Math.max(0, Math.min(MINUTES_JOUR_MAX, d.semaine[jourSemaine(jour)] ?? 0));
+  const part = Math.min(1, Math.max(0, (minutesDeCours - SEUIL_COURS) / (PLEIN_COURS - SEUIL_COURS)));
+  const reduction = Math.min(REDUCTION_MAX, Math.max(0, d.reduction ?? REDUCTION_DEFAUT)) / 100;
+  // Sans réduction à appliquer, le réglage de la personne est rendu tel quel (47 min restent 47 min).
+  if (part === 0 || reduction === 0) return base;
+  return Math.round((base * (1 - reduction * part)) / 5) * 5;
+}
 
 export function dureeRevision(c: Pick<Chapitre, 'dureeMin'>): number {
   return Math.max(REVISION_MIN, Math.round((c.dureeMin * RATIO_REVISION) / 5) * 5);
@@ -74,11 +101,11 @@ interface Suivi {
 }
 
 export function planifier(entree: EntreePlan): Plan {
-  const { cours, chapitres, disponibilites, aujourdhui } = entree;
+  const { cours, chapitres, disponibilites, aujourdhui, charge, debuts } = entree;
   const seances: Seance[] = [];
   const alertes: Alerte[] = [];
   const libres = new Set(disponibilites.libres);
-  const capacite = (jour: string) => (libres.has(jour) ? 0 : Math.max(0, Math.min(MINUTES_JOUR_MAX, disponibilites.semaine[jourSemaine(jour)] ?? 0)));
+  const capacite = (jour: string) => capaciteDuJour(disponibilites, jour, charge?.get(jour) ?? 0, libres);
 
   // Seuls comptent les cours dont le partiel est à venir (ou sans date).
   const actifs = cours
@@ -90,6 +117,13 @@ export function planifier(entree: EntreePlan): Plan {
       }
       // Le jour même du partiel, il n'y a plus rien à planifier.
       if (c.partiel !== null && ecartJours(aujourdhui, c.partiel) === 0) return false;
+      // Pas de partiel et pas encore de cours : rien à réviser maintenant, sauf si on a déjà lu un de ses chapitres
+      // (on le prépare en avance, et c'est bien).
+      const debut = debuts?.get(c.id);
+      if (c.partiel === null && debut !== undefined && ecartJours(aujourdhui, debut) > JOURS_AVANT_DEBUT && !chapitres.some((ch) => ch.coursId === c.id && niveauValide(ch.niveau) >= 1)) {
+        alertes.push({ type: 'pas-commence', coursId: c.id, debut });
+        return false;
+      }
       if (c.partiel === null) alertes.push({ type: 'sans-date', coursId: c.id });
       return true;
     })

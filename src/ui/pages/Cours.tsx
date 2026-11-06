@@ -1,12 +1,16 @@
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
-import { COULEURS_COURS, DISPONIBILITES_DEFAUT, MAX_LIBRES, MINUTES_JOUR_MAX, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, type Chapitre, type Cours as CoursT, type Disponibilites, type DonneesCours } from '../../core/cours.ts';
-import { debutDuMois, estJour, grilleDuMois, jourCourt, moisSuivant, versDate } from '../../core/jours.ts';
-import { planifier, resumeParJour, seancesDuJour, type Alerte, type Plan, type TypeSeance } from '../../core/planning.ts';
+import { emploiDuTemps, type Creneau, type EmploiDuTemps } from '../../core/agenda.ts';
+import { COULEURS_COURS, DISPONIBILITES_DEFAUT, MAX_LIBRES, MINUTES_JOUR_MAX, REDUCTION_DEFAUT, REDUCTION_MAX, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, type Chapitre, type Cours as CoursT, type Disponibilites, type DonneesCours } from '../../core/cours.ts';
+import { ajouterJours, debutDuMois, estJour, grilleDuMois, jourCourt, moisSuivant, versDate } from '../../core/jours.ts';
+import { JOURS_AVANT_DEBUT, PLEIN_COURS, SEUIL_COURS, planifier, resumeParJour, seancesDuJour, type Alerte, type Plan, type TypeSeance } from '../../core/planning.ts';
 import { cleJour, formatDuree } from '../../core/temps.ts';
-import { ajouterCours, enregistrerDisponibilites, noterChapitre } from '../../data/cours.ts';
+import { viderCacheAgenda } from '../../data/agenda.ts';
+import { ajouterCours, enregistrerAgendaLien, enregistrerDisponibilites, noterChapitre } from '../../data/cours.ts';
 import { IconeChevron } from '../Icones.tsx';
+import { useAgenda } from '../useAgenda.ts';
 import { useCours } from '../useCours.ts';
 import { Notation, PageCours, type Faire } from './CoursDetail.tsx';
+import { ListeCreneaux, NoteCharge, ReglageAgenda } from './Creneaux.tsx';
 
 export interface LancerChapitre {
   coursId: string;
@@ -21,8 +25,15 @@ const JOURS_COURTS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
 const teinte = (c: string) => ({ '--teinte': c }) as CSSProperties;
 
-function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; faire: Faire; surLancer: (l: LancerChapitre) => void }) {
+/** La teinte du cours de Hameau auquel un créneau de l'emploi du temps appartient, ou null s'il n'appartient à aucun. */
+const couleurCreneau = (edt: EmploiDuTemps | null, cours: readonly CoursT[]) => (c: Creneau): string | null => {
+  const id = edt?.coursDe.get(c.id);
+  return id ? (cours.find((x) => x.id === id)?.couleur ?? null) : null;
+};
+
+function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; faire: Faire; surLancer: (l: LancerChapitre) => void; edt: EmploiDuTemps | null }) {
   const seances = seancesDuJour(plan, aujourdhui);
+  const cours = edt?.parJour.get(aujourdhui) ?? [];
   const total = seances.reduce((t, s) => t + s.minutes, 0);
   const faits = donnees.chapitres.filter((c) => c.derniere === aujourdhui);
   return (
@@ -31,6 +42,13 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer }: { plan: Pla
         <h2>À faire aujourd’hui</h2>
         <span className="pastille">{seances.length > 0 ? formatDuree(total) : 'Rien de prévu'}</span>
       </div>
+      {cours.length > 0 && (
+        <div className="cours-du-jour">
+          <h3 className="sous-titre">Tes cours aujourd’hui</h3>
+          <ListeCreneaux creneaux={cours} couleurDe={couleurCreneau(edt, donnees.cours)} />
+          <NoteCharge jour={aujourdhui} minutesDeCours={edt?.charge.get(aujourdhui) ?? 0} disponibilites={donnees.disponibilites} />
+        </div>
+      )}
       {seances.length === 0 && <p className="aide">{faits.length > 0 ? 'Tout est fait pour aujourd’hui.' : 'Rien de prévu aujourd’hui : ni révision à faire, ni temps disponible. Le calendrier ci-dessous montre la suite.'}</p>}
       <ul className="seances">
         {seances.map((s) => {
@@ -90,6 +108,11 @@ function Alertes({ alertes, donnees, aujourdhui, ouvrir }: { alertes: Alerte[]; 
                 Le partiel de <strong>{c.titre}</strong> est passé : tu peux supprimer ce cours.
               </>
             )}
+            {a.type === 'pas-commence' && (
+              <>
+                <strong>{c.titre}</strong> n’a pas commencé : premier cours le {jourCourt(a.debut)}, au calendrier à partir du {jourCourt(ajouterJours(a.debut, -JOURS_AVANT_DEBUT))} (lis un de ses chapitres pour t’y mettre plus tôt).
+              </>
+            )}
           </button>
         );
       })}
@@ -97,7 +120,7 @@ function Alertes({ alertes, donnees, aujourdhui, ouvrir }: { alertes: Alerte[]; 
   );
 }
 
-function Calendrier({ plan, donnees, aujourdhui }: { plan: Plan; donnees: DonneesCours; aujourdhui: string }) {
+function Calendrier({ plan, donnees, aujourdhui, edt }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; edt: EmploiDuTemps | null }) {
   const [mois, setMois] = useState(() => debutDuMois(aujourdhui));
   const [choisi, setChoisi] = useState(aujourdhui);
   const resume = useMemo(() => resumeParJour(plan), [plan]);
@@ -110,6 +133,7 @@ function Calendrier({ plan, donnees, aujourdhui }: { plan: Plan; donnees: Donnee
   const titreMois = versDate(mois).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
   const duJour = seancesDuJour(plan, choisi);
   const couleur = (id: string) => donnees.cours.find((c) => c.id === id)?.couleur ?? '#888888';
+  const coursDuChoisi = edt?.parJour.get(choisi) ?? [];
 
   return (
     <section className="carte agenda">
@@ -134,15 +158,17 @@ function Calendrier({ plan, donnees, aujourdhui }: { plan: Plan; donnees: Donnee
         {grille.map((j) => {
           const r = resume.get(j);
           const p = partiels.get(j);
+          const charge = edt?.charge.get(j) ?? 0;
           const classes = ['ag-jour', j.slice(0, 7) !== mois.slice(0, 7) && 'hors-mois', j === aujourdhui && 'aujourdhui', j === choisi && 'choisi', j < aujourdhui && 'passe', p && 'avec-partiel'].filter(Boolean).join(' ');
           return (
-            <button key={j} className={classes} onClick={() => setChoisi(j)} aria-current={j === aujourdhui ? 'date' : undefined} aria-pressed={j === choisi} aria-label={`${jourCourt(j)}${r ? `, ${formatDuree(r.minutes)} prévues` : ''}${p ? `, partiel : ${p.map((c) => c.titre).join(', ')}` : ''}`}>
+            <button key={j} className={classes} onClick={() => setChoisi(j)} aria-current={j === aujourdhui ? 'date' : undefined} aria-pressed={j === choisi} aria-label={`${jourCourt(j)}${charge > 0 ? `, ${formatDuree(charge)} de cours` : ''}${r ? `, ${formatDuree(r.minutes)} prévues` : ''}${p ? `, partiel : ${p.map((c) => c.titre).join(', ')}` : ''}`}>
               <span className="ag-numero">{Number(j.slice(8))}</span>
               <span className="ag-points">
                 {r?.cours.slice(0, 3).map((id) => <span key={id} className="ag-point" style={{ background: couleur(id) }} />)}
                 {p && <span className="ag-drapeau" aria-hidden>★</span>}
               </span>
               <span className="ag-minutes">{r ? formatDuree(r.minutes) : ''}</span>
+              {charge > 0 && <span className="ag-barre" style={{ '--charge': Math.min(1, charge / PLEIN_COURS) } as CSSProperties} aria-hidden />}
             </button>
           );
         })}
@@ -154,7 +180,13 @@ function Calendrier({ plan, donnees, aujourdhui }: { plan: Plan; donnees: Donnee
             ★ Partiel : <strong>{c.titre}</strong>
           </p>
         ))}
-        {duJour.length === 0 && !partiels.has(choisi) && <p className="aide">{choisi < aujourdhui ? 'Jour passé.' : 'Rien de prévu ce jour-là.'}</p>}
+        {coursDuChoisi.length > 0 && (
+          <>
+            <ListeCreneaux creneaux={coursDuChoisi} couleurDe={couleurCreneau(edt, donnees.cours)} />
+            <NoteCharge jour={choisi} minutesDeCours={edt?.charge.get(choisi) ?? 0} disponibilites={donnees.disponibilites} />
+          </>
+        )}
+        {duJour.length === 0 && !partiels.has(choisi) && <p className="aide">{choisi < aujourdhui ? 'Jour passé.' : coursDuChoisi.length > 0 ? 'Pas de révision prévue ce jour-là.' : 'Rien de prévu ce jour-là.'}</p>}
         <ul className="seances compactes">
           {duJour.map((s) => {
             const c = donnees.cours.find((x) => x.id === s.coursId);
@@ -178,10 +210,10 @@ function Calendrier({ plan, donnees, aujourdhui }: { plan: Plan; donnees: Donnee
   );
 }
 
-function CarteCours({ cours, chapitres, aujourdhui, ouvrir }: { cours: CoursT; chapitres: Chapitre[]; aujourdhui: string; ouvrir: () => void }) {
+function CarteCours({ cours, chapitres, aujourdhui, debut, ouvrir }: { cours: CoursT; chapitres: Chapitre[]; aujourdhui: string; debut: string | undefined; ouvrir: () => void }) {
   const maitrise = maitriseCours(chapitres);
   const avant = joursAvantPartiel(cours, aujourdhui);
-  const badge = avant === null ? 'Pas de date' : avant < 0 ? 'Passé' : avant === 0 ? 'Aujourd’hui' : `J−${avant}`;
+  const badge = avant === null ? (debut && debut > aujourdhui ? `Dès le ${jourCourt(debut)}` : 'Pas de date') : avant < 0 ? 'Passé' : avant === 0 ? 'Aujourd’hui' : `J−${avant}`;
   return (
     <button className="carte-cours" style={teinte(cours.couleur)} onClick={ouvrir}>
       <span className="carte-cours-tete">
@@ -198,8 +230,9 @@ function CarteCours({ cours, chapitres, aujourdhui, ouvrir }: { cours: CoursT; c
   );
 }
 
-function TempsDisponible({ valeur, surEnregistrer }: { valeur: Disponibilites; surEnregistrer: (d: Disponibilites) => void }) {
+function TempsDisponible({ valeur, avecEmploiDuTemps, surEnregistrer }: { valeur: Disponibilites; avecEmploiDuTemps: boolean; surEnregistrer: (d: Disponibilites) => void }) {
   const [semaine, setSemaine] = useState(valeur.semaine.map(String));
+  const [reduction, setReduction] = useState(String(valeur.reduction ?? REDUCTION_DEFAUT));
   const [libres, setLibres] = useState(valeur.libres);
   const [nouveau, setNouveau] = useState('');
   const minutes = semaine.map((v) => Math.min(MINUTES_JOUR_MAX, Math.max(0, Math.round(Number(v) || 0))));
@@ -209,7 +242,7 @@ function TempsDisponible({ valeur, surEnregistrer }: { valeur: Disponibilites; s
       className="carte"
       onSubmit={(e) => {
         e.preventDefault();
-        surEnregistrer({ semaine: minutes, libres });
+        surEnregistrer({ semaine: minutes, libres, reduction: Math.min(REDUCTION_MAX, Math.max(0, Math.round(Number(reduction) || 0))) });
       }}
     >
       <h2>Temps disponible</h2>
@@ -223,6 +256,15 @@ function TempsDisponible({ valeur, surEnregistrer }: { valeur: Disponibilites; s
         ))}
       </div>
       <p className="aide petite">Soit environ {formatDuree(total)} par semaine.</p>
+      {avecEmploiDuTemps && (
+        <label>
+          Jours de cours chargés : retirer jusqu’à (%)
+          <input type="number" inputMode="numeric" min={0} max={REDUCTION_MAX} step={5} value={reduction} onChange={(e) => setReduction(e.target.value)} />
+          <span className="aide petite">
+            Rien jusqu’à {SEUIL_COURS / 60} h de cours dans la journée, puis de plus en plus, jusqu’à ce pourcentage pour {PLEIN_COURS / 60} h. 0 : ton temps ne change jamais.
+          </span>
+        </label>
+      )}
       <div>
         <h3 className="sous-titre">Jours sans étude</h3>
         <div className="puces">
@@ -310,9 +352,12 @@ function NouveauCours({ ordre, surCreer, surAnnuler }: { ordre: number; surCreer
 
 export default function OngletCours({ userId, synchronise, maintenant, surLancer, toast }: { userId: string | null; synchronise: boolean; maintenant: number; surLancer: (l: LancerChapitre) => void; toast: (texte: string) => void }) {
   const { donnees, erreur, setErreur, agir } = useCours(synchronise ? userId : null);
+  // L'emploi du temps de l'université : lu depuis le lien enregistré dans le compte.
+  const agenda = useAgenda(synchronise ? userId : null, donnees?.agendaLien ?? null);
   // null : l'accueil ; 'nouveau' : le formulaire ; sinon l'identifiant d'un cours.
   const [vue, setVue] = useState<string | null>(null);
   const [reglage, setReglage] = useState(false);
+  const [reglageEdt, setReglageEdt] = useState(false);
   const aujourdhui = cleJour(new Date(maintenant));
 
   const faire = useCallback<Faire>(
@@ -327,7 +372,8 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
     [agir, toast],
   );
 
-  const plan = useMemo(() => (donnees ? planifier({ cours: donnees.cours, chapitres: donnees.chapitres, disponibilites: donnees.disponibilites, aujourdhui }) : null), [donnees, aujourdhui]);
+  const edt = useMemo(() => (donnees && agenda.creneaux ? emploiDuTemps(agenda.creneaux, donnees.cours.map((c) => ({ id: c.id, titre: c.titre, motifs: c.motifs, ordre: c.ordre }))) : null), [donnees, agenda.creneaux]);
+  const plan = useMemo(() => (donnees ? planifier({ cours: donnees.cours, chapitres: donnees.chapitres, disponibilites: donnees.disponibilites, aujourdhui, charge: edt?.charge, debuts: edt?.debuts }) : null), [donnees, aujourdhui, edt]);
 
   if (!synchronise || !userId)
     return (
@@ -339,6 +385,33 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
   if (!donnees || !plan) return <div className="carte aide">{erreur ? <p className="alerte">{erreur}</p> : 'Chargement des cours…'}</div>;
 
   const chapitresDe = (id: string) => donnees.chapitres.filter((c) => c.coursId === id);
+  const panneauAgenda = (integre: boolean) => (
+    <ReglageAgenda
+      integre={integre}
+      userId={userId}
+      lien={donnees.agendaLien}
+      nombre={agenda.creneaux ? agenda.creneaux.length : null}
+      majLe={agenda.majLe}
+      erreur={agenda.erreur}
+      enCours={agenda.enCours}
+      surBrancher={(lien, nombre) => {
+        // `agir` plutôt que `faire` : le panneau ne se referme que si l'enregistrement a réussi.
+        void agir(() => enregistrerAgendaLien(userId, lien)).then(
+          () => {
+            toast(`Emploi du temps branché : ${nombre} créneaux lus.`);
+            setReglageEdt(false);
+          },
+          () => undefined,
+        );
+      }}
+      surRetirer={() => {
+        viderCacheAgenda(userId);
+        faire(() => enregistrerAgendaLien(userId, null), 'Emploi du temps retiré.');
+        setReglageEdt(false);
+      }}
+      surActualiser={() => void agenda.actualiser()}
+    />
+  );
   const ouvert = vue && vue !== 'nouveau' ? donnees.cours.find((c) => c.id === vue) : null;
 
   const bandeau = erreur && (
@@ -351,7 +424,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
     return (
       <>
         {bandeau}
-        <PageCours cours={ouvert} chapitres={chapitresDe(ouvert.id)} notes={donnees.notes.filter((n) => chapitresDe(ouvert.id).some((c) => c.id === n.chapitreId))} aujourdhui={aujourdhui} faire={faire} retour={() => setVue(null)} />
+        <PageCours cours={ouvert} chapitres={chapitresDe(ouvert.id)} notes={donnees.notes.filter((n) => chapitresDe(ouvert.id).some((c) => c.id === n.chapitreId))} aujourdhui={aujourdhui} faire={faire} creneaux={edt ? (edt.parCours.get(ouvert.id) ?? []) : null} retour={() => setVue(null)} />
       </>
     );
 
@@ -398,9 +471,17 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
         </section>
       ) : (
         <>
-          <Aujourdhui plan={plan} donnees={donnees} aujourdhui={aujourdhui} faire={faire} surLancer={surLancer} />
+          <Aujourdhui plan={plan} donnees={donnees} aujourdhui={aujourdhui} faire={faire} surLancer={surLancer} edt={edt} />
           <Alertes alertes={plan.alertes} donnees={donnees} aujourdhui={aujourdhui} ouvrir={setVue} />
-          <Calendrier plan={plan} donnees={donnees} aujourdhui={aujourdhui} />
+          {/* Sans emploi du temps lu (jamais, ou plus de cache), le calendrier ignore les cours : on le dit, au lieu de laisser croire qu'il en tient compte. Hors ligne avec un cache, rien à dire : le panneau montre l'erreur. */}
+          {donnees.agendaLien && agenda.erreur && agenda.creneaux === null && <p className="alerte douce">Emploi du temps : {agenda.erreur}</p>}
+          {!donnees.agendaLien && (
+            <details className="carte explication">
+              <summary>Brancher mon emploi du temps</summary>
+              {panneauAgenda(true)}
+            </details>
+          )}
+          <Calendrier plan={plan} donnees={donnees} aujourdhui={aujourdhui} edt={edt} />
           <section className="carte">
             <div className="entete">
               <h2>Mes cours</h2>
@@ -410,19 +491,28 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
             </div>
             <div className="liste-cours">
               {donnees.cours.map((c) => (
-                <CarteCours key={c.id} cours={c} chapitres={chapitresDe(c.id)} aujourdhui={aujourdhui} ouvrir={() => setVue(c.id)} />
+                <CarteCours key={c.id} cours={c} chapitres={chapitresDe(c.id)} aujourdhui={aujourdhui} debut={edt?.debuts.get(c.id)} ouvrir={() => setVue(c.id)} />
               ))}
             </div>
           </section>
         </>
       )}
 
-      <button className={reglage ? 'bouton discret actif' : 'bouton discret'} onClick={() => setReglage(!reglage)} aria-expanded={reglage}>
-        Temps disponible
-      </button>
+      <div className="reglages-cours">
+        <button className={reglage ? 'bouton discret actif' : 'bouton discret'} onClick={() => setReglage(!reglage)} aria-expanded={reglage}>
+          Temps disponible
+        </button>
+        {donnees.agendaLien && (
+          <button className={reglageEdt ? 'bouton discret actif' : 'bouton discret'} onClick={() => setReglageEdt(!reglageEdt)} aria-expanded={reglageEdt}>
+            Emploi du temps
+          </button>
+        )}
+      </div>
+      {reglageEdt && donnees.agendaLien && panneauAgenda(false)}
       {reglage && (
         <TempsDisponible
           key={JSON.stringify(donnees.disponibilites)}
+          avecEmploiDuTemps={donnees.agendaLien !== null}
           valeur={donnees.disponibilites ?? DISPONIBILITES_DEFAUT}
           surEnregistrer={(d) => {
             faire(() => enregistrerDisponibilites(userId, d), 'Temps disponible enregistré : le calendrier est recalculé.');
@@ -440,6 +530,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
           <li>Les chapitres neufs se lisent dans l’ordre, jamais dans les 3 derniers jours avant le partiel.</li>
           <li>Dans les 4 derniers jours, chaque chapitre a un dernier passage, sans rien de nouveau.</li>
           <li>Si ton temps disponible ne suffit pas, Hameau le dit et chiffre ce qui manque.</li>
+          <li>Avec ton emploi du temps : à partir de {SEUIL_COURS / 60} h de cours dans la journée, je retire de plus en plus de temps de révision (réglable), et un cours qui n’a pas commencé n’est mis au calendrier que le mois qui précède son premier cours.</li>
         </ol>
         <p className="aide">Le calendrier n’est pas enregistré : il se recalcule à chaque fois depuis où tu en es vraiment.</p>
       </details>

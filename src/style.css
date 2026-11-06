@@ -739,6 +739,24 @@ a.bouton { text-decoration: none; }
 .ag-detail { display: grid; gap: 8px; border-top: 1px solid var(--bord); padding-top: 12px; }
 .ag-detail h3 { margin: 0; font-size: 15px; text-transform: capitalize; }
 .ag-partiel { margin: 0; padding: 8px 12px; border-radius: 12px; background: var(--fond-2); border-left: 4px solid var(--teinte, var(--accent)); }
+div.ag-partiel { display: grid; gap: 8px; justify-items: start; }
+div.ag-partiel p { margin: 0; }
+
+/* ───────── Emploi du temps de l'université ───────── */
+.cours-du-jour { display: grid; gap: 8px; }
+.cours-du-jour .sous-titre { margin: 0; }
+.creneaux { list-style: none; padding: 0 !important; display: grid; gap: 6px !important; }
+.creneau { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 10px; background: var(--fond-2); border: 1px solid var(--bord); border-left: 3px solid var(--bord-fort); border-radius: 12px; font-size: 14px; }
+.creneau.lie { border-left: 4px solid var(--teinte, var(--accent)); }
+.creneau-heure { font: 600 12.5px var(--chiffres); color: var(--texte-2); white-space: nowrap; }
+.creneau-corps { display: grid; gap: 1px; min-width: 0; }
+.creneau-corps strong { font-weight: 600; overflow-wrap: anywhere; }
+.creneau-corps .aide { font-size: 12.5px; }
+.creneau-type { font-size: 11px; font-weight: 700; letter-spacing: .05em; color: var(--texte-3); border: 1px solid var(--bord); border-radius: 99px; padding: 1px 7px; }
+/* Une barre sous le numéro du jour : plus elle est visible, plus la journée est pleine de cours. */
+.ag-jour .ag-barre { width: 70%; height: 3px; border-radius: 2px; background: var(--texte-2); opacity: calc(.18 + .62 * var(--charge, 0)); }
+.reglages-cours { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.agenda-reglage { display: grid; gap: 12px; }
 
 .semaine-dispo { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
 .semaine-dispo label { gap: 4px; font-size: 12px; text-align: center; }

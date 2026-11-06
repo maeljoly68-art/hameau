@@ -55,6 +55,20 @@ L'onglet **Cours** garde, dans le compte, ce qui était jusque-là enregistré �
 - **Chrono** : « Lancer le chrono » démarre une session dans la catégorie du cours, avec la durée prévue pour objectif ; à la fin, la fenêtre propose de noter le chapitre.
 - Réservé au compte (les tables `cours`, `chapitres`, `notes_chapitres`, `reglages_cours`, protégées par RLS) : le calendrier doit être le même sur tous les appareils.
 
+## Emploi du temps de l'université
+
+« Brancher mon emploi du temps », dans l'onglet **Cours**, lit le fichier d'export (.ics) de « Mon emploi du temps » de l'université. Le calendrier d'étude s'en sert ainsi :
+
+- **Cours du jour** : les créneaux d'aujourd'hui et de chaque jour du calendrier, avec leur salle. Une barre sous le numéro du jour dit à quel point il est chargé.
+- **Jours chargés** (`capaciteDuJour`, `src/core/planning.ts`) : jusqu'à 4 h de cours dans la journée, le temps de révision ne bouge pas ; il baisse ensuite progressivement, jusqu'à −50 % (réglable de 0 à 90 %) pour 8 h. Une journée légère ne passe donc pas pour un oubli : l'écran dit « 8 h de cours : temps de révision ramené de 1 h à 30 min ».
+- **Partiel probable** (`partielProbable`, `src/core/agenda.ts`) : dans cet emploi du temps, l'examen d'une matière s'affiche comme un « CM » de plus, le dernier de la matière (Finance : celui du 17 décembre est dans la salle d'examen). Hameau le **propose**, jamais sans confirmation, sur la page du cours ; il en faut deux CM au moins (un seul est le premier cours), et pas plus de quatre mois devant.
+- **Cours pas commencé** : sans date de partiel, un cours n'entre au calendrier que le mois qui précède son premier cours (`JOURS_AVANT_DEBUT`) ; lire un de ses chapitres l'y fait entrer plus tôt.
+- **Rattachement** : chaque cours a des « mots » (par exemple « droit spécial des sociétés »). Un créneau lui appartient quand son intitulé les contient **en mots entiers** (« finance » ne prend pas « financement ») ; le plus précis l'emporte, puis l'ordre des cours. Sans mots réglés, le nom du cours sert.
+
+Le lien est dans la ligne `reglages_cours` du compte (colonne `agenda_url`, RLS propriétaire, https seulement), les mots dans `cours.motifs` : migration `20261106000000_agenda.sql`. **Le lien est un secret** : quiconque le connaît lit l'emploi du temps. Il n'est jamais dans le dépôt, jamais réaffiché après l'avoir enregistré, jamais dans un message d'erreur.
+
+Le navigateur lit le fichier **directement chez l'université**, sans relais : son serveur autorise la lecture depuis n'importe quelle origine (en-têtes CORS). S'il cessait de le faire, l'application le dit (« l'université n'autorise plus sa lecture depuis l'application ») et il faudrait un relais côté serveur. Le dernier emploi du temps lu reste sur l'appareil, pour s'afficher aussitôt et hors ligne ; il est relu au-delà de 30 minutes.
+
 ## Raccourcis clavier (ordinateur)
 
 <kbd>Espace</kbd> lance ou termine une session · <kbd>P</kbd> pause / reprise · <kbd>F</kbd> mode focus · <kbd>Échap</kbd> quitte · <kbd>Ctrl</kbd>+<kbd>Entrée</kbd> enregistre la fin de session.
