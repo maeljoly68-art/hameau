@@ -4,3 +4,6 @@ dist
 .env.*
 !.env.exemple
 *.log
+
+# Engendré au build (scripts/zipper-extension.mjs) depuis extension/
+public/hameau-bloqueur.zip

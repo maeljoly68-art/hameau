@@ -4,13 +4,14 @@
   "description": "Suivi du temps de travail gamifié : chaque minute de concentration fait grandir un village.",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/zipper-extension.mjs && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "TZ=Europe/Paris node --test \"tests/*.test.ts\"",
     "verif": "tsc --noEmit && eslint . && npm test && vite build",
     "verif:sql": "scripts/verifier-migration.sh",
-    "icones": "node scripts/icones.mjs"
+    "icones": "node scripts/icones.mjs",
+    "extension": "node scripts/zipper-extension.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

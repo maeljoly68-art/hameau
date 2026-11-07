@@ -276,6 +276,13 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
 
   const enCours = derive?.enCours ?? null;
   const profil = donnees?.profil;
+  // Prévient l'extension de blocage (si elle est installée) qu'un chrono a commencé, fini ou changé de pause : elle
+  // vérifie aussitôt, sans attendre son passage de toutes les 30 secondes. Le message ne porte aucune donnée.
+  const idEnCours = enCours?.id ?? null;
+  const pauseEnCours = enCours?.pauseDepuis ?? null;
+  useEffect(() => {
+    window.postMessage({ source: 'hameau-session' }, window.location.origin);
+  }, [idEnCours, pauseEnCours]);
 
   const toast = useCallback((texte: string, options: { type?: 'succes'; action?: Toast['action']; duree?: number | null } = {}) => {
     const id = Date.now() + Math.random();

@@ -90,6 +90,16 @@ Le lien est dans la ligne `reglages_cours` du compte (colonne `agenda_url`, RLS 
 
 Le navigateur lit le fichier **directement chez l'université**, sans relais : son serveur autorise la lecture depuis n'importe quelle origine (en-têtes CORS). S'il cessait de le faire, l'application le dit (« l'université n'autorise plus sa lecture depuis l'application ») et il faudrait un relais côté serveur. Le dernier emploi du temps lu reste sur l'appareil, pour s'afficher aussitôt et hors ligne ; il est relu au-delà de 30 minutes.
 
+## Bloquer des sites pendant le chrono (Chrome, ordinateur)
+
+L'extension `extension/` (Manifest V3, sans dépendance) remplace YouTube, LinkedIn, Instagram — et les sites qu'on ajoute — par une page « Chrono en cours » tant qu'une session Hameau est ouverte **sur le compte**, qu'elle ait été lancée d'ici, du téléphone ou de l'iPad. Elle se débloque toute seule à l'arrêt du chrono, et la page de blocage ramène à l'adresse demandée.
+
+- **Comment elle sait** : elle se connecte au compte (e-mail et mot de passe, une fois, dans sa fenêtre ; seul le jeton est gardé, jamais le mot de passe) et lit la session ouverte (`sessions` où `fin` est nul) toutes les 30 secondes. Quand l'application tourne dans Chrome, elle la prévient dès qu'un chrono commence, finit ou change de pause (message `hameau-session` sans aucune donnée, relayé par `extension/relais.js`).
+- **Comment elle bloque** : des règles `declarativeNetRequest` (redirection de la page, pas des images d'autres sites), et les onglets déjà ouverts sur ces sites sont renvoyés vers la page de blocage. Chrome ne redirige qu'un site auquel l'extension a accès : YouTube, LinkedIn et Instagram sont dans le manifeste, les autres se demandent à l'enregistrement de la liste (page Options).
+- **Garde-fous** : Hameau, GitHub Pages et la base ne se bloquent jamais (sinon on ne pourrait plus arrêter son chrono) ; base injoignable, le blocage tient jusqu'à une heure puis se lève (dans le doute, on ne bloque pas) ; option « débloquer pendant les pauses ». Elle aide à tenir sa parole, elle n'empêche pas de la désactiver dans Chrome.
+- **Installer** : Réglages → « Télécharger l'extension » (le zip est engendré au build par `scripts/zipper-extension.mjs`), dézipper, `chrome://extensions` → Mode développeur → « Charger l'extension non empaquetée ». La carte des Réglages dit si l'extension est détectée dans ce navigateur. `extension/config.js` doit rester identique à `src/data/config.ts` (un test le vérifie). La logique pure est dans `extension/logique.js` (`tests/extension.test.ts`) ; le zip est relu octet par octet (`tests/zip-extension.test.ts`).
+- Sur iPhone et iPad, Safari ne sait pas faire cela : le mode « Concentration » d'iOS joue ce rôle.
+
 ## Raccourcis clavier (ordinateur)
 
 <kbd>Espace</kbd> lance ou termine une session · <kbd>P</kbd> pause / reprise · <kbd>F</kbd> mode focus · <kbd>Échap</kbd> quitte · <kbd>Ctrl</kbd>+<kbd>Entrée</kbd> enregistre la fin de session.

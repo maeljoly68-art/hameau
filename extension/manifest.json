@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "Hameau · bloqueur de distractions",
+  "version": "1.0.0",
+  "description": "Bloque YouTube, LinkedIn, Instagram… tant qu'un chrono Hameau tourne, et les débloque dès qu'il s'arrête.",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "declarativeNetRequest",
+    "storage",
+    "alarms",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://nisjysdlyryyrsgwmcaa.supabase.co/*",
+    "*://*.youtube.com/*",
+    "*://*.linkedin.com/*",
+    "*://*.instagram.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Hameau",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icones/icone-16.png",
+      "48": "icones/icone-48.png",
+      "128": "icones/icone-128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://maeljoly68-art.github.io/hameau/*"
+      ],
+      "js": [
+        "relais.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icones/icone-16.png",
+    "48": "icones/icone-48.png",
+    "128": "icones/icone-128.png"
+  },
+  "optional_host_permissions": [
+    "*://*/*"
+  ]
+}

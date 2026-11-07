@@ -893,3 +893,9 @@ div.ag-partiel p { margin: 0; }
 /* Séances d'étude libre : même présentation qu'une séance, estompée une fois faite. */
 .revision-libre li.libre.fait { opacity: .7; }
 .revision-libre li.libre .seance-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+/* ───────── Bloquer des sites (extension Chrome) ───────── */
+.blocage-sites { gap: 12px; }
+.blocage-sites a.bouton { justify-self: start; text-decoration: none; }
+.extension-ok { color: var(--vert); font-weight: 600; }
+.blocage-sites code { background: var(--fond-2); border-radius: 6px; padding: 1px 6px; font-size: .9em; white-space: nowrap; }

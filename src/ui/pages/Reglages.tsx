@@ -5,6 +5,7 @@ import { client, clePublique, urlSupabase } from '../../data/config.ts';
 import type { Donnees } from '../../data/depot.ts';
 import { carillon } from '../alertes.ts';
 import { appliquerTheme, lireTheme, type Theme } from '../theme.ts';
+import { BloquerSites } from './BloquerSites.tsx';
 import { RappelPush } from './RappelPush.tsx';
 
 function telecharger(nom: string, contenu: string, type: string) {
@@ -174,6 +175,7 @@ export default function Reglages({
       <Apparence />
       <Notifications />
       {synchronise && <RappelPush />}
+      <BloquerSites />
 
       <section className="carte">
         <h2>Raccourcis iPhone / iPad</h2>

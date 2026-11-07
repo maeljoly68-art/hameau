@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hameau</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="popup">
+    <header>
+      <img src="icones/icone-48.png" alt="" width="32" height="32" />
+      <strong>Hameau</strong>
+    </header>
+    <section id="etat" aria-live="polite">
+      <h1 id="titre">…</h1>
+      <p id="detail" class="aide"></p>
+    </section>
+    <form id="connexion" hidden>
+      <p class="aide">Connecte-toi avec le compte que tu utilises dans Hameau : l’extension saura quand ton chrono tourne, même s’il a été lancé depuis ton téléphone.</p>
+      <label>E-mail <input id="email" type="email" autocomplete="username" required /></label>
+      <label>Mot de passe <input id="mdp" type="password" autocomplete="current-password" required /></label>
+      <button id="entrer" class="bouton">Se connecter</button>
+      <p id="erreur" class="erreur" role="alert"></p>
+    </form>
+    <section id="compte" hidden>
+      <p class="aide">Connecté : <span id="adresse"></span></p>
+      <div class="actions">
+        <button id="verifier" class="bouton discret">Vérifier maintenant</button>
+        <a id="ouvrir" class="bouton discret" href="#" target="_blank" rel="noopener">Ouvrir Hameau</a>
+      </div>
+      <div class="actions">
+        <a id="reglages" class="lien" href="#">Choisir les sites bloqués</a>
+        <button id="sortir" class="lien">Se déconnecter</button>
+      </div>
+    </section>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hameau · sites bloqués</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="options">
+    <main>
+      <h1>Sites bloqués pendant le chrono</h1>
+      <p class="aide">Tant qu’un chrono Hameau tourne (sur n’importe quel appareil, avec le même compte), ces sites sont remplacés par une page qui te le rappelle. Ils se débloquent d’eux-mêmes quand le chrono s’arrête.</p>
+      <form id="formulaire">
+        <label>Un site par ligne
+          <textarea id="sites" rows="10" spellcheck="false" autocomplete="off"></textarea>
+        </label>
+        <label class="case"><input id="pause" type="checkbox" /> Débloquer pendant les pauses du chrono</label>
+        <div class="actions">
+          <button class="bouton">Enregistrer</button>
+          <button id="defaut" type="button" class="bouton discret">Remettre YouTube, LinkedIn, Instagram</button>
+        </div>
+        <p id="message" class="aide" role="status"></p>
+      </form>
+      <p class="aide petite">Un site bloqué l’est avec ses sous-domaines (m.youtube.com, www.linkedin.com…). Hameau et sa base ne se bloquent jamais, pour que tu puisses toujours arrêter ton chrono. Cette extension t’aide à tenir ta parole : elle ne t’empêche pas de la désactiver dans Chrome.</p>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

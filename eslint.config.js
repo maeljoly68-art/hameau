@@ -14,4 +14,6 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
     },
   },
+  // L'extension Chrome : l'objet « chrome » existe dans ses pages et son service.
+  { files: ['extension/**/*.js'], languageOptions: { globals: { chrome: 'readonly' } } },
 );
