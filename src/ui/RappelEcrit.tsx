@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import type { Carte } from '../core/cartes.ts';
+import { CARTE_REPONSE_MAX, texteDuRappel, type Carte } from '../core/cartes.ts';
 import { CONFIANCES } from '../core/confiance.ts';
 import { ERREUR_TEXTE_MAX } from '../core/erreurs.ts';
 
@@ -29,29 +29,51 @@ export interface PageDuRappel {
  */
 export function RappelEcrit({ obligatoire, placeholder, etiquette, consigne, pages, fiche, sansErreur = false, enfants }: { obligatoire: boolean; placeholder: string; etiquette: string; consigne?: ReactNode; pages: readonly PageDuRappel[]; fiche?: ReactNode; /** Pas de champ d'erreur : on ne saurait pas à quelle page la rattacher. */ sansErreur?: boolean; enfants: (r: ResultatRappel) => ReactNode }) {
   const [texte, setTexte] = useState('');
+  // Les réponses tapées à côté des questions, par carte : elles comptent comme « écrit », au même titre que le champ libre.
+  const [reponses, setReponses] = useState<Record<string, string>>({});
   const [surPapier, setSurPapier] = useState(false);
   const [confiance, setConfiance] = useState<number | null>(null);
   const [compare, setCompare] = useState(false);
   const [erreur, setErreur] = useState('');
   const [pageErreur, setPageErreur] = useState(pages[0]?.id ?? '');
   const avecCartes = pages.filter((p) => p.cartes.length > 0);
-  const pret = (!obligatoire || texte.trim() !== '' || surPapier) && confiance !== null;
+  const ecrit = texteDuRappel(avecCartes, reponses, texte);
+  const pret = (!obligatoire || ecrit !== null || surPapier) && confiance !== null;
   const resultat = (): ResultatRappel => ({
-    texte: texte.trim() === '' ? null : texte.trim(),
+    texte: ecrit,
     confiance: confiance ?? 0,
     erreur: sansErreur || erreur.trim() === '' ? null : { texte: erreur.trim(), chapitreId: pages.length > 1 ? pageErreur : pages[0]?.id },
   });
-  const questions = (avecReponses: boolean) =>
+  // Avant de comparer : chaque question a son champ, juste à côté. Après : la même liste, avec ta réponse en face de la bonne.
+  const questions = (comparer: boolean) =>
     avecCartes.map((p) => (
       <div key={p.id} className="cartes-page">
         {pages.length > 1 && <strong className="aide petite">{p.titre}</strong>}
         <ol className="cartes-liste">
-          {p.cartes.map((c) => (
-            <li key={c.id}>
-              {c.question}
-              {avecReponses && <span className="carte-reponse"> → {c.reponse}</span>}
-            </li>
-          ))}
+          {p.cartes.map((c) => {
+            const tienne = (reponses[c.id] ?? '').trim();
+            return (
+              <li key={c.id} className="carte-ligne">
+                <span className="carte-question">{c.question}</span>
+                {comparer ? (
+                  <span className="carte-comparaison">
+                    <span className={tienne === '' ? 'carte-toi sans-reponse' : 'carte-toi'}>{tienne === '' ? 'pas de réponse' : tienne}</span>
+                    <span className="carte-reponse"> → {c.reponse}</span>
+                  </span>
+                ) : (
+                  <input
+                    className="carte-saisie"
+                    value={reponses[c.id] ?? ''}
+                    maxLength={CARTE_REPONSE_MAX}
+                    onChange={(e) => setReponses((r) => ({ ...r, [c.id]: e.target.value }))}
+                    placeholder="Ta réponse"
+                    aria-label={`Ta réponse : ${c.question}`}
+                    autoComplete="off"
+                  />
+                )}
+              </li>
+            );
+          })}
         </ol>
       </div>
     ));
@@ -61,11 +83,11 @@ export function RappelEcrit({ obligatoire, placeholder, etiquette, consigne, pag
         {consigne && <span className="aide petite">{consigne}</span>}
         {avecCartes.length > 0 && (
           <div className="cartes-questions">
-            <span className="aide petite">Réponds de tête à ces questions, puis écris l’essentiel :</span>
+            <span className="aide petite">Réponds à chaque question, à côté d’elle, sans regarder la fiche :</span>
             {questions(false)}
           </div>
         )}
-        <textarea rows={obligatoire ? 4 : 3} value={texte} onChange={(e) => setTexte(e.target.value)} placeholder={placeholder} aria-label={etiquette} />
+        <textarea rows={avecCartes.length > 0 ? 2 : obligatoire ? 4 : 3} value={texte} onChange={(e) => setTexte(e.target.value)} placeholder={avecCartes.length > 0 ? 'Autre chose à retenir ? (facultatif)' : placeholder} aria-label={etiquette} />
         {obligatoire && (
           <label className="case-papier">
             <input type="checkbox" checked={surPapier} onChange={(e) => setSurPapier(e.target.checked)} /> Je l’ai écrit sur papier
@@ -89,11 +111,11 @@ export function RappelEcrit({ obligatoire, placeholder, etiquette, consigne, pag
       {fiche}
       {avecCartes.length > 0 && (
         <div className="cartes-reponses">
-          <span className="aide petite">Les réponses :</span>
+          <span className="aide petite">Ta réponse, puis la bonne :</span>
           {questions(true)}
         </div>
       )}
-      {texte.trim() !== '' && <p className="aide petite rappel-ecrit">Ce que tu avais écrit : « {texte.trim()} »</p>}
+      {texte.trim() !== '' && <p className="aide petite rappel-ecrit">{avecCartes.length > 0 ? 'Écrit en plus' : 'Ce que tu avais écrit'} : « {texte.trim()} »</p>}
       {!sansErreur && (
         <label className="champ-erreur">
           <span className="aide petite">Une erreur à retenir ? (facultatif, une ligne)</span>

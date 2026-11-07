@@ -54,3 +54,20 @@ export function cartesParPage(cartes: readonly Carte[]): Map<string, Carte[]> {
   for (const c of cartes.slice().sort((a, b) => a.ordre - b.ordre || a.id.localeCompare(b.id))) parPage.set(c.chapitreId, [...(parPage.get(c.chapitreId) ?? []), c]);
   return parPage;
 }
+
+/**
+ * Ce qu'on a écrit de mémoire, en un seul texte pour le journal : une ligne « question → ta réponse » par carte
+ * à laquelle on a répondu (dans l'ordre des pages), puis ce qu'on a écrit en plus. Une réponse laissée vide n'est pas
+ * une ligne : on ne note pas « question → » pour rien. null s'il ne reste rien, pour que « j'ai écrit » reste vrai.
+ */
+export function texteDuRappel(pages: readonly { cartes: readonly Carte[] }[], reponses: Readonly<Record<string, string>>, libre: string): string | null {
+  const lignes: string[] = [];
+  for (const p of pages)
+    for (const c of p.cartes) {
+      const r = propre(reponses[c.id] ?? '', CARTE_REPONSE_MAX);
+      if (r !== '') lignes.push(`${c.question} → ${r}`);
+    }
+  const reste = libre.trim();
+  if (reste !== '') lignes.push(reste);
+  return lignes.length === 0 ? null : lignes.join('\n');
+}

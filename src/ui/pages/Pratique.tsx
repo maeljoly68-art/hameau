@@ -52,7 +52,7 @@ function CartePratique({ cours, donnees, sessions, aujourdhui, faire, surChrono 
             </li>
           ))}
         </ul>
-        <span className={etat.serie > 0 ? 'pratique-serie' : 'pratique-serie vide'}>{etat.serie > 0 ? `Série de ${etat.serie} jour${etat.serie > 1 ? 's' : ''}` : 'Pas de série : commence aujourd’hui'}</span>
+        <span className={etat.serie > 0 ? 'pratique-serie' : 'pratique-serie sans-serie'}>{etat.serie > 0 ? `Série de ${etat.serie} jour${etat.serie > 1 ? 's' : ''}` : 'Pas de série : commence aujourd’hui'}</span>
       </div>
       <div className="actions gauche pratique-actions">
         {cours.lien && (

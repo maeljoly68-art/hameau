@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CARTES_PAR_PAGE_MAX, CARTE_QUESTION_MAX, CARTE_REPONSE_MAX, analyserCartes, carteValide, cartesParPage, type Carte } from '../src/core/cartes.ts';
+import { CARTES_PAR_PAGE_MAX, CARTE_QUESTION_MAX, CARTE_REPONSE_MAX, analyserCartes, carteValide, cartesParPage, texteDuRappel, type Carte } from '../src/core/cartes.ts';
 import { CALIBRAGE_JOURS, CALIBRAGE_MIN, CONFIANCES, calibrage, rangNote } from '../src/core/confiance.ts';
 import type { Chapitre, Cours, NoteChapitre } from '../src/core/cours.ts';
 import { ERREURS_PAR_JOUR, ERREUR_PREMIER_RETOUR, ERREUR_RETOUR_SUIVANT, ERREUR_TEXTE_MAX, erreurValide, erreursDuJour, estDue, estOuverte, texteErreur, type Erreur } from '../src/core/erreurs.ts';
@@ -375,4 +375,42 @@ test('meilleurs moments : un écart d’exactement un quart de cran suffit', () 
   assert.equal(h.pire?.id, 'apres-midi');
   const presque = heuresProductives([...lot(9, 'bien', 7), ...lot(9, 'facile', 1), ...lot(15, 'bien', 8)], aHeure(0)); // 2,125 contre 2
   assert.equal(presque.meilleur, null);
+});
+
+// ── Répondre à côté de la question ──
+
+const carte = (id: string, question: string, reponse = 'x'): Carte => ({ id, chapitreId: 'c', question, reponse, ordre: 0 });
+
+test('le rappel écrit : une ligne « question → réponse » par carte répondue, puis ce qu’on a écrit en plus', () => {
+  const pages = [{ cartes: [carte('a', 'Capital d’une SA ?'), carte('b', 'Quorum ?')] }, { cartes: [carte('c', 'Majorité ?')] }];
+  assert.equal(texteDuRappel(pages, { a: '37 000 €', b: 'un quart', c: 'deux tiers' }, 'et le reste'), 'Capital d’une SA ? → 37 000 €\nQuorum ? → un quart\nMajorité ? → deux tiers\net le reste');
+});
+
+test('le rappel écrit suit l’ordre des cartes, pas celui où on a répondu', () => {
+  const pages = [{ cartes: [carte('a', 'Un ?'), carte('b', 'Deux ?')] }];
+  assert.equal(texteDuRappel(pages, { b: 'B', a: 'A' }, ''), 'Un ? → A\nDeux ? → B');
+});
+
+test('une réponse vide ou faite d’espaces n’est pas une ligne', () => {
+  const pages = [{ cartes: [carte('a', 'Un ?'), carte('b', 'Deux ?'), carte('c', 'Trois ?')] }];
+  assert.equal(texteDuRappel(pages, { a: '   ', b: ' B ' }, ''), 'Deux ? → B');
+});
+
+test('rien d’écrit : null, pour que « j’ai écrit » ne soit pas vrai à vide', () => {
+  const pages = [{ cartes: [carte('a', 'Un ?')] }];
+  assert.equal(texteDuRappel(pages, {}, ''), null);
+  assert.equal(texteDuRappel(pages, { a: '' }, '  \n '), null);
+  assert.equal(texteDuRappel([], {}, ''), null);
+});
+
+test('sans carte, seul le texte libre reste ; les réponses d’une carte inconnue sont ignorées', () => {
+  assert.equal(texteDuRappel([], {}, '  l’essentiel '), 'l’essentiel');
+  assert.equal(texteDuRappel([{ cartes: [carte('a', 'Un ?')] }], { zzz: 'perdue' }, ''), null);
+});
+
+test('une réponse est bornée comme une réponse de carte, espaces écrasés', () => {
+  const pages = [{ cartes: [carte('a', 'Un ?')] }];
+  const long = texteDuRappel(pages, { a: 'x'.repeat(CARTE_REPONSE_MAX + 50) }, '');
+  assert.equal(long, `Un ? → ${'x'.repeat(CARTE_REPONSE_MAX)}`);
+  assert.equal(texteDuRappel(pages, { a: 'a   b\t c' }, ''), 'Un ? → a b c');
 });
