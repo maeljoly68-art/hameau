@@ -5,6 +5,7 @@ import { client, clePublique, urlSupabase } from '../../data/config.ts';
 import type { Donnees } from '../../data/depot.ts';
 import { carillon } from '../alertes.ts';
 import { appliquerTheme, lireTheme, type Theme } from '../theme.ts';
+import { RappelPush } from './RappelPush.tsx';
 
 function telecharger(nom: string, contenu: string, type: string) {
   const a = document.createElement('a');
@@ -172,6 +173,7 @@ export default function Reglages({
       <FormulaireProfil key={`${donnees.profil.nomHameau}|${donnees.profil.objectifJour}`} profil={donnees.profil} surEnregistrer={surProfil} />
       <Apparence />
       <Notifications />
+      {synchronise && <RappelPush />}
 
       <section className="carte">
         <h2>Raccourcis iPhone / iPad</h2>

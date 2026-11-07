@@ -839,3 +839,6 @@ div.ag-partiel p { margin: 0; }
 .conseil-heure { margin: 0; }
 .bilan-moments { margin: 0; padding-left: 18px; font-size: 13px; color: var(--texte-2); }
 @media print { .fiche-veille .actions, .fiche-veille .entete button { display: none; } }
+.rappel-push { display: grid; gap: 10px; }
+.ligne-heure { display: flex; align-items: center; gap: 10px; }
+.ligne-heure select { width: auto; }

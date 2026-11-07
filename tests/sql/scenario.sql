@@ -588,6 +588,123 @@ do $$ begin insert into public.cartes (chapitre_id, question, reponse) values (c
 do $$ begin insert into public.cartes (chapitre_id, question, reponse) values (current_setting('test.hid')::uuid, 'q', repeat('r', 801)); raise exception 'ÉCHEC : réponse de 801 caractères acceptée'; exception when check_violation then null; end $$;
 do $$ begin insert into public.cartes (chapitre_id, question, reponse) values (gen_random_uuid(), 'q', 'r'); raise exception 'ÉCHEC : carte sur un chapitre inconnu acceptée'; exception when foreign_key_violation then null; end $$;
 
+-- Migration 12 : notifications push.
+-- Les contraintes, côté personne connectée.
+insert into public.abonnements_push (endpoint, p256dh, auth) values ('https://push.exemple/abonne-1', 'BPlaceholderClePublique0123456789', 'authSecret16bytes');
+insert into public.notifications_reglage (heure) values (9);
+do $$ begin
+  if (select count(*) from public.abonnements_push) <> 1 then raise exception 'ÉCHEC : abonnement non enregistré'; end if;
+  if (select heure from public.notifications_reglage) <> 9 or (select actif from public.notifications_reglage) is distinct from true then raise exception 'ÉCHEC : réglage par défaut (actif, heure choisie)'; end if;
+  if (select fuseau from public.notifications_reglage) <> 'Europe/Paris' then raise exception 'ÉCHEC : fuseau par défaut'; end if;
+end $$;
+do $$ begin insert into public.abonnements_push (endpoint, p256dh, auth) values ('https://push.exemple/abonne-1', 'BPlaceholderClePublique0123456789', 'authSecret16bytes'); raise exception 'ÉCHEC : le même appareil abonné deux fois'; exception when unique_violation then null; end $$;
+do $$ begin insert into public.abonnements_push (endpoint, p256dh, auth) values ('http://push.exemple/x', 'BPlaceholderClePublique0123456789', 'authSecret16bytes'); raise exception 'ÉCHEC : adresse http acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.abonnements_push (endpoint, p256dh, auth) values ('https://push.exemple/un espace', 'BPlaceholderClePublique0123456789', 'authSecret16bytes'); raise exception 'ÉCHEC : adresse avec espace acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.abonnements_push (endpoint, p256dh, auth) values ('https://push.exemple/' || repeat('x', 1000), 'BPlaceholderClePublique0123456789', 'authSecret16bytes'); raise exception 'ÉCHEC : adresse de plus de 1000 caractères acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.abonnements_push (endpoint, p256dh, auth) values ('https://push.exemple/y', 'court', 'authSecret16bytes'); raise exception 'ÉCHEC : clé publique trop courte acceptée'; exception when check_violation then null; end $$;
+do $$ begin update public.notifications_reglage set heure = 24; raise exception 'ÉCHEC : heure 24 acceptée'; exception when check_violation then null; end $$;
+do $$ begin update public.notifications_reglage set heure = -1; raise exception 'ÉCHEC : heure -1 acceptée'; exception when check_violation then null; end $$;
+update public.notifications_reglage set heure = 0;
+update public.notifications_reglage set heure = 23;
+-- Seul le propriétaire voit ses abonnements.
+select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false) \gset
+do $$ begin
+  if (select count(*) from public.abonnements_push) <> 0 or (select count(*) from public.notifications_reglage) <> 0 then raise exception 'ÉCHEC : RLS des notifications'; end if;
+end $$;
+do $$ begin insert into public.abonnements_push (user_id, endpoint, p256dh, auth) values (current_setting('test.uid')::uuid, 'https://push.exemple/x', 'BPlaceholderClePublique0123456789', 'authSecret16bytes'); end $$;
+do $$ begin update public.abonnements_push set endpoint = 'https://push.exemple/vole' where endpoint = 'https://push.exemple/abonne-1'; if found then raise exception 'ÉCHEC : l''abonnement d''un autre compte modifié'; end if; end $$;
+do $$ begin insert into public.abonnements_push (user_id, endpoint, p256dh, auth) values ('11111111-1111-1111-1111-111111111111', 'https://push.exemple/pour-un-autre', 'BPlaceholderClePublique0123456789', 'authSecret16bytes'); raise exception 'ÉCHEC : abonnement écrit pour un autre compte'; exception when insufficient_privilege then null; end $$;
+-- La fonction qui dit qui prévenir : réservée au rôle de service. Ni un visiteur ni un compte ne l'appellent.
+do $$ begin perform * from public.notifications_du_moment(); raise exception 'ÉCHEC : un compte appelle notifications_du_moment'; exception when insufficient_privilege then null; end $$;
+do $$ begin perform public.notifications_marquer('11111111-1111-1111-1111-111111111111', '2026-11-20'); raise exception 'ÉCHEC : un compte appelle notifications_marquer'; exception when insufficient_privilege then null; end $$;
+set role anon;
+do $$ begin perform * from public.notifications_du_moment(); raise exception 'ÉCHEC : un visiteur appelle notifications_du_moment'; exception when insufficient_privilege then null; end $$;
+reset role;
+
+-- Le message du jour, calculé sur des données maîtrisées (compte 3 : tout est dû ; comptes 4 et 5 : cas limites).
+insert into auth.users values ('77777777-7777-7777-7777-777777777777'), ('88888888-8888-8888-8888-888888888888'), ('99999999-9999-9999-9999-999999999999');
+insert into public.cours (id, user_id, titre, couleur, partiel, ordre) values
+  ('c3000000-0000-0000-0000-000000000001', '77777777-7777-7777-7777-777777777777', 'Droit', '#6b8afd', '2026-11-22', 0),
+  ('c3000000-0000-0000-0000-000000000002', '77777777-7777-7777-7777-777777777777', 'Cours en pause', '#ff9f5a', '2026-12-20', 1),
+  ('c3000000-0000-0000-0000-000000000003', '77777777-7777-7777-7777-777777777777', 'Cours passé', '#4fd1a5', '2026-11-10', 2);
+update public.cours set en_pause = true where id = 'c3000000-0000-0000-0000-000000000002';
+insert into public.chapitres (user_id, cours_id, titre, ordre, duree_min, niveau, derniere_revision, prochaine_revision, par_coeur) values
+  ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', 'à apprendre', 0, 20, 1, '2026-11-19', '2026-11-20', false),
+  ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', 'à réviser en retard', 1, 20, 3, '2026-11-10', '2026-11-19', false),
+  ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', 'mot pour mot cran 2', 2, 20, 2, '2026-11-18', '2026-11-20', true),
+  ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', 'mot pour mot cran 3', 3, 20, 3, '2026-11-14', '2026-11-20', true),
+  ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', 'pas encore due', 4, 20, 2, '2026-11-18', '2026-11-25', false),
+  ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', 'jamais lue', 5, 20, 0, null, null, false),
+  ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000002', 'en pause', 0, 20, 1, '2026-11-19', '2026-11-20', false),
+  ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000003', 'partiel passé', 0, 20, 1, '2026-11-19', '2026-11-20', false);
+insert into public.erreurs (user_id, chapitre_id, texte, jour, revue_le, reglee_le)
+select '77777777-7777-7777-7777-777777777777', id, v.texte, v.jour::date, v.revue::date, v.reglee::date
+  from public.chapitres, (values ('due : notée il y a 10 jours', '2026-11-10', null, null), ('pas encore : il y a 5 jours', '2026-11-15', null, null), ('sue', '2026-11-01', null, '2026-11-12'), ('flou depuis 3 jours', '2026-11-01', '2026-11-17', null)) as v(texte, jour, revue, reglee)
+ where titre = 'à apprendre' and user_id = '77777777-7777-7777-7777-777777777777';
+insert into public.rappels (user_id, titre, jour_du_mois, fait_le) values
+  ('77777777-7777-7777-7777-777777777777', 'Rapport Studea', 1, null),
+  ('77777777-7777-7777-7777-777777777777', 'Déjà fait ce mois-ci', 1, '2026-11-03'),
+  ('77777777-7777-7777-7777-777777777777', 'Pas encore dû', 25, null);
+insert into public.notifications_reglage (user_id, heure, fuseau) values ('77777777-7777-7777-7777-777777777777', 18, 'Europe/Paris');
+insert into public.abonnements_push (user_id, endpoint, p256dh, auth) values
+  ('77777777-7777-7777-7777-777777777777', 'https://push.exemple/trois-a', 'BPlaceholderClePublique0123456789', 'authSecret16bytes'),
+  ('77777777-7777-7777-7777-777777777777', 'https://push.exemple/trois-b', 'BPlaceholderClePublique0123456789', 'authSecret16bytes');
+-- Compte 4 : un fuseau qui n'existe pas. Compte 5 : rien à dire (aucune page due, aucun rappel).
+insert into public.notifications_reglage (user_id, heure, fuseau) values ('88888888-8888-8888-8888-888888888888', 18, 'Nope/Zone'), ('99999999-9999-9999-9999-999999999999', 18, 'Europe/Paris');
+insert into public.abonnements_push (user_id, endpoint, p256dh, auth) values
+  ('88888888-8888-8888-8888-888888888888', 'https://push.exemple/quatre', 'BPlaceholderClePublique0123456789', 'authSecret16bytes'),
+  ('99999999-9999-9999-9999-999999999999', 'https://push.exemple/cinq', 'BPlaceholderClePublique0123456789', 'authSecret16bytes');
+
+-- 17 h UTC = 18 h à Paris en novembre : c'est l'heure du compte 3 (et 5), pas du 1 (23 h) ; le 4 a un fuseau illisible.
+do $$
+declare ligne record; n integer := 0;
+begin
+  for ligne in select * from public.notifications_du_moment('2026-11-20 17:00:00+00') loop
+    n := n + 1;
+    if ligne.user_id <> '77777777-7777-7777-7777-777777777777' then raise exception 'ÉCHEC : un autre compte que le 3 est prévenu : %', ligne.user_id; end if;
+    if ligne.corps <> '2 pages à apprendre par cœur · 2 pages à réviser · 2 erreurs de retour · À faire : Rapport Studea · Partiel de Droit dans 2 j : la fiche de la veille t’attend' then raise exception 'ÉCHEC : message du jour : %', ligne.corps; end if;
+    if ligne.titre <> 'Hameau · ton rappel du jour' or ligne.jour <> '2026-11-20' then raise exception 'ÉCHEC : titre ou jour du message'; end if;
+  end loop;
+  if n <> 2 then raise exception 'ÉCHEC : une ligne par abonnement attendue (2), obtenu %', n; end if;
+end $$;
+-- À 18 h UTC, c'est 19 h à Paris : ce n'est plus l'heure.
+do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 18:00:00+00')) then raise exception 'ÉCHEC : prévenu à une autre heure que celle choisie'; end if; end $$;
+-- Prévenu : plus avant demain, même si la base tourne tous les quarts d'heure.
+select public.notifications_marquer('77777777-7777-7777-7777-777777777777', '2026-11-20');
+do $$ begin
+  if exists (select 1 from public.notifications_du_moment('2026-11-20 17:15:00+00')) then raise exception 'ÉCHEC : deux rappels le même jour'; end if;
+  if (select dernier_envoi from public.notifications_reglage where user_id = '77777777-7777-7777-7777-777777777777') <> '2026-11-20' then raise exception 'ÉCHEC : dernier envoi non écrit'; end if;
+  if not exists (select 1 from public.notifications_du_moment('2026-11-21 17:00:00+00')) then raise exception 'ÉCHEC : pas de rappel le lendemain'; end if;
+end $$;
+-- Désactivé : rien. Sans abonnement : rien (personne à qui l'envoyer).
+update public.notifications_reglage set actif = false, dernier_envoi = null where user_id = '77777777-7777-7777-7777-777777777777';
+do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 17:00:00+00')) then raise exception 'ÉCHEC : prévenu alors que c''est désactivé'; end if; end $$;
+update public.notifications_reglage set actif = true where user_id = '77777777-7777-7777-7777-777777777777';
+delete from public.abonnements_push where user_id = '77777777-7777-7777-7777-777777777777';
+do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 17:00:00+00')) then raise exception 'ÉCHEC : message produit sans abonnement'; end if; end $$;
+insert into public.abonnements_push (user_id, endpoint, p256dh, auth) values ('77777777-7777-7777-7777-777777777777', 'https://push.exemple/trois-a', 'BPlaceholderClePublique0123456789', 'authSecret16bytes');
+-- Rien de dû : pas de message. Ni un cours en pause, ni un cours dont le partiel est passé, ni une page pas encore due ne font du bruit.
+update public.chapitres set prochaine_revision = '2026-12-30' where user_id = '77777777-7777-7777-7777-777777777777' and cours_id = 'c3000000-0000-0000-0000-000000000001';
+update public.erreurs set reglee_le = '2026-11-19' where user_id = '77777777-7777-7777-7777-777777777777';
+update public.rappels set fait_le = '2026-11-18' where user_id = '77777777-7777-7777-7777-777777777777';
+update public.cours set partiel = '2026-12-30' where id = 'c3000000-0000-0000-0000-000000000001';
+do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 17:00:00+00')) then raise exception 'ÉCHEC : message alors que rien n''est dû (pause, partiel passé, page pas due)'; end if; end $$;
+-- Au singulier : une seule page à apprendre, une seule erreur.
+update public.chapitres set prochaine_revision = '2026-11-20' where user_id = '77777777-7777-7777-7777-777777777777' and titre = 'à apprendre';
+update public.erreurs set reglee_le = null where user_id = '77777777-7777-7777-7777-777777777777' and texte = 'due : notée il y a 10 jours';
+do $$
+declare c text;
+begin
+  select corps into c from public.notifications_du_moment('2026-11-20 17:00:00+00');
+  if c <> '1 page à apprendre par cœur · 1 erreur de retour' then raise exception 'ÉCHEC : message au singulier : %', c; end if;
+end $$;
+delete from auth.users where id in ('77777777-7777-7777-7777-777777777777', '88888888-8888-8888-8888-888888888888', '99999999-9999-9999-9999-999999999999');
+do $$ begin
+  if (select count(*) from public.notifications_reglage where user_id in ('77777777-7777-7777-7777-777777777777', '88888888-8888-8888-8888-888888888888', '99999999-9999-9999-9999-999999999999')) + (select count(*) from public.abonnements_push where user_id in ('77777777-7777-7777-7777-777777777777', '88888888-8888-8888-8888-888888888888', '99999999-9999-9999-9999-999999999999')) <> 0 then raise exception 'ÉCHEC : cascade des notifications'; end if;
+end $$;
+set role authenticated;
+select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false) \gset
+
 -- La date de modification se met à jour toute seule.
 select maj_le as avant from public.chapitres where id = :'hid' \gset
 select set_config('test.avant', :'avant', false) \gset
@@ -683,6 +800,8 @@ do $$ begin
      + (select count(*) from public.rappels where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.erreurs where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.cartes where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.abonnements_push where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.notifications_reglage where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.reglages_cours where user_id = '11111111-1111-1111-1111-111111111111') <> 0 then
     raise exception 'ÉCHEC : cascade';
   end if;

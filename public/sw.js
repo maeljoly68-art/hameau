@@ -61,3 +61,23 @@ self.addEventListener('notificationclick', (e) => {
     }),
   );
 });
+
+// Un rappel poussé par le serveur (voir supabase/functions/rappel-push) : « 3 pages à apprendre par cœur ».
+// Sur iPhone, une notification push DOIT s'afficher (sinon Safari retire l'abonnement) : d'où le message par défaut.
+self.addEventListener('push', (e) => {
+  let charge = {};
+  try {
+    charge = e.data ? e.data.json() : {};
+  } catch {
+    charge = {};
+  }
+  e.waitUntil(
+    self.registration.showNotification(charge.titre || 'Hameau', {
+      body: charge.corps || 'Ton rappel du jour t’attend.',
+      icon: 'icone-192.png',
+      badge: 'icone-192.png',
+      tag: 'hameau-rappel-du-jour', // un nouveau rappel remplace l'ancien au lieu de s'empiler
+      data: { url: charge.url || './' },
+    }),
+  );
+});
