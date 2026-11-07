@@ -51,13 +51,18 @@ self.addEventListener('fetch', (e) => {
   );
 });
 
-// Un clic sur la notification « objectif atteint » ramène dans l'app.
+// Un clic sur une notification ramène dans l'app, sur l'onglet qu'elle annonce (« ./?onglet=cours » pour le rappel du
+// jour). Si l'app est déjà ouverte, on la montre et on lui dit où aller ; sinon, on l'ouvre à cet endroit.
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
+  const cible = (e.notification.data && e.notification.data.url) || './';
+  const onglet = new URL(cible, self.registration.scope).searchParams.get('onglet');
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((fenetres) => {
       const ouverte = fenetres.find((f) => 'focus' in f);
-      return ouverte ? ouverte.focus() : self.clients.openWindow('./');
+      if (!ouverte) return self.clients.openWindow(cible);
+      if (onglet) ouverte.postMessage({ type: 'hameau-ouvrir', onglet });
+      return ouverte.focus();
     }),
   );
 });

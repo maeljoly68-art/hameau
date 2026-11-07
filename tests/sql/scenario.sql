@@ -615,10 +615,10 @@ do $$ begin insert into public.abonnements_push (user_id, endpoint, p256dh, auth
 do $$ begin update public.abonnements_push set endpoint = 'https://push.exemple/vole' where endpoint = 'https://push.exemple/abonne-1'; if found then raise exception 'ÉCHEC : l''abonnement d''un autre compte modifié'; end if; end $$;
 do $$ begin insert into public.abonnements_push (user_id, endpoint, p256dh, auth) values ('11111111-1111-1111-1111-111111111111', 'https://push.exemple/pour-un-autre', 'BPlaceholderClePublique0123456789', 'authSecret16bytes'); raise exception 'ÉCHEC : abonnement écrit pour un autre compte'; exception when insufficient_privilege then null; end $$;
 -- La fonction qui dit qui prévenir : réservée au rôle de service. Ni un visiteur ni un compte ne l'appellent.
-do $$ begin perform * from public.notifications_du_moment(); raise exception 'ÉCHEC : un compte appelle notifications_du_moment'; exception when insufficient_privilege then null; end $$;
-do $$ begin perform public.notifications_marquer('11111111-1111-1111-1111-111111111111', '2026-11-20'); raise exception 'ÉCHEC : un compte appelle notifications_marquer'; exception when insufficient_privilege then null; end $$;
+do $$ begin perform * from public.notifications_a_envoyer(); raise exception 'ÉCHEC : un compte appelle notifications_a_envoyer'; exception when insufficient_privilege then null; end $$;
+do $$ begin perform public.notifications_marquer('11111111-1111-1111-1111-111111111111', '2026-11-20', 'rappel'); raise exception 'ÉCHEC : un compte appelle notifications_marquer'; exception when insufficient_privilege then null; end $$;
 set role anon;
-do $$ begin perform * from public.notifications_du_moment(); raise exception 'ÉCHEC : un visiteur appelle notifications_du_moment'; exception when insufficient_privilege then null; end $$;
+do $$ begin perform * from public.notifications_a_envoyer(); raise exception 'ÉCHEC : un visiteur appelle notifications_a_envoyer'; exception when insufficient_privilege then null; end $$;
 reset role;
 
 -- Le message du jour, calculé sur des données maîtrisées (compte 3 : tout est dû ; comptes 4 et 5 : cas limites).
@@ -659,75 +659,111 @@ insert into public.abonnements_push (user_id, endpoint, p256dh, auth) values
 do $$
 declare ligne record; n integer := 0;
 begin
-  for ligne in select * from public.notifications_du_moment('2026-11-20 17:00:00+00') loop
+  for ligne in select * from public.notifications_a_envoyer('2026-11-20 17:00:00+00') loop
     n := n + 1;
     if ligne.user_id <> '77777777-7777-7777-7777-777777777777' then raise exception 'ÉCHEC : un autre compte que le 3 est prévenu : %', ligne.user_id; end if;
-    if ligne.corps <> '2 pages à apprendre par cœur · 2 pages à réviser · 2 erreurs de retour · À faire : Rapport Studea · Partiel de Droit dans 2 j : la fiche de la veille t’attend' then raise exception 'ÉCHEC : message du jour : %', ligne.corps; end if;
-    if ligne.titre <> 'Hameau · ton rappel du jour' or ligne.jour <> '2026-11-20' then raise exception 'ÉCHEC : titre ou jour du message'; end if;
+    if ligne.corps <> E'• Partiel de Droit dans 2 j : la fiche de la veille t’attend\n• 2 pages à apprendre par cœur\n• 2 pages à réviser\n• 2 erreurs de retour\n• À faire : Rapport Studea' then raise exception 'ÉCHEC : message du jour : %', ligne.corps; end if;
+    if ligne.titre <> '5 choses t’attendent aujourd’hui' or ligne.jour <> '2026-11-20' or ligne.genre <> 'rappel' then raise exception 'ÉCHEC : titre, jour ou genre du message : %', ligne.titre; end if;
   end loop;
   if n <> 2 then raise exception 'ÉCHEC : une ligne par abonnement attendue (2), obtenu %', n; end if;
 end $$;
 -- À 18 h UTC, c'est 19 h à Paris : ce n'est plus l'heure.
-do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 18:00:00+00')) then raise exception 'ÉCHEC : prévenu à une autre heure que celle choisie'; end if; end $$;
+do $$ begin if exists (select 1 from public.notifications_a_envoyer('2026-11-20 18:00:00+00')) then raise exception 'ÉCHEC : prévenu à une autre heure que celle choisie'; end if; end $$;
 -- Prévenu : plus avant demain, même si la base tourne tous les quarts d'heure.
 select public.notifications_marquer('77777777-7777-7777-7777-777777777777', '2026-11-20');
 do $$ begin
-  if exists (select 1 from public.notifications_du_moment('2026-11-20 17:15:00+00')) then raise exception 'ÉCHEC : deux rappels le même jour'; end if;
+  if exists (select 1 from public.notifications_a_envoyer('2026-11-20 17:15:00+00')) then raise exception 'ÉCHEC : deux rappels le même jour'; end if;
   if (select dernier_envoi from public.notifications_reglage where user_id = '77777777-7777-7777-7777-777777777777') <> '2026-11-20' then raise exception 'ÉCHEC : dernier envoi non écrit'; end if;
-  if not exists (select 1 from public.notifications_du_moment('2026-11-21 17:00:00+00')) then raise exception 'ÉCHEC : pas de rappel le lendemain'; end if;
+  if not exists (select 1 from public.notifications_a_envoyer('2026-11-21 17:00:00+00')) then raise exception 'ÉCHEC : pas de rappel le lendemain'; end if;
 end $$;
+-- Migration 15 : la relance du soir — trois heures après l'heure choisie (18 h → 21 h à Paris = 20 h UTC), si quelque chose attend encore.
+do $$
+declare ligne record; n integer := 0;
+begin
+  for ligne in select * from public.notifications_a_envoyer('2026-11-20 20:00:00+00') loop
+    n := n + 1;
+    if ligne.user_id <> '77777777-7777-7777-7777-777777777777' then raise exception 'ÉCHEC : relance pour un autre compte : %', ligne.user_id; end if;
+    if ligne.genre <> 'relance' or ligne.titre <> 'Il te reste 5 choses' or ligne.jour <> '2026-11-20' then raise exception 'ÉCHEC : relance : % / % / %', ligne.genre, ligne.titre, ligne.jour; end if;
+    if ligne.corps <> E'• Partiel de Droit dans 2 j : la fiche de la veille t’attend\n• 2 pages à apprendre par cœur\n• 2 pages à réviser\n• 2 erreurs de retour\n• À faire : Rapport Studea' then raise exception 'ÉCHEC : message de la relance : %', ligne.corps; end if;
+  end loop;
+  if n <> 2 then raise exception 'ÉCHEC : relance : une ligne par abonnement attendue (2), obtenu %', n; end if;
+end $$;
+-- Ni avant (20 h à Paris) ni après (22 h) : seulement trois heures plus tard.
+do $$ begin if exists (select 1 from public.notifications_a_envoyer('2026-11-20 19:00:00+00') where user_id = '77777777-7777-7777-7777-777777777777') or exists (select 1 from public.notifications_a_envoyer('2026-11-20 21:00:00+00') where user_id = '77777777-7777-7777-7777-777777777777') then raise exception 'ÉCHEC : relance à une autre heure que trois heures après'; end if; end $$;
+-- Une seule relance par jour, et elle ne touche pas au rappel du matin.
+select public.notifications_marquer('77777777-7777-7777-7777-777777777777', '2026-11-20', 'relance');
+do $$ begin
+  if exists (select 1 from public.notifications_a_envoyer('2026-11-20 20:15:00+00') where user_id = '77777777-7777-7777-7777-777777777777') then raise exception 'ÉCHEC : deux relances le même jour'; end if;
+  if (select derniere_relance from public.notifications_reglage where user_id = '77777777-7777-7777-7777-777777777777') <> '2026-11-20' then raise exception 'ÉCHEC : dernière relance non écrite'; end if;
+  if (select dernier_envoi from public.notifications_reglage where user_id = '77777777-7777-7777-7777-777777777777') <> '2026-11-20' then raise exception 'ÉCHEC : la relance a effacé le dernier rappel'; end if;
+  if not exists (select 1 from public.notifications_a_envoyer('2026-11-21 20:00:00+00') where user_id = '77777777-7777-7777-7777-777777777777') then raise exception 'ÉCHEC : pas de relance le lendemain'; end if;
+end $$;
+-- Désactivable.
+update public.notifications_reglage set relance = false, derniere_relance = null where user_id = '77777777-7777-7777-7777-777777777777';
+do $$ begin if exists (select 1 from public.notifications_a_envoyer('2026-11-20 20:00:00+00') where user_id = '77777777-7777-7777-7777-777777777777') then raise exception 'ÉCHEC : relance alors qu''elle est désactivée'; end if; end $$;
+update public.notifications_reglage set relance = true where user_id = '77777777-7777-7777-7777-777777777777';
+-- Trop tard dans la journée : à 22 h, la relance sortirait de la journée (25 h) : jamais. À 20 h, elle tombe à 23 h : oui.
+update public.notifications_reglage set heure = 22 where user_id = '77777777-7777-7777-7777-777777777777';
+do $$ begin
+  if exists (select 1 from public.notifications_a_envoyer('2026-11-20 22:00:00+00') where user_id = '77777777-7777-7777-7777-777777777777') then raise exception 'ÉCHEC : relance à 23 h pour un rappel de 22 h'; end if;
+  if (select genre from public.notifications_a_envoyer('2026-11-20 21:00:00+00') where user_id = '77777777-7777-7777-7777-777777777777' limit 1) <> 'rappel' then raise exception 'ÉCHEC : rappel de 22 h'; end if;
+end $$;
+update public.notifications_reglage set heure = 20 where user_id = '77777777-7777-7777-7777-777777777777';
+do $$ begin if (select genre from public.notifications_a_envoyer('2026-11-20 22:00:00+00') where user_id = '77777777-7777-7777-7777-777777777777' limit 1) is distinct from 'relance' then raise exception 'ÉCHEC : pas de relance à 23 h pour un rappel de 20 h'; end if; end $$;
+update public.notifications_reglage set heure = 18, derniere_relance = null where user_id = '77777777-7777-7777-7777-777777777777';
+do $$ begin if (select relance from public.notifications_reglage where user_id = '88888888-8888-8888-8888-888888888888') is distinct from true then raise exception 'ÉCHEC : la relance doit être active par défaut'; end if; end $$;
 -- Désactivé : rien. Sans abonnement : rien (personne à qui l'envoyer).
 update public.notifications_reglage set actif = false, dernier_envoi = null where user_id = '77777777-7777-7777-7777-777777777777';
-do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 17:00:00+00')) then raise exception 'ÉCHEC : prévenu alors que c''est désactivé'; end if; end $$;
+do $$ begin if exists (select 1 from public.notifications_a_envoyer('2026-11-20 17:00:00+00')) then raise exception 'ÉCHEC : prévenu alors que c''est désactivé'; end if; end $$;
 update public.notifications_reglage set actif = true where user_id = '77777777-7777-7777-7777-777777777777';
 delete from public.abonnements_push where user_id = '77777777-7777-7777-7777-777777777777';
-do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 17:00:00+00')) then raise exception 'ÉCHEC : message produit sans abonnement'; end if; end $$;
+do $$ begin if exists (select 1 from public.notifications_a_envoyer('2026-11-20 17:00:00+00')) then raise exception 'ÉCHEC : message produit sans abonnement'; end if; end $$;
 insert into public.abonnements_push (user_id, endpoint, p256dh, auth) values ('77777777-7777-7777-7777-777777777777', 'https://push.exemple/trois-a', 'BPlaceholderClePublique0123456789', 'authSecret16bytes');
 -- Rien de dû : pas de message. Ni un cours en pause, ni un cours dont le partiel est passé, ni une page pas encore due ne font du bruit.
 update public.chapitres set prochaine_revision = '2026-12-30' where user_id = '77777777-7777-7777-7777-777777777777' and cours_id = 'c3000000-0000-0000-0000-000000000001';
 update public.erreurs set reglee_le = '2026-11-19' where user_id = '77777777-7777-7777-7777-777777777777';
 update public.rappels set fait_le = '2026-11-18' where user_id = '77777777-7777-7777-7777-777777777777';
 update public.cours set partiel = '2026-12-30' where id = 'c3000000-0000-0000-0000-000000000001';
-do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 17:00:00+00')) then raise exception 'ÉCHEC : message alors que rien n''est dû (pause, partiel passé, page pas due)'; end if; end $$;
+do $$ begin if exists (select 1 from public.notifications_a_envoyer('2026-11-20 17:00:00+00')) then raise exception 'ÉCHEC : message alors que rien n''est dû (pause, partiel passé, page pas due)'; end if; end $$;
 -- Au singulier : une seule page à apprendre, une seule erreur.
 update public.chapitres set prochaine_revision = '2026-11-20' where user_id = '77777777-7777-7777-7777-777777777777' and titre = 'à apprendre';
 update public.erreurs set reglee_le = null where user_id = '77777777-7777-7777-7777-777777777777' and texte = 'due : notée il y a 10 jours';
 do $$
 declare c text;
 begin
-  select corps into c from public.notifications_du_moment('2026-11-20 17:00:00+00');
-  if c <> '1 page à apprendre par cœur · 1 erreur de retour' then raise exception 'ÉCHEC : message au singulier : %', c; end if;
+  select corps into c from public.notifications_a_envoyer('2026-11-20 17:00:00+00');
+  if c <> E'• 1 page à apprendre par cœur\n• 1 erreur de retour' then raise exception 'ÉCHEC : message au singulier : %', c; end if;
 end $$;
 -- Migration 13 : la pratique quotidienne est dans le message tant qu'elle n'est pas faite aujourd'hui.
 update public.cours set pratique_min = 5 where id = 'c3000000-0000-0000-0000-000000000001';
 do $$
 declare c text;
 begin
-  select corps into c from public.notifications_du_moment('2026-11-20 17:00:00+00');
-  if c <> '1 page à apprendre par cœur · 1 erreur de retour · Pratique du jour : Droit 5 min' then raise exception 'ÉCHEC : la pratique du jour manque au message : %', c; end if;
+  select corps into c from public.notifications_a_envoyer('2026-11-20 17:00:00+00');
+  if c <> E'• 1 page à apprendre par cœur\n• 1 erreur de retour\n• Pratique du jour : Droit (5 min)' then raise exception 'ÉCHEC : la pratique du jour manque au message : %', c; end if;
 end $$;
 -- 3 min déclarées : pas assez. 3 + 2 : le minimum est atteint, plus un mot sur la pratique.
 insert into public.pratiques (user_id, cours_id, jour, minutes) values ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', '2026-11-20', 3);
-do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit 5 min' then raise exception 'ÉCHEC : 3 minutes sur 5 comptées comme faites'; end if; end $$;
+do $$ begin if (select corps from public.notifications_a_envoyer('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit (5 min)' then raise exception 'ÉCHEC : 3 minutes sur 5 comptées comme faites'; end if; end $$;
 insert into public.pratiques (user_id, cours_id, jour, minutes) values ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', '2026-11-20', 2);
-do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) <> '1 page à apprendre par cœur · 1 erreur de retour' then raise exception 'ÉCHEC : pratique faite mais encore annoncée'; end if; end $$;
+do $$ begin if (select corps from public.notifications_a_envoyer('2026-11-20 17:00:00+00') limit 1) <> E'• 1 page à apprendre par cœur\n• 1 erreur de retour' then raise exception 'ÉCHEC : pratique faite mais encore annoncée'; end if; end $$;
 -- Les minutes d'un autre jour ne comptent pas ; celles du chrono comptent (pauses déduites), pas celles des pages du même cours.
 delete from public.pratiques where user_id = '77777777-7777-7777-7777-777777777777';
 insert into public.pratiques (user_id, cours_id, jour, minutes) values ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', '2026-11-19', 30);
 insert into public.sessions (user_id, debut, fin, categorie) values ('77777777-7777-7777-7777-777777777777', '2026-11-20 08:00:00+00', '2026-11-20 08:30:00+00', 'Droit');
-do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit 5 min' then raise exception 'ÉCHEC : la veille ou les pages du cours comptées comme pratique'; end if; end $$;
+do $$ begin if (select corps from public.notifications_a_envoyer('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit (5 min)' then raise exception 'ÉCHEC : la veille ou les pages du cours comptées comme pratique'; end if; end $$;
 insert into public.sessions (user_id, debut, fin, categorie, pause_secondes) values ('77777777-7777-7777-7777-777777777777', '2026-11-20 09:00:00+00', '2026-11-20 09:05:00+00', '  droit  ·  ERREURS ', 120);
-do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit 5 min' then raise exception 'ÉCHEC : 5 min de chrono avec 2 min de pause comptées comme 5'; end if; end $$;
+do $$ begin if (select corps from public.notifications_a_envoyer('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit (5 min)' then raise exception 'ÉCHEC : 5 min de chrono avec 2 min de pause comptées comme 5'; end if; end $$;
 update public.sessions set pause_secondes = 0 where user_id = '77777777-7777-7777-7777-777777777777' and categorie like '%ERREURS%';
-do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) <> '1 page à apprendre par cœur · 1 erreur de retour' then raise exception 'ÉCHEC : 5 min de chrono sur « Droit · erreurs » non comptées'; end if; end $$;
+do $$ begin if (select corps from public.notifications_a_envoyer('2026-11-20 17:00:00+00') limit 1) <> E'• 1 page à apprendre par cœur\n• 1 erreur de retour' then raise exception 'ÉCHEC : 5 min de chrono sur « Droit · erreurs » non comptées'; end if; end $$;
 -- Jusqu'au partiel compris, jamais après ; un cours en pause n'est pas rappelé.
 delete from public.sessions where user_id = '77777777-7777-7777-7777-777777777777';
 update public.cours set partiel = '2026-11-20' where id = 'c3000000-0000-0000-0000-000000000001';
-do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit 5 min%' then raise exception 'ÉCHEC : pas de pratique le jour du partiel'; end if; end $$;
+do $$ begin if (select corps from public.notifications_a_envoyer('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit (5 min)%' then raise exception 'ÉCHEC : pas de pratique le jour du partiel'; end if; end $$;
 update public.cours set partiel = '2026-11-19' where id = 'c3000000-0000-0000-0000-000000000001';
-do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 17:00:00+00') where corps like '%Pratique du jour%') then raise exception 'ÉCHEC : pratique rappelée après le partiel'; end if; end $$;
+do $$ begin if exists (select 1 from public.notifications_a_envoyer('2026-11-20 17:00:00+00') where corps like '%Pratique du jour%') then raise exception 'ÉCHEC : pratique rappelée après le partiel'; end if; end $$;
 update public.cours set partiel = '2026-12-30', en_pause = true where id = 'c3000000-0000-0000-0000-000000000001';
-do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 17:00:00+00') where corps like '%Pratique du jour%') then raise exception 'ÉCHEC : pratique rappelée pour un cours en pause'; end if; end $$;
+do $$ begin if exists (select 1 from public.notifications_a_envoyer('2026-11-20 17:00:00+00') where corps like '%Pratique du jour%') then raise exception 'ÉCHEC : pratique rappelée pour un cours en pause'; end if; end $$;
 delete from auth.users where id in ('77777777-7777-7777-7777-777777777777', '88888888-8888-8888-8888-888888888888', '99999999-9999-9999-9999-999999999999');
 do $$ begin
   if (select count(*) from public.notifications_reglage where user_id in ('77777777-7777-7777-7777-777777777777', '88888888-8888-8888-8888-888888888888', '99999999-9999-9999-9999-999999999999')) + (select count(*) from public.abonnements_push where user_id in ('77777777-7777-7777-7777-777777777777', '88888888-8888-8888-8888-888888888888', '99999999-9999-9999-9999-999999999999')) <> 0 then raise exception 'ÉCHEC : cascade des notifications'; end if;

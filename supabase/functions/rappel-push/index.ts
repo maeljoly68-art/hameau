@@ -1,8 +1,8 @@
-// Le rappel quotidien : envoie les notifications push que la base dit dues (voir notifications_du_moment).
+// Le rappel quotidien : envoie les notifications push que la base dit dues (voir notifications_a_envoyer : rappel du jour et relance du soir).
 //
 // Quatre actions, toutes en POST avec un corps JSON { action } :
 //   cle-publique  (ouverte)          la clé publique VAPID, que le navigateur donne pour s'abonner ; créée au premier appel
-//   cron          (secret de la base) envoie les rappels dus à cette heure ; appelée tous les quarts d'heure par pg_cron
+//   cron          (secret de la base) envoie les rappels et relances dus à cette heure ; appelée tous les quarts d'heure par pg_cron
 //   test          (compte connecté)  envoie une notification de test à SES appareils
 //   essai         (secret de la base) envoie un message à un abonnement donné : sert à vérifier la chaîne d'envoi de bout en bout
 //
@@ -55,12 +55,13 @@ const egal = (a: string, b: string) => {
 };
 
 interface Abonnement { endpoint: string; p256dh: string; auth: string }
-interface Charge { titre: string; corps: string }
+/** `url` : où le clic sur la notification ramène dans l'application (voir public/sw.js). */
+interface Charge { titre: string; corps: string; url?: string }
 
 async function envoyer(a: Abonnement, charge: Charge, k: { publique: string; privee: string }): Promise<{ ok: true } | { ok: false; statut: number | null; message: string }> {
   try {
     webpush.setVapidDetails(SUJET, k.publique, k.privee);
-    await webpush.sendNotification({ endpoint: a.endpoint, keys: { p256dh: a.p256dh, auth: a.auth } }, JSON.stringify({ titre: charge.titre, corps: charge.corps, url: './' }), { TTL: 6 * 3600, urgency: 'normal' });
+    await webpush.sendNotification({ endpoint: a.endpoint, keys: { p256dh: a.p256dh, auth: a.auth } }, JSON.stringify({ titre: charge.titre, corps: charge.corps, url: charge.url ?? './' }), { TTL: 6 * 3600, urgency: 'normal' });
     return { ok: true };
   } catch (e) {
     const err = e as { statusCode?: number; message?: string };
@@ -75,25 +76,26 @@ async function oublier(endpoint: string) {
 
 async function rappelsDuMoment() {
   const k = await cles();
-  const r = await admin.rpc('notifications_du_moment');
-  if (r.error) throw new Error(`notifications_du_moment : ${r.error.message}`);
-  const lignes = (r.data ?? []) as { user_id: string; endpoint: string; p256dh: string; auth: string; titre: string; corps: string; jour: string }[];
-  const reussis = new Map<string, string>();
+  const r = await admin.rpc('notifications_a_envoyer');
+  if (r.error) throw new Error(`notifications_a_envoyer : ${r.error.message}`);
+  const lignes = (r.data ?? []) as { user_id: string; endpoint: string; p256dh: string; auth: string; titre: string; corps: string; jour: string; genre: 'rappel' | 'relance' }[];
+  const reussis = new Map<string, { user: string; jour: string; genre: string }>();
   let envoyes = 0;
   let oublies = 0;
   const echecs: { statut: number | null; message: string }[] = [];
   for (const l of lignes) {
-    const res = await envoyer(l, { titre: l.titre, corps: l.corps }, k);
+    // Un clic sur le rappel ou la relance ouvre l'onglet Cours : c'est là que se trouve ce qui attend.
+    const res = await envoyer(l, { titre: l.titre, corps: l.corps, url: './?onglet=cours' }, k);
     if (res.ok) {
       envoyes++;
-      reussis.set(l.user_id, l.jour);
+      reussis.set(`${l.user_id}|${l.genre}`, { user: l.user_id, jour: l.jour, genre: l.genre });
     } else if (res.statut === 404 || res.statut === 410) {
       oublies++;
       await oublier(l.endpoint);
     } else echecs.push({ statut: res.statut, message: res.message });
   }
-  // Un seul rappel par jour : marqué seulement s'il est parti sur au moins un appareil (sinon, il sera retenté au quart d'heure suivant).
-  for (const [user, jour] of reussis) await admin.rpc('notifications_marquer', { p_user: user, p_jour: jour });
+  // Un seul rappel et une seule relance par jour : marqués seulement s'ils sont partis sur au moins un appareil (sinon, ils seront retentés au quart d'heure suivant).
+  for (const { user, jour, genre } of reussis.values()) await admin.rpc('notifications_marquer', { p_user: user, p_jour: jour, p_genre: genre });
   return { dus: lignes.length, envoyes, oublies, echecs };
 }
 
@@ -107,7 +109,7 @@ async function testDe(userId: string) {
   let oublies = 0;
   const echecs: { statut: number | null; message: string }[] = [];
   for (const a of liste) {
-    const res = await envoyer(a, { titre: 'Hameau · test', corps: 'Les rappels fonctionnent : tu recevras ton rappel du jour à l’heure choisie.' }, k);
+    const res = await envoyer(a, { titre: 'Test du rappel', corps: 'Les rappels fonctionnent : tu recevras ton message du jour à l’heure choisie.', url: './?onglet=cours' }, k);
     if (res.ok) envoyes++;
     else if (res.statut === 404 || res.statut === 410) {
       oublies++;
@@ -136,7 +138,7 @@ Deno.serve(async (req) => {
       if (corps.action === 'cron') return json(await rappelsDuMoment());
       const a = corps.abonnement;
       if (!a?.endpoint || !a.p256dh || !a.auth) return json({ erreur: 'abonnement manquant' }, 400);
-      return json(await envoyer(a, { titre: 'Hameau · essai', corps: 'Chaîne d’envoi vérifiée.' }, k));
+      return json(await envoyer(a, { titre: 'Essai', corps: 'Chaîne d’envoi vérifiée.' }, k));
     }
 
     if (corps.action === 'test') {

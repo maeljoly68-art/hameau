@@ -11,6 +11,10 @@ export interface EtatPush {
   abonne: boolean;
   actif: boolean;
   heure: number;
+  /** La relance du soir (trois heures après l'heure du rappel) : active par défaut. */
+  relance: boolean;
+  /** La colonne de la relance existe-t-elle ? Sinon (migration pas encore passée), le réglage n'est pas proposé. */
+  relanceDisponible: boolean;
   /** La migration des notifications n'est pas encore passée sur la base. */
   tableAbsente: boolean;
 }
@@ -50,12 +54,20 @@ export async function lireEtatPush(): Promise<EtatPush> {
   const reg = await enregistrement();
   const abonne = reg ? (await reg.pushManager.getSubscription()) !== null : false;
   const sb = await client();
-  const r = await sb.from('notifications_reglage').select('actif, heure').maybeSingle<{ actif: boolean; heure: number }>();
+  const absente = (code: string | undefined) => code === 'PGRST205' || code === '42P01';
+  let r = await sb.from('notifications_reglage').select('actif, heure, relance').maybeSingle<{ actif: boolean; heure: number; relance: boolean }>();
+  let relanceDisponible = true;
+  if (r.error && (r.error.code === '42703' || r.error.code === 'PGRST204')) {
+    // Base sans la colonne de la relance : le rappel du jour marche, sans ce réglage.
+    relanceDisponible = false;
+    const sans = await sb.from('notifications_reglage').select('actif, heure').maybeSingle<{ actif: boolean; heure: number }>();
+    r = { ...sans, data: sans.data ? { ...sans.data, relance: true } : null } as typeof r;
+  }
   if (r.error) {
-    if (r.error.code === 'PGRST205' || r.error.code === '42P01') return { priseEnCharge: prise, permission, abonne, actif: false, heure: HEURE_DEFAUT, tableAbsente: true };
+    if (absente(r.error.code)) return { priseEnCharge: prise, permission, abonne, actif: false, heure: HEURE_DEFAUT, relance: true, relanceDisponible, tableAbsente: true };
     throw new Error(r.error.message);
   }
-  return { priseEnCharge: prise, permission, abonne, actif: r.data?.actif === true, heure: r.data?.heure ?? HEURE_DEFAUT, tableAbsente: false };
+  return { priseEnCharge: prise, permission, abonne, actif: r.data?.actif === true, heure: r.data?.heure ?? HEURE_DEFAUT, relance: r.data?.relance !== false, relanceDisponible, tableAbsente: false };
 }
 
 function fuseauLocal(): string {
@@ -66,9 +78,10 @@ function fuseauLocal(): string {
   }
 }
 
-async function ecrireReglage(actif: boolean, heure: number): Promise<void> {
+async function ecrireReglage(actif: boolean, heure: number, relance?: boolean): Promise<void> {
   const sb = await client();
-  const r = await sb.from('notifications_reglage').upsert({ user_id: await idUtilisateur(), actif, heure, fuseau: fuseauLocal(), maj_le: new Date().toISOString() });
+  // La relance n'est écrite que si on la règle : une base sans sa colonne continue d'accepter l'heure et l'activation.
+  const r = await sb.from('notifications_reglage').upsert({ user_id: await idUtilisateur(), actif, heure, fuseau: fuseauLocal(), maj_le: new Date().toISOString(), ...(relance === undefined ? {} : { relance }) });
   if (r.error) throw new Error(r.error.code === 'PGRST205' || r.error.code === '42P01' ? MESSAGE_MIGRATION : r.error.message);
 }
 
@@ -97,6 +110,11 @@ export async function activerPush(heure: number): Promise<void> {
 
 export async function changerHeurePush(heure: number): Promise<void> {
   await ecrireReglage(true, heure);
+}
+
+/** Active ou coupe la relance du soir. */
+export async function changerRelancePush(heure: number, relance: boolean): Promise<void> {
+  await ecrireReglage(true, heure, relance);
 }
 
 /** Retire cet appareil (et coupe le rappel pour le compte, qui n'a plus qu'à se réactiver). */

@@ -30,6 +30,7 @@ import { IconeAmis, IconeCintre, IconeCours, IconeCoche, IconeEtincelle, IconeEt
 import { miniChronoDisponible, useMiniChrono } from './MiniChrono.tsx';
 import { ModeFocus } from './ModeFocus.tsx';
 import type { LancerChapitre } from './pages/Cours.tsx';
+import { ongletDansAdresse, ongletValide, sansOnglet, type Onglet } from '../core/onglets.ts';
 import { useHameau, useMaintenant } from './useHameau.ts';
 import { usePointsApprentissage } from './usePointsApprentissage.ts';
 import { CadreVillage } from './Village.tsx';
@@ -86,7 +87,7 @@ const Taches = lazy(chargerTaches);
 const Amis = lazy(chargerAmis);
 const OngletCours = lazy(chargerOngletCours);
 
-type Onglet = 'village' | 'cours' | 'taches' | 'amis' | 'historique' | 'stats' | 'reglages';
+
 
 const ONGLETS: { id: Onglet; nom: string; Icone: () => React.ReactElement }[] = [
   { id: 'village', nom: 'Village', Icone: IconeVillage },
@@ -253,7 +254,21 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
   const maintenant = useMaintenant(30_000);
   // Une invitation reçue par lien ouvre directement l'onglet Amis.
   const [invitation, setInvitation] = useState<string | null>(() => lirePreference<string | null>('hameau.invitation', null));
-  const [onglet, setOnglet] = useState<Onglet>(() => (invitation && depot.synchronise ? 'amis' : 'village'));
+  // Une invitation ouvre Amis ; un clic sur le rappel du jour ouvre l'onglet qu'il annonce (« ?onglet=cours »).
+  const [onglet, setOnglet] = useState<Onglet>(() => (invitation && depot.synchronise ? 'amis' : (ongletDansAdresse(window.location.search) ?? 'village')));
+  useEffect(() => {
+    // L'onglet demandé est ouvert : on l'enlève de l'adresse pour qu'un rechargement ne ramène pas toujours là.
+    if (ongletDansAdresse(window.location.search)) window.history.replaceState(null, '', `${window.location.pathname}${sansOnglet(window.location.search)}${window.location.hash}`);
+    // L'app est déjà ouverte quand on touche la notification : le service worker lui dit où aller.
+    const surMessage = (e: MessageEvent) => {
+      const d = e.data as { type?: unknown; onglet?: unknown } | null;
+      const demande = d && d.type === 'hameau-ouvrir' ? ongletValide(d.onglet) : null;
+      if (demande) setOnglet(demande);
+    };
+    if (!('serviceWorker' in navigator)) return undefined;
+    navigator.serviceWorker.addEventListener('message', surMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', surMessage);
+  }, []);
   const [gardeRobe, setGardeRobe] = useState(false);
   // Le ciel suit le soleil à la minute : recalculé seulement quand elle change,
   // pour que le village (mémoïsé) ne se redessine pas à chaque battement.

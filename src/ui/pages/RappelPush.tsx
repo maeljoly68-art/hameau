@@ -1,12 +1,14 @@
 // Le rappel quotidien sur le téléphone : une notification par jour, à l'heure choisie, qui dit ce qui t'attend.
 import { useCallback, useEffect, useState } from 'react';
-import { HEURE_DEFAUT, activerPush, changerHeurePush, desactiverPush, lireEtatPush, testerPush, type EtatPush } from '../../data/notifications.ts';
+import { HEURE_DEFAUT, activerPush, changerHeurePush, changerRelancePush, desactiverPush, lireEtatPush, testerPush, type EtatPush } from '../../data/notifications.ts';
 
 const HEURES = Array.from({ length: 24 }, (_, h) => h);
 
 export function RappelPush() {
   const [etat, setEtat] = useState<EtatPush | null>(null);
   const [heure, setHeure] = useState(HEURE_DEFAUT);
+  // La case répond tout de suite ; si l'écriture échoue, la relecture la remet comme la base l'a.
+  const [relance, setRelance] = useState(true);
   const [occupe, setOccupe] = useState(false);
   const [message, setMessage] = useState<{ texte: string; erreur: boolean } | null>(null);
 
@@ -15,6 +17,7 @@ export function RappelPush() {
       (e) => {
         setEtat(e);
         setHeure(e.heure);
+        setRelance(e.relance);
       },
       (e: unknown) => setMessage({ texte: e instanceof Error ? e.message : String(e), erreur: true }),
     );
@@ -43,7 +46,7 @@ export function RappelPush() {
   return (
     <section className="carte rappel-push">
       <h2>Rappel quotidien sur ce téléphone</h2>
-      <p className="aide">Une notification par jour, à l’heure choisie : pages à apprendre par cœur, à réviser, erreurs de retour, rappel du mois, et la fiche de la veille quand un partiel approche. Rien n’est envoyé les jours où il n’y a rien à dire.</p>
+      <p className="aide">Une notification par jour, à l’heure choisie, avec une ligne par chose qui t’attend : pages à apprendre par cœur, à réviser, erreurs de retour, pratique du jour, rappel du mois, fiche de la veille quand un partiel approche. Un clic ouvre l’onglet Cours. Rien n’est envoyé les jours où il n’y a rien à dire.</p>
       {etat.tableAbsente && <p className="alerte douce">Les rappels ne sont pas encore activés sur ta base : ils le seront après la mise à jour SQL.</p>}
       {!etat.priseEnCharge && !etat.tableAbsente && <p className="alerte douce">Ce navigateur ne sait pas recevoir de rappel. Sur iPhone : touche « Partager », « Sur l’écran d’accueil », puis ouvre Hameau depuis son icône et reviens ici.</p>}
       {etat.permission === 'denied' && <p className="alerte douce">Les notifications sont refusées pour Hameau : autorise-les dans les réglages du navigateur (ou de l’iPhone), puis réessaie.</p>}
@@ -63,6 +66,21 @@ export function RappelPush() {
               ))}
             </select>
           </label>
+          {etat.relanceDisponible && (
+            <label className="case-relance">
+              <input
+                type="checkbox"
+                checked={relance}
+                disabled={!enMarche}
+                onChange={(e) => {
+                  const voulue = e.target.checked;
+                  setRelance(voulue);
+                  void agir(async () => { await changerRelancePush(heure, voulue); return voulue ? `Relance activée : à ${Math.min(23, heure + 3)} h, s’il te reste quelque chose.` : 'Relance coupée.'; });
+                }}
+              />
+              Relance 3 h plus tard, seulement s’il te reste quelque chose{heure + 3 > 23 ? ' (pas possible après 20 h : elle sortirait de la journée)' : ''}
+            </label>
+          )}
           <div className="actions gauche">
             {!enMarche ? (
               <button className="bouton" disabled={occupe} onClick={() => void agir(async () => { await activerPush(heure); return `Rappel activé : tous les jours à ${heure} h (si tu as quelque chose à faire).`; })}>
