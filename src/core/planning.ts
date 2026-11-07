@@ -7,6 +7,7 @@
 import type { Chapitre, Cours, Disponibilites } from './cours.ts';
 import { MINUTES_JOUR_MAX, REDUCTION_DEFAUT, REDUCTION_MAX, RELECTURE_MAX, vitesseValide } from './cours.ts';
 import { ajouterJours, ecartJours, estJour, jourSemaine } from './jours.ts';
+import { apresPratique, minutesReservees, type ReservePratique } from './pratique.ts';
 import { NIVEAU_MAX, ecartsPour, niveauValide } from './revision.ts';
 
 /**
@@ -73,6 +74,11 @@ export interface EntreePlan {
   examensFaits?: ReadonlySet<string>;
   /** Part de rappel écrit dans une première séance (voir `PART_RAPPEL_PREMIERE`, la valeur par défaut). */
   partRappel?: number;
+  /**
+   * Les pratiques quotidiennes dues (voir pratique.ts) : leurs minutes sont retirées de chaque journée où elles sont
+   * dues, avant de placer les pages. Un jour sans temps (libre) reste sans temps.
+   */
+  reserves?: readonly ReservePratique[];
 }
 
 /** Aucune lecture nouvelle dans les derniers jours : on consolide, on n'apprend plus. */
@@ -163,7 +169,8 @@ export function planifier(entree: EntreePlan): Plan {
   const seances: Seance[] = [];
   const alertes: Alerte[] = [];
   const libres = new Set(disponibilites.libres);
-  const capacite = (jour: string) => capaciteDuJour(disponibilites, jour, charge?.get(jour) ?? 0, libres);
+  const reserves = entree.reserves ?? [];
+  const capacite = (jour: string) => apresPratique(capaciteDuJour(disponibilites, jour, charge?.get(jour) ?? 0, libres), minutesReservees(reserves, jour));
   const vitesse = vitesseValide(disponibilites.vitesse);
   const partRappel = Number.isFinite(entree.partRappel) ? Math.max(0, entree.partRappel as number) : PART_RAPPEL_PREMIERE;
   const lecture = (ch: Pick<Chapitre, 'dureeMin'>) => dureeLecture(ch, vitesse, partRappel);

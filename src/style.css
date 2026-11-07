@@ -192,12 +192,11 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 
 .carte-village { position: relative; border-radius: 24px; overflow: hidden; background: var(--carte); box-shadow: var(--ombre); border: 1px solid var(--bord); }
 .cadre-village { overflow: hidden; }
-.cadre-village.zoome { overflow: auto; max-height: min(70vh, 640px); scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-.cadre-village.zoome::-webkit-scrollbar { display: none; }
 .village { width: 100%; height: auto; display: block; user-select: none; -webkit-user-select: none; }
 .village-outils { position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; }
-.village-actions { display: flex; gap: 8px; padding: 12px; flex-wrap: wrap; border-top: 1px solid var(--bord); }
-.village-actions .bouton { flex: 1; min-width: 140px; }
+.village-actions { display: flex; gap: 10px; padding: 10px 12px; justify-content: center; border-top: 1px solid var(--bord); }
+.village-actions .bouton.icone { width: 48px; height: 44px; padding: 0; justify-content: center; }
+.village-actions .bouton.icone svg { width: 22px; height: 22px; }
 .carte-village .bandeau { margin: 12px; }
 
 .pastille {
@@ -205,7 +204,6 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
   background: rgba(13, 18, 36, 0.62); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: var(--texte); border: 1px solid var(--bord-fort);
 }
 .carte .pastille { background: var(--fond-2); color: var(--accent); }
-.bouton-pastille { min-width: 34px; justify-content: center; font-size: 17px; line-height: 1; }
 
 .case { transition: fill .25s; }
 .case.posable { cursor: pointer; animation: pulse 1.3s ease-in-out infinite; }
@@ -842,3 +840,33 @@ div.ag-partiel p { margin: 0; }
 .rappel-push { display: grid; gap: 10px; }
 .ligne-heure { display: flex; align-items: center; gap: 10px; }
 .ligne-heure select { width: auto; }
+
+
+/* ───────── Pratique quotidienne ─────────
+   L'artefact d'erreurs d'un cours (TOEIC, bientôt TAGE MAGE) à ouvrir chaque jour : une carte qu'on reconnaît d'un coup
+   d'œil (liseré de la couleur du cours, anneau, série) et qui ne ressemble ni à une séance ni à un cours. */
+.pratique { border-left: 5px solid var(--teinte, var(--accent)); background: linear-gradient(135deg, color-mix(in srgb, var(--teinte, var(--accent)) 16%, var(--carte)), var(--carte) 60%); gap: 12px; }
+.pratique.fait { background: var(--carte); border-left-color: var(--vert); }
+.pratique-tete { display: flex; align-items: center; gap: 14px; }
+.pratique-titre { display: grid; gap: 2px; min-width: 0; }
+.pratique-titre strong { font-size: 18px; }
+.pratique-etiquette { color: var(--teinte, var(--accent)); }
+.pratique .anneau-centre { display: grid; place-items: center; }
+.pratique .anneau-centre svg { display: block; }
+.pratique-compte { font-family: var(--chiffres); font-weight: 700; font-size: 20px; font-variant-numeric: tabular-nums; }
+.pratique-compte small { font-size: 13px; color: var(--texte-3); }
+.pratique-suivi { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.carte .pratique-semaine { display: flex; flex-direction: row; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.pratique-semaine .point { display: grid; justify-items: center; gap: 2px; }
+.pratique-semaine .point-marque { width: 14px; height: 14px; border-radius: 99px; border: 2px solid var(--bord-fort); box-sizing: border-box; }
+.pratique-semaine .point small { font-size: 11px; color: var(--texte-3); }
+.pratique-semaine .fait .point-marque { background: var(--vert); border-color: var(--vert); }
+.pratique-semaine .aujourdhui .point-marque { border-color: var(--teinte, var(--accent)); }
+.pratique-semaine .libre .point-marque { border-style: dashed; opacity: .6; }
+.pratique-semaine .manque .point-marque { border-color: var(--rouge); opacity: .55; }
+.pratique-serie { font-weight: 700; font-size: 13.5px; color: var(--accent); }
+.pratique-serie.vide { color: var(--texte-3); font-weight: 500; }
+.pratique-actions a.bouton { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+.pratique-declarees { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; }
+.badge-pratique { justify-self: start; border-radius: 99px; padding: 2px 10px; font-size: 12px; font-weight: 700; background: color-mix(in srgb, var(--teinte, var(--accent)) 22%, transparent); color: var(--texte); border: 1px solid color-mix(in srgb, var(--teinte, var(--accent)) 60%, transparent); }
+.ligne-pratique input[type='number'] { width: 76px; }

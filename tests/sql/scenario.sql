@@ -698,12 +698,61 @@ begin
   select corps into c from public.notifications_du_moment('2026-11-20 17:00:00+00');
   if c <> '1 page à apprendre par cœur · 1 erreur de retour' then raise exception 'ÉCHEC : message au singulier : %', c; end if;
 end $$;
+-- Migration 13 : la pratique quotidienne est dans le message tant qu'elle n'est pas faite aujourd'hui.
+update public.cours set pratique_min = 5 where id = 'c3000000-0000-0000-0000-000000000001';
+do $$
+declare c text;
+begin
+  select corps into c from public.notifications_du_moment('2026-11-20 17:00:00+00');
+  if c <> '1 page à apprendre par cœur · 1 erreur de retour · Pratique du jour : Droit 5 min' then raise exception 'ÉCHEC : la pratique du jour manque au message : %', c; end if;
+end $$;
+-- 3 min déclarées : pas assez. 3 + 2 : le minimum est atteint, plus un mot sur la pratique.
+insert into public.pratiques (user_id, cours_id, jour, minutes) values ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', '2026-11-20', 3);
+do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit 5 min' then raise exception 'ÉCHEC : 3 minutes sur 5 comptées comme faites'; end if; end $$;
+insert into public.pratiques (user_id, cours_id, jour, minutes) values ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', '2026-11-20', 2);
+do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) <> '1 page à apprendre par cœur · 1 erreur de retour' then raise exception 'ÉCHEC : pratique faite mais encore annoncée'; end if; end $$;
+-- Les minutes d'un autre jour ne comptent pas ; celles du chrono comptent (pauses déduites), pas celles des pages du même cours.
+delete from public.pratiques where user_id = '77777777-7777-7777-7777-777777777777';
+insert into public.pratiques (user_id, cours_id, jour, minutes) values ('77777777-7777-7777-7777-777777777777', 'c3000000-0000-0000-0000-000000000001', '2026-11-19', 30);
+insert into public.sessions (user_id, debut, fin, categorie) values ('77777777-7777-7777-7777-777777777777', '2026-11-20 08:00:00+00', '2026-11-20 08:30:00+00', 'Droit');
+do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit 5 min' then raise exception 'ÉCHEC : la veille ou les pages du cours comptées comme pratique'; end if; end $$;
+insert into public.sessions (user_id, debut, fin, categorie, pause_secondes) values ('77777777-7777-7777-7777-777777777777', '2026-11-20 09:00:00+00', '2026-11-20 09:05:00+00', '  droit  ·  ERREURS ', 120);
+do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit 5 min' then raise exception 'ÉCHEC : 5 min de chrono avec 2 min de pause comptées comme 5'; end if; end $$;
+update public.sessions set pause_secondes = 0 where user_id = '77777777-7777-7777-7777-777777777777' and categorie like '%ERREURS%';
+do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) <> '1 page à apprendre par cœur · 1 erreur de retour' then raise exception 'ÉCHEC : 5 min de chrono sur « Droit · erreurs » non comptées'; end if; end $$;
+-- Jusqu'au partiel compris, jamais après ; un cours en pause n'est pas rappelé.
+delete from public.sessions where user_id = '77777777-7777-7777-7777-777777777777';
+update public.cours set partiel = '2026-11-20' where id = 'c3000000-0000-0000-0000-000000000001';
+do $$ begin if (select corps from public.notifications_du_moment('2026-11-20 17:00:00+00') limit 1) not like '%Pratique du jour : Droit 5 min%' then raise exception 'ÉCHEC : pas de pratique le jour du partiel'; end if; end $$;
+update public.cours set partiel = '2026-11-19' where id = 'c3000000-0000-0000-0000-000000000001';
+do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 17:00:00+00') where corps like '%Pratique du jour%') then raise exception 'ÉCHEC : pratique rappelée après le partiel'; end if; end $$;
+update public.cours set partiel = '2026-12-30', en_pause = true where id = 'c3000000-0000-0000-0000-000000000001';
+do $$ begin if exists (select 1 from public.notifications_du_moment('2026-11-20 17:00:00+00') where corps like '%Pratique du jour%') then raise exception 'ÉCHEC : pratique rappelée pour un cours en pause'; end if; end $$;
 delete from auth.users where id in ('77777777-7777-7777-7777-777777777777', '88888888-8888-8888-8888-888888888888', '99999999-9999-9999-9999-999999999999');
 do $$ begin
   if (select count(*) from public.notifications_reglage where user_id in ('77777777-7777-7777-7777-777777777777', '88888888-8888-8888-8888-888888888888', '99999999-9999-9999-9999-999999999999')) + (select count(*) from public.abonnements_push where user_id in ('77777777-7777-7777-7777-777777777777', '88888888-8888-8888-8888-888888888888', '99999999-9999-9999-9999-999999999999')) <> 0 then raise exception 'ÉCHEC : cascade des notifications'; end if;
 end $$;
 set role authenticated;
 select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false) \gset
+
+-- Migration 13 : pratique quotidienne — le minimum est un entier de 1 à 120 ; les minutes déclarées de 1 à 240.
+update public.cours set pratique_min = 5 where id = :'cid';
+do $$ begin if (select pratique_min from public.cours where id = current_setting('test.cid')::uuid) <> 5 then raise exception 'ÉCHEC : minimum de pratique non enregistré'; end if; end $$;
+do $$ begin update public.cours set pratique_min = 0 where id = current_setting('test.cid')::uuid; raise exception 'ÉCHEC : pratique de 0 min acceptée'; exception when check_violation then null; end $$;
+do $$ begin update public.cours set pratique_min = 121 where id = current_setting('test.cid')::uuid; raise exception 'ÉCHEC : pratique de 121 min acceptée'; exception when check_violation then null; end $$;
+update public.cours set pratique_min = 120 where id = :'cid';
+update public.cours set pratique_min = 1 where id = :'cid';
+insert into public.pratiques (cours_id, jour, minutes) values (:'cid', '2026-11-07', 5);
+do $$ begin
+  if (select count(*) from public.pratiques) <> 1 then raise exception 'ÉCHEC : pratique non enregistrée'; end if;
+  if (select user_id from public.pratiques) <> current_setting('test.uid')::uuid then raise exception 'ÉCHEC : le compte de la pratique'; end if;
+end $$;
+do $$ begin insert into public.pratiques (cours_id, jour, minutes) values (current_setting('test.cid')::uuid, '2026-11-07', 0); raise exception 'ÉCHEC : 0 minute déclarée acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.pratiques (cours_id, jour, minutes) values (current_setting('test.cid')::uuid, '2026-11-07', 241); raise exception 'ÉCHEC : 241 minutes déclarées acceptées'; exception when check_violation then null; end $$;
+do $$ begin insert into public.pratiques (cours_id, jour, minutes) values (current_setting('test.cid')::uuid, 'pas une date', 5); raise exception 'ÉCHEC : date absurde acceptée'; exception when invalid_datetime_format then null; end $$;
+do $$ begin insert into public.pratiques (cours_id, jour, minutes) values (gen_random_uuid(), '2026-11-07', 5); raise exception 'ÉCHEC : pratique sur un cours inconnu acceptée'; exception when foreign_key_violation then null; end $$;
+insert into public.pratiques (cours_id, jour, minutes) values (:'cid', '2026-11-08', 240);
+update public.cours set pratique_min = null where id = :'cid';
 
 -- La date de modification se met à jour toute seule.
 select maj_le as avant from public.chapitres where id = :'hid' \gset
@@ -721,6 +770,23 @@ do $$ begin
   if (select count(*) from public.cours) + (select count(*) from public.chapitres) + (select count(*) from public.notes_chapitres) + (select count(*) from public.reglages_cours) + (select count(*) from public.passages) + (select count(*) from public.rappels) <> 0 then
     raise exception 'ÉCHEC : RLS des cours';
   end if;
+end $$;
+do $$ begin
+  if (select count(*) from public.pratiques) <> 0 then raise exception 'ÉCHEC : RLS des pratiques'; end if;
+end $$;
+do $$ begin
+  insert into public.pratiques (cours_id, jour, minutes) values (current_setting('test.cid')::uuid, '2026-11-07', 5);
+  raise exception 'ÉCHEC : pratique rattachée au cours d''un autre compte';
+exception when foreign_key_violation then null; end $$;
+do $$ begin
+  insert into public.pratiques (user_id, cours_id, jour, minutes) values ('11111111-1111-1111-1111-111111111111', current_setting('test.cid')::uuid, '2026-11-07', 5);
+  raise exception 'ÉCHEC : pratique écrite pour un autre compte';
+exception when insufficient_privilege then null; end $$;
+do $$ begin
+  update public.pratiques set minutes = 1;
+  if found then raise exception 'ÉCHEC : pratique d''autrui modifiée'; end if;
+  delete from public.pratiques;
+  if found then raise exception 'ÉCHEC : pratique d''autrui supprimée'; end if;
 end $$;
 do $$ begin
   insert into public.chapitres (cours_id, titre) values (current_setting('test.cid')::uuid, 'Intrus');
@@ -777,6 +843,7 @@ do $$ begin
   if (select count(*) from public.chapitres where cours_id = current_setting('test.cid')::uuid) <> 0 then raise exception 'ÉCHEC : chapitres orphelins'; end if;
   if (select count(*) from public.notes_chapitres) <> 0 then raise exception 'ÉCHEC : notes orphelines'; end if;
   if (select count(*) from public.passages) <> 0 then raise exception 'ÉCHEC : passages orphelins'; end if;
+  if (select count(*) from public.pratiques where cours_id = current_setting('test.cid')::uuid) <> 0 then raise exception 'ÉCHEC : pratiques orphelines'; end if;
 end $$;
 -- De quoi vérifier que la suppression du compte emporte aussi tout cela.
 insert into public.cours (titre) values ('Éco indus') returning id as cid2 \gset
@@ -800,6 +867,7 @@ do $$ begin
      + (select count(*) from public.rappels where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.erreurs where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.cartes where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.pratiques where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.abonnements_push where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.notifications_reglage where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.reglages_cours where user_id = '11111111-1111-1111-1111-111111111111') <> 0 then

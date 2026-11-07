@@ -5,6 +5,7 @@ import { ajouterJours, debutDuMois, estJour, grilleDuMois, jourCourt, jourSemain
 import { LIBELLE_ETAPE, arrondi5, libellePages, regrouper, sansCoupure, type Etape } from '../../core/pages.ts';
 import { examensFaits as calculerExamensFaits, pagesFragiles } from '../../core/passages.ts';
 import { cartesParPage } from '../../core/cartes.ts';
+import { reservesPratique } from '../../core/pratique.ts';
 import { construireRappel } from '../../core/rappel.ts';
 import { estVeille } from '../../core/fiche.ts';
 import { heuresProductives, type Heures } from '../../core/heures.ts';
@@ -13,6 +14,7 @@ import { cleJour, formatDuree } from '../../core/temps.ts';
 import { libelleVitesse } from '../../core/vitesse.ts';
 import { viderCacheAgenda } from '../../data/agenda.ts';
 import { ajouterCours, enregistrerAgendaLien, enregistrerDisponibilites } from '../../data/cours.ts';
+import type { Session } from '../../core/types.ts';
 import { IconeChevron } from '../Icones.tsx';
 import { useAgenda } from '../useAgenda.ts';
 import { useCours } from '../useCours.ts';
@@ -20,6 +22,7 @@ import { Bilan } from './Bilan.tsx';
 import { CarnetDuJour } from './Carnet.tsx';
 import { ValiderBloc } from './Blocs.tsx';
 import { PageCours, type Faire } from './CoursDetail.tsx';
+import { PratiqueDuJour } from './Pratique.tsx';
 import { RappelDuJour } from './Rappel.tsx';
 import { ListeCreneaux, NoteCharge, ReglageAgenda } from './Creneaux.tsx';
 
@@ -271,6 +274,7 @@ function CarteCours({ cours, chapitres, aujourdhui, debut, ouvrir }: { cours: Co
         <strong>{cours.titre}</strong>
         <span className={!cours.enPause && avant !== null && avant >= 0 && avant <= 14 ? 'badge-partiel proche' : 'badge-partiel'}>{cours.enPause ? 'En pause' : badge}</span>
       </span>
+      {cours.pratiqueMin !== null && <span className="badge-pratique">Pratique quotidienne · {cours.pratiqueMin} min</span>}
       <span className="jauge">
         <span style={{ width: `${maitrise}%`, background: cours.couleur }} />
       </span>
@@ -430,7 +434,7 @@ function NouveauCours({ ordre, surCreer, surAnnuler }: { ordre: number; surCreer
   );
 }
 
-export default function OngletCours({ userId, synchronise, maintenant, surLancer, toast }: { userId: string | null; synchronise: boolean; maintenant: number; surLancer: (l: LancerChapitre) => void; toast: (texte: string) => void }) {
+export default function OngletCours({ userId, synchronise, maintenant, sessions, surLancer, surChrono, toast }: { userId: string | null; synchronise: boolean; maintenant: number; sessions: readonly Session[]; surLancer: (l: LancerChapitre) => void; surChrono: (categorie: string, minutes: number) => void; toast: (texte: string) => void }) {
   const { donnees, erreur, setErreur, agir } = useCours(synchronise ? userId : null);
   // L'emploi du temps de l'université : lu depuis le lien enregistré dans le compte.
   const agenda = useAgenda(synchronise ? userId : null, donnees?.agendaLien ?? null);
@@ -473,7 +477,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
     }
     return m;
   }, [donnees, edt, aujourdhui]);
-  const plan = useMemo(() => (donnees ? planifier({ cours: donnees.cours, chapitres: donnees.chapitres, disponibilites: donnees.disponibilites, aujourdhui, charge: edt?.charge, debuts: edt?.debuts, fragiles, examens, examensFaits }) : null), [donnees, aujourdhui, edt, fragiles, examens, examensFaits]);
+  const plan = useMemo(() => (donnees ? planifier({ cours: donnees.cours, chapitres: donnees.chapitres, disponibilites: donnees.disponibilites, aujourdhui, charge: edt?.charge, debuts: edt?.debuts, fragiles, examens, examensFaits, reserves: reservesPratique(donnees.cours, aujourdhui) }) : null), [donnees, aujourdhui, edt, fragiles, examens, examensFaits]);
 
   if (!synchronise || !userId)
     return (
@@ -583,6 +587,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
         </section>
       ) : (
         <>
+          <PratiqueDuJour donnees={donnees} sessions={sessions} aujourdhui={aujourdhui} faire={faire} surChrono={surChrono} />
           <Aujourdhui plan={plan} donnees={donnees} aujourdhui={aujourdhui} faire={faire} surLancer={surLancer} edt={edt} userId={userId} fragiles={fragiles} moments={moments} ouvrirFiche={(id) => { setFicheAuDepart(true); setVue(id); }} />
           <Alertes alertes={plan.alertes} donnees={donnees} aujourdhui={aujourdhui} ouvrir={setVue} />
           {/* Sans emploi du temps lu (jamais, ou plus de cache), le calendrier ignore les cours : on le dit, au lieu de laisser croire qu'il en tient compte. Hors ligne avec un cache, rien à dire : le panneau montre l'erreur. */}
@@ -647,6 +652,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
           <li>Ta note ajuste l’écart : « À revoir » ramène à demain, « Difficile » le divise par deux, « Facile » saute un cran. Un score (« 14 sur 20 ») donne la note : 90 % facile, 70 % bien, 50 % difficile.</li>
           <li>Le rappel du jour te fait te tester toi-même : quelques révisions, de cours mélangés, où tu écris de tête avant d’ouvrir la fiche. Un jour chargé en cours, il peut y ajouter une micro-révision de pages fragiles (réussie, elle ne fait pas monter le cran : on ne gagne rien à réviser trop tôt).</li>
           <li>Une page fragile (plusieurs notes basses de suite) passe devant dans tes révisions, jusqu’à ce que deux bons passages de suite la libèrent.</li>
+          <li>Un cours avec une « pratique quotidienne » (l’artefact d’erreurs du TOEIC, bientôt celui du TAGE MAGE) n’a pas de séance de calendrier : tu dois y passer un minimum de minutes chaque jour, jusqu’au partiel. Hameau met ce temps de côté dans chaque journée, compte ta série (un jour libre ne la casse pas) et le chrono lancé depuis la carte compte tout seul.</li>
           <li>Les pages neuves se lisent dans l’ordre, jamais dans les 3 derniers jours avant le partiel.</li>
           <li>Entre 14 et 4 jours avant un partiel, un examen blanc est placé le jour le plus libre : refais un sujet ou un TD en conditions, à la durée de l’épreuve (celle de ton emploi du temps), puis donne ton score.</li>
           <li>Ce que tu ne valides pas n’est pas perdu : le calendrier est recalculé depuis où tu en es vraiment. Une révision non faite revient « en retard », une page non apprise se replace.</li>

@@ -6,6 +6,7 @@ import type { Erreur } from '../../core/erreurs.ts';
 import { construireFiche } from '../../core/fiche.ts';
 import { estJour, jourCourt } from '../../core/jours.ts';
 import { numerosDePages } from '../../core/pages.ts';
+import { PRATIQUE_DEFAUT, PRATIQUE_MAX, pratiqueMinValide } from '../../core/pratique.ts';
 import { NIVEAU_MAX, NOTES, type Note } from '../../core/revision.ts';
 import { ajouterChapitres, ajouterNote, marquerParCoeurCours, modifierChapitre, modifierCours, modifierNote, noterChapitre, remettreAZero, supprimerChapitre, supprimerCours, supprimerNote } from '../../data/cours.ts';
 import { IconeChevron, IconeCoche, IconeLien } from '../Icones.tsx';
@@ -219,6 +220,8 @@ export function PageCours({ cours, chapitres, notes, cartes, erreurs, fragiles, 
   const [lien, setLien] = useState(cours.lien ?? '');
   const [message, setMessage] = useState<string | null>(null);
   const [liste, setListe] = useState('');
+  const [pratiqueSaisie, setPratiqueSaisie] = useState(String(cours.pratiqueMin ?? PRATIQUE_DEFAUT));
+  const pratiqueChoisie = pratiqueMinValide(Number(pratiqueSaisie));
   const maitrise = maitriseCours(chapitres);
   const notesDe = (id: string) => notes.filter((n) => n.chapitreId === id);
   const cartesDe = cartesParPage(cartes);
@@ -279,6 +282,33 @@ export function PageCours({ cours, chapitres, notes, cartes, erreurs, fragiles, 
             {chapitres.length > 0 && chapitres.every((c) => c.parCoeur) ? 'Tout le cours mot pour mot ✓' : 'Tout le cours mot pour mot'}
           </button>
           <span className="aide petite">Pour un cours à réciter (langue, formules, articles) : chaque page revient plus souvent et s’écrit de mémoire. Une page seule se règle dans la liste.</span>
+        </div>
+        <div className="ligne-pause ligne-pratique">
+          <button
+            className={cours.pratiqueMin !== null ? 'bouton petit' : 'bouton petit discret'}
+            aria-pressed={cours.pratiqueMin !== null}
+            onClick={() => faire(() => modifierCours(cours.id, { pratiqueMin: cours.pratiqueMin !== null ? null : (pratiqueChoisie ?? PRATIQUE_DEFAUT) }), cours.pratiqueMin !== null ? 'Pratique quotidienne retirée.' : 'Pratique quotidienne activée : elle apparaît en tête d’Aujourd’hui.')}
+          >
+            {cours.pratiqueMin !== null ? 'Pratique quotidienne ✓' : 'Pratique quotidienne'}
+          </button>
+          {cours.pratiqueMin !== null && (
+            <form
+              className="ligne-formulaire"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (pratiqueChoisie !== null && pratiqueChoisie !== cours.pratiqueMin) faire(() => modifierCours(cours.id, { pratiqueMin: pratiqueChoisie }), `Minimum réglé : ${pratiqueChoisie} min par jour.`);
+              }}
+            >
+              <label>
+                Minutes par jour
+                <input type="number" inputMode="numeric" min={1} max={PRATIQUE_MAX} value={pratiqueSaisie} onChange={(e) => setPratiqueSaisie(e.target.value)} aria-label="Minutes minimum par jour" />
+              </label>
+              <button className="bouton petit discret" disabled={pratiqueChoisie === null || pratiqueChoisie === cours.pratiqueMin}>
+                Régler
+              </button>
+            </form>
+          )}
+          <span className="aide petite">Pour l’artefact d’erreurs d’un cours (TOEIC, TAGE MAGE…) : un minimum de minutes chaque jour, jusqu’au partiel. Hameau met ce temps de côté dans le calendrier et compte ta série.</span>
         </div>
         <div className="deux">
           <label>

@@ -5,7 +5,7 @@ import { SEUIL_COURS, type Seance, type TypeSeance } from '../src/core/planning.
 import { BONUS_MINUTES, RAPPEL_DEFAUT, RAPPEL_MAX, construireRappel, type EntreeRappel } from '../src/core/rappel.ts';
 
 const AUJ = '2026-11-20';
-const cours = (id: string, ordre: number, extra: Partial<Cours> = {}): Cours => ({ id, titre: id, couleur: '#888', partiel: '2026-12-20', lien: null, ordre, motifs: '', enPause: false, ...extra });
+const cours = (id: string, ordre: number, extra: Partial<Cours> = {}): Cours => ({ id, titre: id, couleur: '#888', partiel: '2026-12-20', lien: null, ordre, motifs: '', enPause: false, pratiqueMin: null, ...extra });
 const page = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}${ordre}`, coursId, titre: `P${ordre}`, ordre, dureeMin: 20, niveau: 2, derniere: '2026-11-10', prochaine: AUJ, lien: null, parCoeur: false, ...extra });
 const sea = (coursId: string, ordre: number, type: TypeSeance = 'revision', extra: Partial<Seance> = {}): Seance => ({ jour: AUJ, coursId, chapitreId: `${coursId}${ordre}`, type, minutes: 10, raison: 'Révision espacée', suite: false, complete: true, retard: 0, fragile: false, niveau: 2, parCoeur: false, ...extra });
 const COURS = [cours('A', 0), cours('B', 1), cours('C', 2)];

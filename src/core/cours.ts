@@ -3,6 +3,7 @@ import type { Carte } from './cartes.ts';
 import type { Erreur } from './erreurs.ts';
 import { ecartJours, estJour } from './jours.ts';
 import type { Passage } from './passages.ts';
+import type { Pratique } from './pratique.ts';
 import { maitrise } from './revision.ts';
 
 export interface Cours {
@@ -18,6 +19,11 @@ export interface Cours {
   motifs: string;
   /** Un cours en pause n'est pas dans le calendrier (ni alerte) : on le garde, on ne le travaille pas. */
   enPause: boolean;
+  /**
+   * Minutes minimum à faire CHAQUE jour sur l'artefact d'erreurs de ce cours (TOEIC, TAGE MAGE), ou null : pas de
+   * pratique quotidienne. Elle est due jusqu'au partiel (voir pratique.ts).
+   */
+  pratiqueMin: number | null;
 }
 
 export interface Chapitre {
@@ -89,6 +95,10 @@ export interface DonneesCours {
   cartes: Carte[];
   /** Les tables du carnet et des cartes existent-elles ? Sinon, tout le reste marche, sans elles. */
   carnet: boolean;
+  /** Les minutes de pratique déclarées à la main (voir pratique.ts). */
+  pratiques: Pratique[];
+  /** La table des pratiques existe-t-elle ? Sinon, tout le reste marche, sans pratique quotidienne. */
+  pratique: boolean;
 }
 
 export const DUREE_DEFAUT_MIN = 20;

@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { momentDuCiel, type Ciel, type Moment } from '../core/ciel.ts';
 import { melanger } from '../core/couleur.ts';
 import type { Saison } from '../core/saison.ts';
@@ -487,35 +487,18 @@ export const Village = memo(function Village({ niveau, constructions, actif, cie
   );
 });
 
-/** Le village dans son cadre, avec le zoom (utile sur téléphone quand le terrain grandit). */
+/** Le village dans son cadre. */
 export function CadreVillage(props: PropsVillage & { pied?: React.ReactNode }) {
-  const [zoom, setZoom] = useState(1);
-  const cadre = useRef<HTMLDivElement>(null);
-
-  // Au changement de zoom, on recentre sur le feu plutôt que de laisser la vue
-  // collée au coin haut-gauche, où il n'y a que du ciel.
-  useLayoutEffect(() => {
-    const el = cadre.current;
-    if (!el) return;
-    el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
-    el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.55;
-  }, [zoom]);
-
   const { pied, ...village } = props;
   return (
     <section className="carte-village">
-      <div ref={cadre} className={zoom > 1 ? 'cadre-village zoome' : 'cadre-village'}>
-        <div style={{ width: `${zoom * 100}%` }}>
-          <Village {...village} />
-        </div>
+      <div className="cadre-village">
+        <Village {...village} />
       </div>
       <div className="village-outils">
         <span className="pastille" title="Habitants">
           <IconeHabitant /> {population(props.constructions)}
         </span>
-        <button className="pastille bouton-pastille" onClick={() => setZoom(zoom > 1 ? 1 : 2)} aria-label={zoom > 1 ? 'Dézoomer' : 'Zoomer'}>
-          {zoom > 1 ? '−' : '+'}
-        </button>
       </div>
       {pied}
     </section>

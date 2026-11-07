@@ -237,14 +237,10 @@ function FicheBatiment({ construction: c, niveauVillage, solde, saison, surAmeli
             Améliorer · <IconeEtincelle taille={13} /> {cout}
           </button>
           {refus === 'niveau' && <p className="aide petite">Possible au niveau {niveauRequisAmelioration(b, c.niveau + 1)} du village.</p>}
-          {refus === 'solde' && <p className="aide petite">Encore {cout - solde} points à gagner.</p>}
         </div>
       ) : (
         <p className="aide">{RAISONS_AMELIORATION.max} : ce bâtiment ne peut plus grandir.</p>
       )}
-      <p className="aide petite">
-        Construit le {new Date(c.construitLe).toLocaleDateString('fr-FR')} · {c.cout} points investis.
-      </p>
     </div>
   );
 }
@@ -454,6 +450,17 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
     },
     [agir, depot, enCours, toast],
   );
+  // La pratique quotidienne : un chrono sans page derrière, rangé sous « <cours> · erreurs » pour être retrouvé et compté.
+  const lancerPratique = useCallback(
+    (categorie: string, minutes: number) => {
+      if (enCours) return toast('Une session tourne déjà : termine-la d’abord.');
+      void agir(() => depot.demarrer(categorie, Math.min(600, Math.max(5, minutes)))).then(() => {
+        setOnglet('village');
+        toast(`Session lancée : ${categorie}`);
+      });
+    },
+    [agir, depot, enCours, toast],
+  );
   const demarrerRapide = useCallback(() => demarrer(lirePreference('hameau.categorie', ''), lirePreference<number | null>('hameau.objectif', 50)), [demarrer]);
   const pause = useCallback(() => enCours && void agir(() => depot.pause(enCours.id)), [agir, depot, enCours]);
   const reprise = useCallback(() => enCours && void agir(() => depot.reprendre(enCours.id)), [agir, depot, enCours]);
@@ -657,28 +664,38 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                     ) : (
                       <div className="village-actions">
                         <button
-                          className={boutique ? 'bouton discret actif' : 'bouton discret'}
+                          className={boutique ? 'bouton discret icone actif' : 'bouton discret icone'}
                           onClick={() => {
                             setGardeRobe(false);
                             setBoutique(!boutique);
                           }}
                           aria-expanded={boutique}
+                          aria-label="Construire"
+                          title="Construire"
                         >
-                          <IconeMarteau /> Construire
+                          <IconeMarteau />
                         </button>
                         <button
-                          className={gardeRobe ? 'bouton discret actif' : 'bouton discret'}
+                          className={gardeRobe ? 'bouton discret icone actif' : 'bouton discret icone'}
                           onClick={() => {
                             setBoutique(false);
                             setGardeRobe(!gardeRobe);
                           }}
                           aria-expanded={gardeRobe}
+                          aria-label="Garde-robe"
+                          title="Garde-robe"
                         >
-                          <IconeCintre /> Garde-robe
+                          <IconeCintre />
                         </button>
                         {miniChronoDisponible() && (
-                          <button className="bouton discret" onClick={() => void (mini.ouverte ? mini.fermer() : mini.ouvrir())} title="Petite fenêtre toujours au premier plan">
-                            <IconeFenetre /> {mini.ouverte ? 'Fermer le mini-chrono' : 'Mini-chrono'}
+                          <button
+                            className={mini.ouverte ? 'bouton discret icone actif' : 'bouton discret icone'}
+                            onClick={() => void (mini.ouverte ? mini.fermer() : mini.ouvrir())}
+                            aria-pressed={mini.ouverte}
+                            aria-label={mini.ouverte ? 'Fermer le mini-chrono' : 'Mini-chrono'}
+                            title={mini.ouverte ? 'Fermer le mini-chrono' : 'Mini-chrono : petite fenêtre toujours au premier plan'}
+                          >
+                            <IconeFenetre />
                           </button>
                         )}
                       </div>
@@ -747,7 +764,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
             </div>
           )}
           <Suspense fallback={<div className="carte aide">Chargement…</div>}>
-            {onglet === 'cours' && <OngletCours userId={depot.userId} synchronise={depot.synchronise} maintenant={maintenant} surLancer={lancerChapitre} toast={toast} />}
+            {onglet === 'cours' && <OngletCours userId={depot.userId} synchronise={depot.synchronise} maintenant={maintenant} sessions={donnees?.sessions ?? []} surLancer={lancerChapitre} surChrono={lancerPratique} toast={toast} />}
             {onglet === 'taches' && <Taches emailSuggere={email} sessionEnCours={enCours !== null} surLancer={lancerTache} surLien={setLien} />}
             {onglet === 'amis' && (
               <Amis
@@ -852,7 +869,6 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
         <div className="voile" role="dialog" aria-modal="true" onClick={() => setSelection(null)}>
           <div className="fenetre" onClick={(e) => e.stopPropagation()}>
             <FicheBatiment construction={choisie} niveauVillage={niveau.niveau} solde={solde} saison={saison} surAmeliorer={ameliorer} />
-            <p className="aide">Déplacer ne coûte rien : le niveau et les points investis suivent. Démolir rend tous les points dépensés, améliorations comprises.</p>
             <div className="actions">
               <button
                 className="bouton"

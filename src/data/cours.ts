@@ -7,6 +7,7 @@ import { erreurValide, texteErreur, type Erreur } from '../core/erreurs.ts';
 import { estJour } from '../core/jours.ts';
 import type { PassageLeger } from '../core/pointsApprentissage.ts';
 import { noteDepuisPct, passageValide, type Passage, type SortePassage } from '../core/passages.ts';
+import { PRATIQUE_DECLAREE_MAX, pratiqueMinValide, pratiqueValide, type Pratique } from '../core/pratique.ts';
 import { apresDecouverte, apresRappelAnticipe, apresRevision, niveauValide, type Note } from '../core/revision.ts';
 import { cleJour, decalerJours } from '../core/temps.ts';
 import { vitesseApresChrono, vitesseApresCoche, type Ressenti } from '../core/vitesse.ts';
@@ -24,6 +25,8 @@ interface LigneCours {
   motifs?: string | null;
   /** Absente tant que la migration de la pause n'est pas passée. */
   en_pause?: boolean | null;
+  /** Absente tant que la migration de la pratique quotidienne n'est pas passée. */
+  pratique_min?: number | null;
 }
 interface LigneChapitre {
   id: string;
@@ -67,6 +70,12 @@ interface LigneCarte {
   reponse: string;
   ordre: number;
 }
+interface LignePratique {
+  id: string;
+  cours_id: string;
+  jour: string;
+  minutes: number;
+}
 interface LigneNote {
   id: string;
   chapitre_id: string;
@@ -75,7 +84,7 @@ interface LigneNote {
   cree_le: string;
 }
 
-const versCours = (l: LigneCours): Cours => ({ id: l.id, titre: l.titre, couleur: l.couleur, partiel: l.partiel && estJour(l.partiel) ? l.partiel : null, lien: l.lien, ordre: l.ordre, motifs: typeof l.motifs === 'string' ? l.motifs : '', enPause: l.en_pause === true });
+const versCours = (l: LigneCours): Cours => ({ id: l.id, titre: l.titre, couleur: l.couleur, partiel: l.partiel && estJour(l.partiel) ? l.partiel : null, lien: l.lien, ordre: l.ordre, motifs: typeof l.motifs === 'string' ? l.motifs : '', enPause: l.en_pause === true, pratiqueMin: pratiqueMinValide(l.pratique_min) });
 const versChapitre = (l: LigneChapitre): Chapitre => ({
   id: l.id,
   coursId: l.cours_id,
@@ -93,6 +102,7 @@ const nombreOuNull = (v: number | string | null): number | null => (v === null ?
 const versPassage = (l: LignePassage): Passage | null => passageValide({ id: l.id, chapitreId: l.chapitre_id, jour: l.jour, sorte: l.sorte, note: l.note, minutes: l.minutes, scorePct: nombreOuNull(l.score_pct), vitesse: nombreOuNull(l.vitesse), rappel: l.rappel, confiance: l.confiance ?? null, creeLe: l.cree_le });
 const versErreur = (l: LigneErreur): Erreur | null => erreurValide({ id: l.id, chapitreId: l.chapitre_id, texte: l.texte, jour: l.jour, regleeLe: l.reglee_le, revueLe: l.revue_le });
 const versCarte = (l: LigneCarte): Carte | null => carteValide({ id: l.id, chapitreId: l.chapitre_id, question: l.question, reponse: l.reponse, ordre: l.ordre });
+const versPratique = (l: LignePratique): Pratique | null => pratiqueValide({ id: l.id, coursId: l.cours_id, jour: l.jour, minutes: l.minutes });
 const versNote = (l: LigneNote): NoteChapitre => ({ id: l.id, chapitreId: l.chapitre_id, texte: l.texte, citation: l.citation, creeLe: l.cree_le });
 
 interface ErreurBase {
@@ -151,6 +161,19 @@ async function lireCarnet(sb: Awaited<ReturnType<typeof client>>): Promise<{ err
   }
 }
 
+/** Les pratiques déclarées. Leur table n'existe qu'après sa migration : sans elle, `pratique` est faux et rien d'autre ne change. */
+async function lirePratiques(sb: Awaited<ReturnType<typeof client>>): Promise<{ pratiques: Pratique[]; pratique: boolean }> {
+  // Le chiffre qui compte est celui des derniers mois (la série se lit sur 400 jours au plus).
+  const depuis = cleJour(decalerJours(new Date(), -400));
+  try {
+    const lignes = await toutLire<LignePratique>((de, a) => sb.from('pratiques').select('*').gte('jour', depuis).order('jour').order('cree_le').order('id').range(de, a));
+    return { pratiques: lignes.map(versPratique).filter((x): x is Pratique => x !== null), pratique: true };
+  } catch (e) {
+    if (e instanceof Error && e.message === MESSAGE_MIGRATION) return { pratiques: [], pratique: false };
+    throw e;
+  }
+}
+
 /** Un passage vient d'être écrit sur cet appareil : le village recalcule ses points d'apprentissage sans attendre le temps réel. */
 export const EVENEMENT_PASSAGE = 'hameau-passage';
 
@@ -187,7 +210,7 @@ export interface NouveauPassage {
 
 export async function chargerCours(): Promise<DonneesCours> {
   const sb = await client();
-  const [c, h, n, r, j, k] = await Promise.all([
+  const [c, h, n, r, j, k, q] = await Promise.all([
     toutLire<LigneCours>((de, a) => sb.from('cours').select('*').order('ordre').order('cree_le').order('id').range(de, a)),
     toutLire<LigneChapitre>((de, a) => sb.from('chapitres').select('*').order('cours_id').order('ordre').order('id').range(de, a)),
     toutLire<LigneNote>((de, a) => sb.from('notes_chapitres').select('*').order('cree_le').order('id').range(de, a)),
@@ -195,9 +218,10 @@ export async function chargerCours(): Promise<DonneesCours> {
     sb.from('reglages_cours').select('*').maybeSingle<{ disponibilites: unknown; agenda_url?: string | null }>(),
     lirePassages(sb),
     lireCarnet(sb),
+    lirePratiques(sb),
   ]);
   echec(r);
-  return { cours: c.map(versCours), chapitres: h.map(versChapitre), notes: n.map(versNote), disponibilites: disponibilitesValides(r.data?.disponibilites), agendaLien: lienValide(r.data?.agenda_url ?? ''), passages: j.passages, journal: j.journal, erreurs: k.erreurs, cartes: k.cartes, carnet: k.carnet };
+  return { cours: c.map(versCours), chapitres: h.map(versChapitre), notes: n.map(versNote), disponibilites: disponibilitesValides(r.data?.disponibilites), agendaLien: lienValide(r.data?.agenda_url ?? ''), passages: j.passages, journal: j.journal, erreurs: k.erreurs, cartes: k.cartes, carnet: k.carnet, pratiques: q.pratiques, pratique: q.pratique };
 }
 
 export interface ChampsCours {
@@ -210,6 +234,8 @@ export interface ChampsCours {
   motifs?: string;
   /** Un cours en pause n'est plus au calendrier ; il reste dans la liste. */
   enPause?: boolean;
+  /** Minutes minimum par jour sur l'artefact d'erreurs ; null pour retirer la pratique quotidienne. */
+  pratiqueMin?: number | null;
 }
 
 export async function ajouterCours(c: Omit<ChampsCours, 'ordre'> & { ordre: number }, chapitres: { titre: string; dureeMin: number }[]): Promise<void> {
@@ -228,10 +254,11 @@ export async function ajouterCours(c: Omit<ChampsCours, 'ordre'> & { ordre: numb
 
 export async function modifierCours(id: string, champs: Partial<ChampsCours>): Promise<void> {
   const sb = await client();
-  const { enPause, ...autres } = champs;
-  // La colonne s'écrit en_pause : on ne laisse pas passer le nom de l'objet tel quel.
+  const { enPause, pratiqueMin, ...autres } = champs;
+  // Les colonnes s'écrivent en_pause et pratique_min : on ne laisse pas passer le nom de l'objet tel quel.
   const ligne: Record<string, unknown> = { ...autres };
   if (enPause !== undefined) ligne.en_pause = enPause;
+  if (pratiqueMin !== undefined) ligne.pratique_min = pratiqueMin === null ? null : pratiqueMinValide(pratiqueMin);
   echec(await sb.from('cours').update(ligne).eq('id', id));
 }
 
@@ -497,6 +524,20 @@ export async function chargerPassagesLegers(): Promise<PassageLeger[]> {
   }
 }
 
+/** Déclare des minutes de pratique faites hors chrono (« j'ai fait mes 5 min sur l'artefact »). */
+export async function ajouterPratique(coursId: string, minutes: number, jour: string): Promise<void> {
+  const sb = await client();
+  const m = Math.round(minutes);
+  if (!estJour(jour) || !Number.isFinite(m) || m < 1 || m > PRATIQUE_DECLAREE_MAX) throw new Error(`Les minutes déclarées vont de 1 à ${PRATIQUE_DECLAREE_MAX}.`);
+  echec(await sb.from('pratiques').insert({ cours_id: coursId, jour, minutes: m }));
+}
+
+/** Retire une déclaration (erreur de saisie). */
+export async function supprimerPratique(id: string): Promise<void> {
+  const sb = await client();
+  echec(await sb.from('pratiques').delete().eq('id', id));
+}
+
 /** Prévient quand un passage est écrit ailleurs (autre appareil, autre onglet) : les points d'apprentissage se recalculent. */
 export function ecouterPassages(rappel: () => void): () => void {
   let fini = false;
@@ -533,6 +574,7 @@ export function ecouterCours(userId: string, rappel: () => void): () => void {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'passages' }, rappel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erreurs' }, rappel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cartes' }, rappel)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pratiques' }, rappel)
       .subscribe();
     retirer = () => void sb.removeChannel(canal);
   });
@@ -559,7 +601,7 @@ export function lireCacheCours(userId: string): DonneesCours | null {
     if (!Array.isArray(d.cours) || !Array.isArray(d.chapitres) || !Array.isArray(d.notes)) return null;
     // Un cache écrit avant l'emploi du temps n'a ni mots de cours ni adresse du flux : on les complète.
     return {
-      cours: d.cours.map((c) => ({ ...c, motifs: typeof c.motifs === 'string' ? c.motifs : '', enPause: c.enPause === true })),
+      cours: d.cours.map((c) => ({ ...c, motifs: typeof c.motifs === 'string' ? c.motifs : '', enPause: c.enPause === true, pratiqueMin: pratiqueMinValide(c.pratiqueMin) })),
       chapitres: d.chapitres.map((c) => ({ ...c, parCoeur: c.parCoeur === true })),
       notes: d.notes,
       disponibilites: disponibilitesValides(d.disponibilites),
@@ -570,6 +612,8 @@ export function lireCacheCours(userId: string): DonneesCours | null {
       erreurs: Array.isArray(d.erreurs) ? d.erreurs.map(erreurValide).filter((x): x is Erreur => x !== null) : [],
       cartes: Array.isArray(d.cartes) ? d.cartes.map(carteValide).filter((x): x is Carte => x !== null) : [],
       carnet: d.carnet === true,
+      pratiques: Array.isArray(d.pratiques) ? d.pratiques.map(pratiqueValide).filter((x): x is Pratique => x !== null) : [],
+      pratique: d.pratique === true,
     };
   } catch {
     return null;
