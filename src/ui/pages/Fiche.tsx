@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { ficheEnTexte, type Fiche, type PageFiche } from '../../core/fiche.ts';
 import { jourCourt } from '../../core/jours.ts';
+import { Repliable, libelleQuestions } from '../Repliable.tsx';
 
 function PageDeLaFiche({ p }: { p: PageFiche }) {
   return (
@@ -11,13 +12,15 @@ function PageDeLaFiche({ p }: { p: PageFiche }) {
       </strong>
       {p.fragile && <span className="badge-fragile">Page fragile</span>}
       {p.cartes.length > 0 && (
-        <ul className="fiche-cartes">
-          {p.cartes.map((c) => (
-            <li key={c.id}>
-              <b>{c.question}</b> <span className="carte-reponse">→ {c.reponse}</span>
-            </li>
-          ))}
-        </ul>
+        <Repliable titre="Questions" compte={libelleQuestions(p.cartes.length)}>
+          <ul className="fiche-cartes">
+            {p.cartes.map((c) => (
+              <li key={c.id}>
+                <b>{c.question}</b> <span className="carte-reponse">→ {c.reponse}</span>
+              </li>
+            ))}
+          </ul>
+        </Repliable>
       )}
       {p.notes.map((n) => (
         <p key={n.id} className="aide petite">

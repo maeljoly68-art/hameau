@@ -79,6 +79,11 @@ export interface EntreePlan {
    * dues, avant de placer les pages. Un jour sans temps (libre) reste sans temps.
    */
   reserves?: readonly ReservePratique[];
+  /**
+   * Des minutes mises de côté certains jours précis (les séances de révision libre, voir revisionLibre.ts), en plus
+   * de la pratique : « AAAA-MM-JJ » → minutes. Elles passent avant les pages.
+   */
+  reservesJours?: ReadonlyMap<string, number>;
 }
 
 /** Aucune lecture nouvelle dans les derniers jours : on consolide, on n'apprend plus. */
@@ -170,7 +175,8 @@ export function planifier(entree: EntreePlan): Plan {
   const alertes: Alerte[] = [];
   const libres = new Set(disponibilites.libres);
   const reserves = entree.reserves ?? [];
-  const capacite = (jour: string) => apresPratique(capaciteDuJour(disponibilites, jour, charge?.get(jour) ?? 0, libres), minutesReservees(reserves, jour));
+  const reservesJours = entree.reservesJours;
+  const capacite = (jour: string) => apresPratique(capaciteDuJour(disponibilites, jour, charge?.get(jour) ?? 0, libres), minutesReservees(reserves, jour) + (reservesJours?.get(jour) ?? 0));
   const vitesse = vitesseValide(disponibilites.vitesse);
   const partRappel = Number.isFinite(entree.partRappel) ? Math.max(0, entree.partRappel as number) : PART_RAPPEL_PREMIERE;
   const lecture = (ch: Pick<Chapitre, 'dureeMin'>) => dureeLecture(ch, vitesse, partRappel);

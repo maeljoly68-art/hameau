@@ -6,6 +6,7 @@ import { LIBELLE_ETAPE, arrondi5, libellePages, regrouper, sansCoupure, type Eta
 import { examensFaits as calculerExamensFaits, pagesFragiles } from '../../core/passages.ts';
 import { cartesParPage } from '../../core/cartes.ts';
 import { reservesPratique } from '../../core/pratique.ts';
+import { fusionnerLibres, minutesLibresParJour, seancesLibres, type SeanceLibre } from '../../core/revisionLibre.ts';
 import { construireRappel } from '../../core/rappel.ts';
 import { estVeille } from '../../core/fiche.ts';
 import { heuresProductives, type Heures } from '../../core/heures.ts';
@@ -23,6 +24,7 @@ import { CarnetDuJour } from './Carnet.tsx';
 import { ValiderBloc } from './Blocs.tsx';
 import { PageCours, type Faire } from './CoursDetail.tsx';
 import { PratiqueDuJour } from './Pratique.tsx';
+import { RevisionLibreDuJour } from './RevisionLibre.tsx';
 import { RappelDuJour } from './Rappel.tsx';
 import { ListeCreneaux, NoteCharge, ReglageAgenda } from './Creneaux.tsx';
 
@@ -58,7 +60,7 @@ const couleurCreneau = (edt: EmploiDuTemps | null, cours: readonly CoursT[]) => 
   return id ? (cours.find((x) => x.id === id)?.couleur ?? null) : null;
 };
 
-function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId, fragiles, ouvrirFiche, moments }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; faire: Faire; surLancer: (l: LancerChapitre) => void; edt: EmploiDuTemps | null; userId: string; fragiles: ReadonlySet<string>; ouvrirFiche: (coursId: string) => void; moments: Heures }) {
+function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, surChrono, sessions, libres, edt, userId, fragiles, ouvrirFiche, moments }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; faire: Faire; surLancer: (l: LancerChapitre) => void; surChrono: (categorie: string, minutes: number) => void; sessions: readonly Session[]; libres: readonly SeanceLibre[]; edt: EmploiDuTemps | null; userId: string; fragiles: ReadonlySet<string>; ouvrirFiche: (coursId: string) => void; moments: Heures }) {
   const seances = seancesDuJour(plan, aujourdhui);
   // Quelques révisions du jour se font par rappel (de tête, cours mélangés) ; le reste, en blocs, se note d'un geste.
   // Sans le journal on ne saurait pas combien de rappels sont déjà faits aujourd'hui : pas de rappel, plutôt qu'un rappel sans fin.
@@ -68,13 +70,14 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId, 
   const cartesDe = cartesParPage(donnees.cartes);
   const cours = edt?.parJour.get(aujourdhui) ?? [];
   const veilles = donnees.cours.filter((c) => !c.enPause && estVeille(joursAvantPartiel(c, aujourdhui)));
-  const total = seances.reduce((t, s) => t + s.minutes, 0);
+  const libresDuJour = libres.filter((s) => s.jour === aujourdhui);
+  const total = seances.reduce((t, s) => t + s.minutes, 0) + libresDuJour.reduce((t, s) => t + s.minutes, 0);
   const faits = donnees.chapitres.filter((c) => c.derniere === aujourdhui);
   return (
     <section className="carte">
       <div className="entete">
         <h2>À faire aujourd’hui</h2>
-        <span className="pastille">{seances.length > 0 ? `≈ ${formatDuree(arrondi5(total))}` : 'Rien de prévu'}</span>
+        <span className="pastille">{seances.length > 0 || libresDuJour.length > 0 ? `≈ ${formatDuree(arrondi5(total))}` : 'Rien de prévu'}</span>
       </div>
       {cours.length > 0 && (
         <div className="cours-du-jour">
@@ -83,7 +86,7 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId, 
           <NoteCharge jour={aujourdhui} minutesDeCours={edt?.charge.get(aujourdhui) ?? 0} disponibilites={donnees.disponibilites} />
         </div>
       )}
-      {seances.length === 0 && rappel.items.length === 0 && <p className="aide">{faits.length > 0 ? 'Tout est fait pour aujourd’hui.' : 'Rien de prévu aujourd’hui : ni révision à faire, ni temps disponible. Le calendrier ci-dessous montre la suite.'}</p>}
+      {seances.length === 0 && rappel.items.length === 0 && libresDuJour.length === 0 && <p className="aide">{faits.length > 0 ? 'Tout est fait pour aujourd’hui.' : 'Rien de prévu aujourd’hui : ni révision à faire, ni temps disponible. Le calendrier ci-dessous montre la suite.'}</p>}
       {veilles.map((c) => (
         <button key={c.id} className="alerte douce fiche-veille-banniere" onClick={() => ouvrirFiche(c.id)}>
           <strong>Partiel de {c.titre} dans {joursAvantPartiel(c, aujourdhui)} jour{joursAvantPartiel(c, aujourdhui) === 1 ? '' : 's'}</strong> : la fiche de la veille t’attend (erreurs, mot pour mot, pages fragiles).
@@ -126,6 +129,7 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId, 
           );
         })}
       </ul>
+      <RevisionLibreDuJour seances={libresDuJour} donnees={donnees} sessions={sessions} aujourdhui={aujourdhui} faire={faire} surChrono={surChrono} />
       {seances.length > 0 && <p className="aide petite">Ce que tu ne valides pas revient demain : une révision en retard est signalée, une lecture se replace au calendrier.</p>}
       {faits.length > 0 && (
         <p className="aide petite">
@@ -173,10 +177,11 @@ function Alertes({ alertes, donnees, aujourdhui, ouvrir }: { alertes: Alerte[]; 
   );
 }
 
-function Calendrier({ plan, donnees, aujourdhui, edt }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; edt: EmploiDuTemps | null }) {
+function Calendrier({ plan, libres, donnees, aujourdhui, edt }: { plan: Plan; libres: readonly SeanceLibre[]; donnees: DonneesCours; aujourdhui: string; edt: EmploiDuTemps | null }) {
   const [mois, setMois] = useState(() => debutDuMois(aujourdhui));
   const [choisi, setChoisi] = useState(aujourdhui);
-  const resume = useMemo(() => resumeParJour(plan), [plan]);
+  const resume = useMemo(() => fusionnerLibres(resumeParJour(plan), libres), [plan, libres]);
+  const libresDuChoisi = libres.filter((s) => s.jour === choisi);
   const partiels = useMemo(() => {
     const m = new Map<string, CoursT[]>();
     for (const c of donnees.cours) if (c.partiel && !c.enPause) m.set(c.partiel, [...(m.get(c.partiel) ?? []), c]);
@@ -239,7 +244,7 @@ function Calendrier({ plan, donnees, aujourdhui, edt }: { plan: Plan; donnees: D
             <NoteCharge jour={choisi} minutesDeCours={edt?.charge.get(choisi) ?? 0} disponibilites={donnees.disponibilites} />
           </>
         )}
-        {duJour.length === 0 && !partiels.has(choisi) && <p className="aide">{choisi < aujourdhui ? 'Jour passé.' : coursDuChoisi.length > 0 ? 'Pas de révision prévue ce jour-là.' : 'Rien de prévu ce jour-là.'}</p>}
+        {duJour.length === 0 && libresDuChoisi.length === 0 && !partiels.has(choisi) && <p className="aide">{choisi < aujourdhui ? 'Jour passé.' : coursDuChoisi.length > 0 ? 'Pas de révision prévue ce jour-là.' : 'Rien de prévu ce jour-là.'}</p>}
         <ul className="seances compactes">
           {duJour.map((b) => {
             const c = donnees.cours.find((x) => x.id === b.coursId);
@@ -258,6 +263,18 @@ function Calendrier({ plan, donnees, aujourdhui, edt }: { plan: Plan; donnees: D
               </li>
             );
           })}
+          {libresDuChoisi.map((l) => {
+            const c = donnees.cours.find((x) => x.id === l.coursId);
+            return c ? (
+              <li key={`libre-${l.coursId}`} style={teinte(c.couleur)}>
+                <div className="seance-corps">
+                  <span className="seance-cours">{c.titre}</span>
+                  <strong>Étude libre</strong>
+                  <span className="aide">≈ {formatDuree(arrondi5(l.minutes))} · relis ton cours, refais des exercices</span>
+                </div>
+              </li>
+            ) : null;
+          })}
         </ul>
       </div>
     </section>
@@ -275,6 +292,7 @@ function CarteCours({ cours, chapitres, aujourdhui, debut, ouvrir }: { cours: Co
         <span className={!cours.enPause && avant !== null && avant >= 0 && avant <= 14 ? 'badge-partiel proche' : 'badge-partiel'}>{cours.enPause ? 'En pause' : badge}</span>
       </span>
       {cours.pratiqueMin !== null && <span className="badge-pratique">Pratique quotidienne · {cours.pratiqueMin} min</span>}
+      {cours.revisionLibreMin !== null && <span className="badge-pratique">Étude libre · {cours.revisionLibreMin} min</span>}
       <span className="jauge">
         <span style={{ width: `${maitrise}%`, background: cours.couleur }} />
       </span>
@@ -477,7 +495,10 @@ export default function OngletCours({ userId, synchronise, maintenant, sessions,
     }
     return m;
   }, [donnees, edt, aujourdhui]);
-  const plan = useMemo(() => (donnees ? planifier({ cours: donnees.cours, chapitres: donnees.chapitres, disponibilites: donnees.disponibilites, aujourdhui, charge: edt?.charge, debuts: edt?.debuts, fragiles, examens, examensFaits, reserves: reservesPratique(donnees.cours, aujourdhui) }) : null), [donnees, aujourdhui, edt, fragiles, examens, examensFaits]);
+  // La pratique quotidienne, puis les séances de révision libre, sont mises de côté AVANT de placer les pages.
+  const reserves = useMemo(() => (donnees ? reservesPratique(donnees.cours, aujourdhui) : []), [donnees, aujourdhui]);
+  const libres = useMemo(() => (donnees ? seancesLibres({ cours: donnees.cours, disponibilites: donnees.disponibilites, aujourdhui, charge: edt?.charge, reserves }) : []), [donnees, aujourdhui, edt, reserves]);
+  const plan = useMemo(() => (donnees ? planifier({ cours: donnees.cours, chapitres: donnees.chapitres, disponibilites: donnees.disponibilites, aujourdhui, charge: edt?.charge, debuts: edt?.debuts, fragiles, examens, examensFaits, reserves, reservesJours: minutesLibresParJour(libres) }) : null), [donnees, aujourdhui, edt, fragiles, examens, examensFaits, reserves, libres]);
 
   if (!synchronise || !userId)
     return (
@@ -588,7 +609,7 @@ export default function OngletCours({ userId, synchronise, maintenant, sessions,
       ) : (
         <>
           <PratiqueDuJour donnees={donnees} sessions={sessions} aujourdhui={aujourdhui} faire={faire} surChrono={surChrono} />
-          <Aujourdhui plan={plan} donnees={donnees} aujourdhui={aujourdhui} faire={faire} surLancer={surLancer} edt={edt} userId={userId} fragiles={fragiles} moments={moments} ouvrirFiche={(id) => { setFicheAuDepart(true); setVue(id); }} />
+          <Aujourdhui plan={plan} donnees={donnees} aujourdhui={aujourdhui} faire={faire} surLancer={surLancer} surChrono={surChrono} sessions={sessions} libres={libres} edt={edt} userId={userId} fragiles={fragiles} moments={moments} ouvrirFiche={(id) => { setFicheAuDepart(true); setVue(id); }} />
           <Alertes alertes={plan.alertes} donnees={donnees} aujourdhui={aujourdhui} ouvrir={setVue} />
           {/* Sans emploi du temps lu (jamais, ou plus de cache), le calendrier ignore les cours : on le dit, au lieu de laisser croire qu'il en tient compte. Hors ligne avec un cache, rien à dire : le panneau montre l'erreur. */}
           {donnees.agendaLien && agenda.erreur && agenda.creneaux === null && <p className="alerte douce">Emploi du temps : {agenda.erreur}</p>}
@@ -598,7 +619,7 @@ export default function OngletCours({ userId, synchronise, maintenant, sessions,
               {panneauAgenda(true)}
             </details>
           )}
-          <Calendrier plan={plan} donnees={donnees} aujourdhui={aujourdhui} edt={edt} />
+          <Calendrier plan={plan} libres={libres} donnees={donnees} aujourdhui={aujourdhui} edt={edt} />
           <Bilan donnees={donnees} aujourdhui={aujourdhui} fragiles={fragiles} moments={moments} ouvert={jourSemaine(aujourdhui) === 6} />
           <section className="carte">
             <div className="entete">
@@ -653,6 +674,7 @@ export default function OngletCours({ userId, synchronise, maintenant, sessions,
           <li>Le rappel du jour te fait te tester toi-même : quelques révisions, de cours mélangés, où tu écris de tête avant d’ouvrir la fiche. Un jour chargé en cours, il peut y ajouter une micro-révision de pages fragiles (réussie, elle ne fait pas monter le cran : on ne gagne rien à réviser trop tôt).</li>
           <li>Une page fragile (plusieurs notes basses de suite) passe devant dans tes révisions, jusqu’à ce que deux bons passages de suite la libèrent.</li>
           <li>Un cours avec une « pratique quotidienne » (l’artefact d’erreurs du TOEIC, bientôt celui du TAGE MAGE) n’a pas de séance de calendrier : tu dois y passer un minimum de minutes chaque jour, jusqu’au partiel. Hameau met ce temps de côté dans chaque journée, compte ta série (un jour libre ne la casse pas) et le chrono lancé depuis la carte compte tout seul.</li>
+          <li>Un cours sans artefact (ou en plus de ses pages) peut avoir des « séances d’étude libre » : pas de page à lire, du temps mis de côté. Elles sont comptées à rebours depuis le partiel (la veille, J−3, J−6, J−10, J−15…), donc plus rapprochées à l’approche de l’épreuve et fixes d’un jour à l’autre ; une séance qui tombe un jour libre ou trop court recule d’un ou deux jours.</li>
           <li>Les pages neuves se lisent dans l’ordre, jamais dans les 3 derniers jours avant le partiel.</li>
           <li>Entre 14 et 4 jours avant un partiel, un examen blanc est placé le jour le plus libre : refais un sujet ou un TD en conditions, à la durée de l’épreuve (celle de ton emploi du temps), puis donne ton score.</li>
           <li>Ce que tu ne valides pas n’est pas perdu : le calendrier est recalculé depuis où tu en es vraiment. Une révision non faite revient « en retard », une page non apprise se replace.</li>

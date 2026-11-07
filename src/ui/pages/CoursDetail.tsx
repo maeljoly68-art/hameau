@@ -7,6 +7,7 @@ import { construireFiche } from '../../core/fiche.ts';
 import { estJour, jourCourt } from '../../core/jours.ts';
 import { numerosDePages } from '../../core/pages.ts';
 import { PRATIQUE_DEFAUT, PRATIQUE_MAX, pratiqueMinValide } from '../../core/pratique.ts';
+import { REVISION_LIBRE_DEFAUT, REVISION_LIBRE_MAX, REVISION_LIBRE_MIN, revisionLibreMinValide } from '../../core/revisionLibre.ts';
 import { NIVEAU_MAX, NOTES, type Note } from '../../core/revision.ts';
 import { ajouterChapitres, ajouterNote, marquerParCoeurCours, modifierChapitre, modifierCours, modifierNote, noterChapitre, remettreAZero, supprimerChapitre, supprimerCours, supprimerNote } from '../../data/cours.ts';
 import { IconeChevron, IconeCoche, IconeLien } from '../Icones.tsx';
@@ -222,6 +223,8 @@ export function PageCours({ cours, chapitres, notes, cartes, erreurs, fragiles, 
   const [liste, setListe] = useState('');
   const [pratiqueSaisie, setPratiqueSaisie] = useState(String(cours.pratiqueMin ?? PRATIQUE_DEFAUT));
   const pratiqueChoisie = pratiqueMinValide(Number(pratiqueSaisie));
+  const [libreSaisie, setLibreSaisie] = useState(String(cours.revisionLibreMin ?? REVISION_LIBRE_DEFAUT));
+  const libreChoisie = revisionLibreMinValide(Number(libreSaisie));
   const maitrise = maitriseCours(chapitres);
   const notesDe = (id: string) => notes.filter((n) => n.chapitreId === id);
   const cartesDe = cartesParPage(cartes);
@@ -309,6 +312,33 @@ export function PageCours({ cours, chapitres, notes, cartes, erreurs, fragiles, 
             </form>
           )}
           <span className="aide petite">Pour l’artefact d’erreurs d’un cours (TOEIC, TAGE MAGE…) : un minimum de minutes chaque jour, jusqu’au partiel. Hameau met ce temps de côté dans le calendrier et compte ta série.</span>
+        </div>
+        <div className="ligne-pause ligne-pratique">
+          <button
+            className={cours.revisionLibreMin !== null ? 'bouton petit' : 'bouton petit discret'}
+            aria-pressed={cours.revisionLibreMin !== null}
+            onClick={() => faire(() => modifierCours(cours.id, { revisionLibreMin: cours.revisionLibreMin !== null ? null : (libreChoisie ?? REVISION_LIBRE_DEFAUT) }), cours.revisionLibreMin !== null ? 'Séances d’étude libre retirées.' : 'Séances d’étude libre ajoutées au calendrier, avant le partiel.')}
+          >
+            {cours.revisionLibreMin !== null ? 'Étude libre ✓' : 'Étude libre'}
+          </button>
+          {cours.revisionLibreMin !== null && (
+            <form
+              className="ligne-formulaire"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (libreChoisie !== null && libreChoisie !== cours.revisionLibreMin) faire(() => modifierCours(cours.id, { revisionLibreMin: libreChoisie }), `Séances d’étude libre de ${libreChoisie} min.`);
+              }}
+            >
+              <label>
+                Minutes par séance
+                <input type="number" inputMode="numeric" min={REVISION_LIBRE_MIN} max={REVISION_LIBRE_MAX} value={libreSaisie} onChange={(e) => setLibreSaisie(e.target.value)} aria-label="Minutes par séance d’étude libre" />
+              </label>
+              <button className="bouton petit discret" disabled={libreChoisie === null || libreChoisie === cours.revisionLibreMin}>
+                Régler
+              </button>
+            </form>
+          )}
+          <span className="aide petite">Pour un cours sans artefact, ou en plus de ses pages : des séances d’étude (relire, faire des exercices) placées au calendrier avant le partiel, de plus en plus rapprochées. {cours.partiel ? '' : 'Il faut une date de partiel.'}</span>
         </div>
         <div className="deux">
           <label>

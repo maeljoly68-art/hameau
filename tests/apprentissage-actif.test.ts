@@ -173,7 +173,7 @@ test('les cartes d’une page restent dans l’ordre où elles ont été écrite
 
 // ── Fiche de la veille ──
 
-const cours = (id: string, partiel: string | null): Cours => ({ id, titre: id, couleur: '#888', partiel, lien: null, ordre: 0, motifs: '', enPause: false, pratiqueMin: null });
+const cours = (id: string, partiel: string | null): Cours => ({ id, titre: id, couleur: '#888', partiel, lien: null, ordre: 0, motifs: '', enPause: false, pratiqueMin: null, revisionLibreMin: null });
 const chap = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}${ordre}`, coursId, titre: `Page ${ordre + 1}`, ordre, dureeMin: 20, niveau: 2, derniere: null, prochaine: null, lien: null, parCoeur: false, ...extra });
 const note = (chapitreId: string, texte: string): NoteChapitre => ({ id: `n-${chapitreId}-${texte}`, chapitreId, texte, citation: null, creeLe: '' });
 const fiche = (chs: Chapitre[], extra: Partial<Parameters<typeof construireFiche>[0]> = {}) => construireFiche({ cours: cours('A', ajouterJours(AUJ, 1)), chapitres: chs, notes: [], cartes: [], erreurs: [], fragiles: new Set(), aujourdhui: AUJ, ...extra });

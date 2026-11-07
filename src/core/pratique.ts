@@ -19,12 +19,17 @@ export const SERIE_HORIZON = 400;
 /** Les points de la petite semaine affichée sur la carte. */
 export const JOURS_SEMAINE = 7;
 
+/** Ce que les minutes déclarées pratiquent : l'artefact d'erreurs d'un cours, ou une séance de révision libre (sans artefact). */
+export type SortePratique = 'erreurs' | 'revision';
+
 export interface Pratique {
   id: string;
   coursId: string;
   /** Le jour de l'appareil, « AAAA-MM-JJ ». */
   jour: string;
   minutes: number;
+  /** Absente des lignes écrites avant la révision libre : c'étaient des minutes d'erreurs. */
+  sorte: SortePratique;
 }
 
 /** Les minutes minimum par jour d'un cours : un entier de 1 à 120, ou null (pas de pratique quotidienne). */
@@ -38,16 +43,20 @@ export function pratiqueValide(brut: unknown): Pratique | null {
   const o = brut as Record<string, unknown>;
   if (typeof o.id !== 'string' || typeof o.coursId !== 'string' || typeof o.jour !== 'string' || !estJour(o.jour)) return null;
   if (typeof o.minutes !== 'number' || !Number.isInteger(o.minutes) || o.minutes < 1 || o.minutes > PRATIQUE_DECLAREE_MAX) return null;
-  return { id: o.id, coursId: o.coursId, jour: o.jour, minutes: o.minutes };
+  return { id: o.id, coursId: o.coursId, jour: o.jour, minutes: o.minutes, sorte: o.sorte === 'revision' ? 'revision' : 'erreurs' };
 }
 
 /** La catégorie du chrono lancé sur la pratique d'un cours. Elle sert aussi à retrouver ces sessions. */
 export const categoriePratique = (titreCours: string): string => `${titreCours.trim()} · erreurs`;
+/** Celle d'une séance de révision libre (voir revisionLibre.ts). */
+export const categorieRevision = (titreCours: string): string => `${titreCours.trim()} · révision`;
 
 const normaliser = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
 
 /** Cette session est-elle de la pratique de ce cours ? Majuscules et espaces ne comptent pas. */
 export const estSessionPratique = (session: Pick<Session, 'categorie'>, titreCours: string): boolean => normaliser(session.categorie) === normaliser(categoriePratique(titreCours));
+/** Cette session est-elle une séance de révision libre de ce cours ? */
+export const estSessionRevision = (session: Pick<Session, 'categorie'>, titreCours: string): boolean => normaliser(session.categorie) === normaliser(categorieRevision(titreCours));
 
 /**
  * La pratique est due tant que le cours n'est pas en pause et que son partiel n'est pas passé (le jour même
@@ -62,12 +71,13 @@ export function pratiqueDue(c: { pratiqueMin: number | null; enPause: boolean; p
  * Les minutes de pratique de chaque jour pour un cours. Une session qui tourne encore n'a pas de durée (null) :
  * elle ne compte pas, plutôt que pour zéro puis pour tout d'un coup. Une session compte le jour où elle a commencé.
  */
-export function minutesParJour(coursId: string, titreCours: string, pratiques: readonly Pratique[], sessions: readonly Pick<Session, 'debut' | 'fin' | 'categorie' | 'pauseSecondes' | 'pauseDepuis'>[]): Map<string, number> {
+export function minutesParJour(coursId: string, titreCours: string, pratiques: readonly Pratique[], sessions: readonly Pick<Session, 'debut' | 'fin' | 'categorie' | 'pauseSecondes' | 'pauseDepuis'>[], sorte: SortePratique = 'erreurs'): Map<string, number> {
   const m = new Map<string, number>();
   const ajouter = (jour: string, minutes: number) => m.set(jour, (m.get(jour) ?? 0) + minutes);
-  for (const p of pratiques) if (p.coursId === coursId) ajouter(p.jour, p.minutes);
+  const estDeLaSorte = sorte === 'revision' ? estSessionRevision : estSessionPratique;
+  for (const p of pratiques) if (p.coursId === coursId && p.sorte === sorte) ajouter(p.jour, p.minutes);
   for (const s of sessions) {
-    if (!estSessionPratique(s, titreCours)) continue;
+    if (!estDeLaSorte(s, titreCours)) continue;
     const duree = dureeSession(s);
     const debut = Date.parse(s.debut);
     if (duree === null || !Number.isFinite(debut)) continue;

@@ -24,6 +24,11 @@ export interface Cours {
    * pratique quotidienne. Elle est due jusqu'au partiel (voir pratique.ts).
    */
   pratiqueMin: number | null;
+  /**
+   * Minutes d'une séance de révision libre, ou null : pas de séances libres. Pour un cours sans artefact (ou en plus
+   * de ses pages) : le calendrier place des séances d'étude espacées avant le partiel (voir revisionLibre.ts).
+   */
+  revisionLibreMin: number | null;
 }
 
 export interface Chapitre {

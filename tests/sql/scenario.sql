@@ -754,6 +754,19 @@ do $$ begin insert into public.pratiques (cours_id, jour, minutes) values (gen_r
 insert into public.pratiques (cours_id, jour, minutes) values (:'cid', '2026-11-08', 240);
 update public.cours set pratique_min = null where id = :'cid';
 
+-- Migration 14 : révision libre — des minutes par séance de 10 à 180, et deux sortes de minutes déclarées.
+update public.cours set revision_libre_min = 45 where id = :'cid';
+do $$ begin if (select revision_libre_min from public.cours where id = current_setting('test.cid')::uuid) <> 45 then raise exception 'ÉCHEC : minutes de révision libre non enregistrées'; end if; end $$;
+do $$ begin update public.cours set revision_libre_min = 9 where id = current_setting('test.cid')::uuid; raise exception 'ÉCHEC : révision libre de 9 min acceptée'; exception when check_violation then null; end $$;
+do $$ begin update public.cours set revision_libre_min = 181 where id = current_setting('test.cid')::uuid; raise exception 'ÉCHEC : révision libre de 181 min acceptée'; exception when check_violation then null; end $$;
+update public.cours set revision_libre_min = 10 where id = :'cid';
+update public.cours set revision_libre_min = 180 where id = :'cid';
+update public.cours set revision_libre_min = null where id = :'cid';
+do $$ begin if (select sorte from public.pratiques where jour = '2026-11-07') <> 'erreurs' then raise exception 'ÉCHEC : une pratique sans sorte doit rester des minutes d''erreurs'; end if; end $$;
+insert into public.pratiques (cours_id, jour, minutes, sorte) values (:'cid', '2026-11-09', 45, 'revision');
+do $$ begin if (select count(*) from public.pratiques where sorte = 'revision') <> 1 then raise exception 'ÉCHEC : minutes de révision libre non enregistrées'; end if; end $$;
+do $$ begin insert into public.pratiques (cours_id, jour, minutes, sorte) values (current_setting('test.cid')::uuid, '2026-11-09', 5, 'autre'); raise exception 'ÉCHEC : sorte inconnue acceptée'; exception when check_violation then null; end $$;
+
 -- La date de modification se met à jour toute seule.
 select maj_le as avant from public.chapitres where id = :'hid' \gset
 select set_config('test.avant', :'avant', false) \gset

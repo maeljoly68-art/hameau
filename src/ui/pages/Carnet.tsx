@@ -5,6 +5,7 @@ import type { DonneesCours } from '../../core/cours.ts';
 import { erreursDuJour } from '../../core/erreurs.ts';
 import { numerosDePages } from '../../core/pages.ts';
 import { ajouterCartes, reglerErreur, revoirErreur, supprimerCarte } from '../../data/cours.ts';
+import { Repliable, libelleQuestions } from '../Repliable.tsx';
 import type { Faire } from './CoursDetail.tsx';
 
 const teinte = (c: string) => ({ '--teinte': c }) as CSSProperties;
@@ -63,16 +64,20 @@ export function PanneauCartes({ chapitreId, cartes, faire }: { chapitreId: strin
   return (
     <div className="panneau-cartes">
       {cartes.length === 0 && <p className="aide petite">Aucune carte. Avec des cartes, le rappel te pose de vraies questions au lieu de « redis ce que tu retiens ».</p>}
-      <ol className="cartes-liste">
-        {cartes.map((c) => (
-          <li key={c.id}>
-            <strong>{c.question}</strong> <span className="carte-reponse">→ {c.reponse}</span>{' '}
-            <button className="lien" aria-label={`Supprimer la carte « ${c.question} »`} onClick={() => faire(() => supprimerCarte(c.id), 'Carte supprimée.')}>
-              Supprimer
-            </button>
-          </li>
-        ))}
-      </ol>
+      {cartes.length > 0 && (
+        <Repliable titre="Questions de cette page" compte={libelleQuestions(cartes.length)}>
+          <ol className="cartes-liste">
+            {cartes.map((c) => (
+              <li key={c.id}>
+                <strong>{c.question}</strong> <span className="carte-reponse">→ {c.reponse}</span>{' '}
+                <button className="lien" aria-label={`Supprimer la carte « ${c.question} »`} onClick={() => faire(() => supprimerCarte(c.id), 'Carte supprimée.')}>
+                  Supprimer
+                </button>
+              </li>
+            ))}
+          </ol>
+        </Repliable>
+      )}
       <form
         className="ligne-carte"
         onSubmit={(e) => {

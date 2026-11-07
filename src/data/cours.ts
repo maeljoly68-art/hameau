@@ -7,7 +7,8 @@ import { erreurValide, texteErreur, type Erreur } from '../core/erreurs.ts';
 import { estJour } from '../core/jours.ts';
 import type { PassageLeger } from '../core/pointsApprentissage.ts';
 import { noteDepuisPct, passageValide, type Passage, type SortePassage } from '../core/passages.ts';
-import { PRATIQUE_DECLAREE_MAX, pratiqueMinValide, pratiqueValide, type Pratique } from '../core/pratique.ts';
+import { PRATIQUE_DECLAREE_MAX, pratiqueMinValide, pratiqueValide, type Pratique, type SortePratique } from '../core/pratique.ts';
+import { revisionLibreMinValide } from '../core/revisionLibre.ts';
 import { apresDecouverte, apresRappelAnticipe, apresRevision, niveauValide, type Note } from '../core/revision.ts';
 import { cleJour, decalerJours } from '../core/temps.ts';
 import { vitesseApresChrono, vitesseApresCoche, type Ressenti } from '../core/vitesse.ts';
@@ -27,6 +28,8 @@ interface LigneCours {
   en_pause?: boolean | null;
   /** Absente tant que la migration de la pratique quotidienne n'est pas passée. */
   pratique_min?: number | null;
+  /** Absente tant que la migration de la révision libre n'est pas passée. */
+  revision_libre_min?: number | null;
 }
 interface LigneChapitre {
   id: string;
@@ -75,6 +78,8 @@ interface LignePratique {
   cours_id: string;
   jour: string;
   minutes: number;
+  /** Absente tant que la migration de la révision libre n'est pas passée : c'étaient des minutes d'erreurs. */
+  sorte?: string | null;
 }
 interface LigneNote {
   id: string;
@@ -84,7 +89,7 @@ interface LigneNote {
   cree_le: string;
 }
 
-const versCours = (l: LigneCours): Cours => ({ id: l.id, titre: l.titre, couleur: l.couleur, partiel: l.partiel && estJour(l.partiel) ? l.partiel : null, lien: l.lien, ordre: l.ordre, motifs: typeof l.motifs === 'string' ? l.motifs : '', enPause: l.en_pause === true, pratiqueMin: pratiqueMinValide(l.pratique_min) });
+const versCours = (l: LigneCours): Cours => ({ id: l.id, titre: l.titre, couleur: l.couleur, partiel: l.partiel && estJour(l.partiel) ? l.partiel : null, lien: l.lien, ordre: l.ordre, motifs: typeof l.motifs === 'string' ? l.motifs : '', enPause: l.en_pause === true, pratiqueMin: pratiqueMinValide(l.pratique_min), revisionLibreMin: revisionLibreMinValide(l.revision_libre_min) });
 const versChapitre = (l: LigneChapitre): Chapitre => ({
   id: l.id,
   coursId: l.cours_id,
@@ -102,7 +107,7 @@ const nombreOuNull = (v: number | string | null): number | null => (v === null ?
 const versPassage = (l: LignePassage): Passage | null => passageValide({ id: l.id, chapitreId: l.chapitre_id, jour: l.jour, sorte: l.sorte, note: l.note, minutes: l.minutes, scorePct: nombreOuNull(l.score_pct), vitesse: nombreOuNull(l.vitesse), rappel: l.rappel, confiance: l.confiance ?? null, creeLe: l.cree_le });
 const versErreur = (l: LigneErreur): Erreur | null => erreurValide({ id: l.id, chapitreId: l.chapitre_id, texte: l.texte, jour: l.jour, regleeLe: l.reglee_le, revueLe: l.revue_le });
 const versCarte = (l: LigneCarte): Carte | null => carteValide({ id: l.id, chapitreId: l.chapitre_id, question: l.question, reponse: l.reponse, ordre: l.ordre });
-const versPratique = (l: LignePratique): Pratique | null => pratiqueValide({ id: l.id, coursId: l.cours_id, jour: l.jour, minutes: l.minutes });
+const versPratique = (l: LignePratique): Pratique | null => pratiqueValide({ id: l.id, coursId: l.cours_id, jour: l.jour, minutes: l.minutes, sorte: l.sorte });
 const versNote = (l: LigneNote): NoteChapitre => ({ id: l.id, chapitreId: l.chapitre_id, texte: l.texte, citation: l.citation, creeLe: l.cree_le });
 
 interface ErreurBase {
@@ -236,6 +241,8 @@ export interface ChampsCours {
   enPause?: boolean;
   /** Minutes minimum par jour sur l'artefact d'erreurs ; null pour retirer la pratique quotidienne. */
   pratiqueMin?: number | null;
+  /** Minutes d'une séance de révision libre ; null pour les retirer. */
+  revisionLibreMin?: number | null;
 }
 
 export async function ajouterCours(c: Omit<ChampsCours, 'ordre'> & { ordre: number }, chapitres: { titre: string; dureeMin: number }[]): Promise<void> {
@@ -254,11 +261,12 @@ export async function ajouterCours(c: Omit<ChampsCours, 'ordre'> & { ordre: numb
 
 export async function modifierCours(id: string, champs: Partial<ChampsCours>): Promise<void> {
   const sb = await client();
-  const { enPause, pratiqueMin, ...autres } = champs;
+  const { enPause, pratiqueMin, revisionLibreMin, ...autres } = champs;
   // Les colonnes s'écrivent en_pause et pratique_min : on ne laisse pas passer le nom de l'objet tel quel.
   const ligne: Record<string, unknown> = { ...autres };
   if (enPause !== undefined) ligne.en_pause = enPause;
   if (pratiqueMin !== undefined) ligne.pratique_min = pratiqueMin === null ? null : pratiqueMinValide(pratiqueMin);
+  if (revisionLibreMin !== undefined) ligne.revision_libre_min = revisionLibreMin === null ? null : revisionLibreMinValide(revisionLibreMin);
   echec(await sb.from('cours').update(ligne).eq('id', id));
 }
 
@@ -525,11 +533,12 @@ export async function chargerPassagesLegers(): Promise<PassageLeger[]> {
 }
 
 /** Déclare des minutes de pratique faites hors chrono (« j'ai fait mes 5 min sur l'artefact »). */
-export async function ajouterPratique(coursId: string, minutes: number, jour: string): Promise<void> {
+export async function ajouterPratique(coursId: string, minutes: number, jour: string, sorte: SortePratique = 'erreurs'): Promise<void> {
   const sb = await client();
   const m = Math.round(minutes);
   if (!estJour(jour) || !Number.isFinite(m) || m < 1 || m > PRATIQUE_DECLAREE_MAX) throw new Error(`Les minutes déclarées vont de 1 à ${PRATIQUE_DECLAREE_MAX}.`);
-  echec(await sb.from('pratiques').insert({ cours_id: coursId, jour, minutes: m }));
+  // La sorte n'est écrite que si elle n'est pas celle par défaut : une base sans sa colonne continue d'accepter les minutes d'erreurs.
+  echec(await sb.from('pratiques').insert({ cours_id: coursId, jour, minutes: m, ...(sorte === 'erreurs' ? {} : { sorte }) }));
 }
 
 /** Retire une déclaration (erreur de saisie). */
@@ -601,7 +610,7 @@ export function lireCacheCours(userId: string): DonneesCours | null {
     if (!Array.isArray(d.cours) || !Array.isArray(d.chapitres) || !Array.isArray(d.notes)) return null;
     // Un cache écrit avant l'emploi du temps n'a ni mots de cours ni adresse du flux : on les complète.
     return {
-      cours: d.cours.map((c) => ({ ...c, motifs: typeof c.motifs === 'string' ? c.motifs : '', enPause: c.enPause === true, pratiqueMin: pratiqueMinValide(c.pratiqueMin) })),
+      cours: d.cours.map((c) => ({ ...c, motifs: typeof c.motifs === 'string' ? c.motifs : '', enPause: c.enPause === true, pratiqueMin: pratiqueMinValide(c.pratiqueMin), revisionLibreMin: revisionLibreMinValide(c.revisionLibreMin) })),
       chapitres: d.chapitres.map((c) => ({ ...c, parCoeur: c.parCoeur === true })),
       notes: d.notes,
       disponibilites: disponibilitesValides(d.disponibilites),

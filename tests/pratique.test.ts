@@ -10,7 +10,9 @@ import {
   PRATIQUE_MAX,
   SERIE_HORIZON,
   apresPratique,
+  categorieRevision,
   categoriePratique,
+  estSessionRevision,
   estSessionPratique,
   etatPratique,
   minutesParJour,
@@ -26,7 +28,7 @@ import type { Session } from '../src/core/types.ts';
 const AUJ = '2026-11-10';
 const jour = (n: number) => ajouterJours(AUJ, -n);
 const session = (categorie: string, debut: string, fin: string | null, extra: Partial<Session> = {}): Session => ({ id: `${categorie}${debut}`, debut, fin, description: '', categorie, appareil: 'PC', objectif: null, pauseSecondes: 0, pauseDepuis: null, ...extra });
-const pratique = (coursId: string, j: string, minutes: number): Pratique => ({ id: `${coursId}${j}${minutes}`, coursId, jour: j, minutes });
+const pratique = (coursId: string, j: string, minutes: number, sorte: Pratique['sorte'] = 'erreurs'): Pratique => ({ id: `${coursId}${j}${minutes}${sorte}`, coursId, jour: j, minutes, sorte });
 // Midi local : le jour de l'appareil est sans ambiguïté, quel que soit le fuseau des tests.
 const midi = (j: string, h = 12, m = 0) => new Date(`${j}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).toISOString();
 
@@ -40,8 +42,10 @@ test('le minimum par jour est un entier de 1 à 120, sinon pas de pratique', () 
 
 test('une pratique déclarée est refusée si elle est mal formée', () => {
   const ok = { id: 'a', coursId: 'c', jour: AUJ, minutes: 5 };
-  assert.deepEqual(pratiqueValide(ok), ok);
-  assert.deepEqual(pratiqueValide({ ...ok, minutes: PRATIQUE_DECLAREE_MAX }), { ...ok, minutes: PRATIQUE_DECLAREE_MAX });
+  assert.deepEqual(pratiqueValide(ok), { ...ok, sorte: 'erreurs' }, 'sans sorte (lignes d’avant la révision libre) : des minutes d’erreurs');
+  assert.equal(pratiqueValide({ ...ok, sorte: 'revision' })?.sorte, 'revision');
+  assert.equal(pratiqueValide({ ...ok, sorte: 'autre chose' })?.sorte, 'erreurs', 'une sorte inconnue ne devient pas de la révision');
+  assert.deepEqual(pratiqueValide({ ...ok, minutes: PRATIQUE_DECLAREE_MAX }), { ...ok, minutes: PRATIQUE_DECLAREE_MAX, sorte: 'erreurs' });
   for (const m of [0, -1, PRATIQUE_DECLAREE_MAX + 1, 1.5, '5', null]) assert.equal(pratiqueValide({ ...ok, minutes: m }), null, String(m));
   assert.equal(pratiqueValide({ ...ok, jour: '2026-13-01' }), null);
   assert.equal(pratiqueValide({ ...ok, jour: 'hier' }), null);
@@ -80,6 +84,17 @@ test('les minutes d’un jour sont la somme des sessions du chrono et des minute
   );
   assert.equal(m.get(AUJ), 13, '10 min de chrono + 3 déclarées ; ni les pages du TOEIC ni un autre cours');
   assert.equal(m.size, 1);
+});
+
+test('les minutes d’erreurs et celles de révision libre ne se mélangent pas', () => {
+  const pratiques = [pratique('c', AUJ, 5, 'erreurs'), pratique('c', AUJ, 40, 'revision')];
+  const sessions = [session('TOEIC · erreurs', midi(AUJ), midi(AUJ, 12, 3)), session('TOEIC · révision', midi(AUJ, 15), midi(AUJ, 15, 20))];
+  assert.equal(minutesParJour('c', 'TOEIC', pratiques, sessions).get(AUJ), 8, 'erreurs : 5 déclarées + 3 de chrono');
+  assert.equal(minutesParJour('c', 'TOEIC', pratiques, sessions, 'revision').get(AUJ), 60, 'révision : 40 déclarées + 20 de chrono');
+  assert.equal(minutesParJour('c', 'TOEIC', [], sessions, 'revision').get(AUJ), 20);
+  assert.ok(estSessionRevision({ categorie: 'toeic  ·  RÉVISION ' }, 'TOEIC'));
+  assert.ok(!estSessionRevision({ categorie: 'TOEIC · erreurs' }, 'TOEIC'));
+  assert.equal(categorieRevision('  TOEIC '), 'TOEIC · révision');
 });
 
 test('une session qui tourne encore ne compte pas, et une pause se déduit', () => {
@@ -205,7 +220,7 @@ test('les réserves ne gardent que les pratiques dues, et durent jusqu’au part
 
 // ── Le planificateur déduit la pratique de chaque journée ──
 const dispo = (m: number, libres: string[] = []): Disponibilites => ({ semaine: [m, m, m, m, m, m, m], libres });
-const unCours = { id: 'A', titre: 'A', couleur: '#888', partiel: '2026-12-04', lien: null, ordre: 0, motifs: '', enPause: false, pratiqueMin: null };
+const unCours = { id: 'A', titre: 'A', couleur: '#888', partiel: '2026-12-04', lien: null, ordre: 0, motifs: '', enPause: false, pratiqueMin: null, revisionLibreMin: null };
 const pages = Array.from({ length: 12 }, (_, i) => ({ id: `A-${i}`, coursId: 'A', titre: `Ch ${i}`, ordre: i, dureeMin: 30, niveau: 0, derniere: null, prochaine: null, lien: null, parCoeur: false }));
 const parJour = (p: ReturnType<typeof planifier>, j: string) => p.seances.filter((s) => s.jour === j).reduce((t, s) => t + s.minutes, 0);
 

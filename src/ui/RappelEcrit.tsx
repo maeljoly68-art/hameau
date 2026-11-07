@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { CARTE_REPONSE_MAX, texteDuRappel, type Carte } from '../core/cartes.ts';
 import { CONFIANCES } from '../core/confiance.ts';
 import { ERREUR_TEXTE_MAX } from '../core/erreurs.ts';
+import { Repliable, libelleQuestions } from './Repliable.tsx';
 
 /** Ce que le rappel donne, à l'étape où l'on compare : de quoi écrire le passage dans le journal et, si besoin, le carnet d'erreurs. */
 export interface ResultatRappel {
@@ -46,9 +47,8 @@ export function RappelEcrit({ obligatoire, placeholder, etiquette, consigne, pag
   });
   // Avant de comparer : chaque question a son champ, juste à côté. Après : la même liste, avec ta réponse en face de la bonne.
   const questions = (comparer: boolean) =>
-    avecCartes.map((p) => (
-      <div key={p.id} className="cartes-page">
-        {pages.length > 1 && <strong className="aide petite">{p.titre}</strong>}
+    avecCartes.map((p) => {
+      const liste = (
         <ol className="cartes-liste">
           {p.cartes.map((c) => {
             const tienne = (reponses[c.id] ?? '').trim();
@@ -75,8 +75,20 @@ export function RappelEcrit({ obligatoire, placeholder, etiquette, consigne, pag
             );
           })}
         </ol>
-      </div>
-    ));
+      );
+      // Plusieurs pages : chacune se replie sous son titre. Une seule : pas de titre à replier.
+      return (
+        <div key={p.id} className="cartes-page">
+          {pages.length > 1 ? (
+            <Repliable titre={p.titre} compte={libelleQuestions(p.cartes.length)}>
+              {liste}
+            </Repliable>
+          ) : (
+            liste
+          )}
+        </div>
+      );
+    });
   if (!compare)
     return (
       <div className="rappel-saisie">
