@@ -155,7 +155,7 @@ test('un examen blanc récent dispense d’un autre pour ce cours', () => {
 // ── Bilan de la semaine ──
 
 const cours = (id: string, ordre: number, extra: Partial<Cours> = {}): Cours => ({ id, titre: id, couleur: '#888', partiel: null, lien: null, ordre, motifs: '', enPause: false, ...extra });
-const page = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}${ordre}`, coursId, titre: `P${ordre}`, ordre, dureeMin: 20, niveau: 0, derniere: null, prochaine: null, lien: null, ...extra });
+const page = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}${ordre}`, coursId, titre: `P${ordre}`, ordre, dureeMin: 20, niveau: 0, derniere: null, prochaine: null, lien: null, parCoeur: false, ...extra });
 const bilan = (e: { passages?: Passage[]; chapitres?: Chapitre[]; cours?: Cours[]; fragiles?: string[] }) => bilanSemaine({ passages: e.passages ?? [], chapitres: e.chapitres ?? [], cours: e.cours ?? [], aujourdhui: AUJ, fragiles: new Set(e.fragiles ?? []) });
 
 test('la semaine : les sept derniers jours, aujourd’hui compris', () => {

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import { emploiDuTemps, partielProbable, plageHeures, salleCourte, type Creneau, type EmploiDuTemps } from '../../core/agenda.ts';
 import { COULEURS_COURS, DISPONIBILITES_DEFAUT, MAX_LIBRES, MINUTES_JOUR_MAX, RAPPEL_DEFAUT, RAPPEL_MAX, REDUCTION_DEFAUT, REDUCTION_MAX, RELECTURE_MAX, VITESSE_MAX, VITESSE_MIN, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, vitesseValide, type Chapitre, type Cours as CoursT, type Disponibilites, type DonneesCours } from '../../core/cours.ts';
 import { ajouterJours, debutDuMois, estJour, grilleDuMois, jourCourt, jourSemaine, moisSuivant, versDate } from '../../core/jours.ts';
-import { arrondi5, libellePages, regrouper, sansCoupure } from '../../core/pages.ts';
+import { LIBELLE_ETAPE, arrondi5, libellePages, regrouper, sansCoupure, type Etape } from '../../core/pages.ts';
 import { examensFaits as calculerExamensFaits, pagesFragiles } from '../../core/passages.ts';
 import { construireRappel } from '../../core/rappel.ts';
 import { JOURS_AVANT_DEBUT, PLEIN_COURS, SEUIL_COURS, planifier, resumeParJour, seancesDuJour, type Alerte, type Plan, type TypeSeance } from '../../core/planning.ts';
@@ -14,7 +14,7 @@ import { IconeChevron } from '../Icones.tsx';
 import { useAgenda } from '../useAgenda.ts';
 import { useCours } from '../useCours.ts';
 import { Bilan } from './Bilan.tsx';
-import { TYPES, ValiderBloc } from './Blocs.tsx';
+import { ValiderBloc } from './Blocs.tsx';
 import { PageCours, type Faire } from './CoursDetail.tsx';
 import { RappelDuJour } from './Rappel.tsx';
 import { ListeCreneaux, NoteCharge, ReglageAgenda } from './Creneaux.tsx';
@@ -29,6 +29,10 @@ export interface LancerChapitre {
   /** Les pages que cette séance finit : seules elles passent pour lues à la validation. */
   termines: string[];
   type: TypeSeance;
+  /** Lire, apprendre par cœur ou réviser : la fenêtre de fin de chrono n'en dit pas la même chose. */
+  etape: Etape;
+  /** Au moins une page est à savoir mot pour mot. */
+  parCoeur: boolean;
   /** Durée prévue : l'objectif du chrono, et ce à quoi la durée réelle sera comparée pour préciser ta vitesse. */
   minutes: number;
 }
@@ -75,13 +79,13 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId, 
           const seule = b.chapitreIds.length === 1;
           const nom = seule ? titres[0] : libellePages(b.pages);
           return (
-            <li key={`${b.coursId}-${b.type}`} style={teinte(c.couleur)}>
+            <li key={`${b.coursId}-${b.etape}`} style={teinte(c.couleur)}>
               <div className="seance-corps">
                 <span className="seance-cours">{c.titre}</span>
                 <strong>{nom}</strong>
                 <span className="aide">
                   {seule ? `Page ${b.pages[0]} · ` : ''}
-                  {sansCoupure(`${TYPES[b.type]} · ≈ ${formatDuree(arrondi5(b.minutes))} · `)}
+                  {sansCoupure(`${LIBELLE_ETAPE[b.etape]} · ≈ ${formatDuree(arrondi5(b.minutes))} · `)}
                   <span className={b.retard > 0 ? 'en-retard' : undefined}>{sansCoupure(b.raison)}</span>
                   {b.fragile && <span className="badge-fragile">Page fragile</span>}
                 </span>
@@ -89,7 +93,7 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId, 
               </div>
               <div className="seance-actions">
                 <ValiderBloc bloc={b} aujourdhui={aujourdhui} userId={userId} faire={faire} />
-                <button className="lien" onClick={() => surLancer({ coursId: c.id, titreCours: c.titre, titre: nom, chapitreIds: b.chapitreIds, termines: b.termines, type: b.type, minutes: b.minutes })}>
+                <button className="lien" onClick={() => surLancer({ coursId: c.id, titreCours: c.titre, titre: nom, chapitreIds: b.chapitreIds, termines: b.termines, type: b.type, etape: b.etape, parCoeur: b.parCoeur, minutes: b.minutes })}>
                   Lancer le chrono
                 </button>
               </div>
@@ -217,13 +221,13 @@ function Calendrier({ plan, donnees, aujourdhui, edt }: { plan: Plan; donnees: D
             if (!c) return null;
             const seule = b.chapitreIds.length === 1;
             return (
-              <li key={`${b.coursId}-${b.type}`} style={teinte(c.couleur)}>
+              <li key={`${b.coursId}-${b.etape}`} style={teinte(c.couleur)}>
                 <div className="seance-corps">
                   <span className="seance-cours">{c.titre}</span>
                   <strong>{seule ? (donnees.chapitres.find((x) => x.id === b.chapitreIds[0])?.titre ?? libellePages(b.pages)) : libellePages(b.pages)}</strong>
                   <span className="aide">
                     {seule ? `Page ${b.pages[0]} · ` : ''}
-                    {TYPES[b.type]} · ≈ {formatDuree(arrondi5(b.minutes))}
+                    {LIBELLE_ETAPE[b.etape]} · ≈ {formatDuree(arrondi5(b.minutes))}
                   </span>
                 </div>
               </li>
@@ -610,8 +614,9 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
         <ol>
           <li>Le partiel le plus proche passe en premier.</li>
           <li>Une page = un tableau de l’artefact. Sa durée vient de sa taille, multipliée par TA vitesse ; le calendrier te dit « pages 1 à 7 » plutôt qu’un chapitre pour une heure.</li>
-          <li>« Apprendre », c’est lire puis te rappeler de tête (ferme la fiche et redis l’essentiel avant de valider) : le temps annoncé est celui d’un apprentissage, pas d’un survol. « Réviser », c’est le retour espacé de la page ; « Relire », c’est la revoir sans te noter.</li>
-          <li>Une page apprise est revue dès le lendemain, puis après 3, 7, 14, 30 jours : l’écart grandit à chaque révision réussie.</li>
+          <li>Trois temps. « Lire » (jour 0) : tu comprends, sans te forcer à tout retenir. « Apprendre par cœur » (le lendemain) : tu fermes la fiche et tu écris de mémoire, ici ou sur papier, avant de comparer et de te noter : c’est obligatoire. « Réviser » : les retours suivants, de plus en plus espacés. « Relire » revoit une page sans te noter.</li>
+          <li>Une page lue est revue dès le lendemain, puis après 3, 7, 14, 30 jours : l’écart grandit à chaque révision réussie.</li>
+          <li>Une page « mot pour mot » (une formule, un article, un dialogue, des chiffres clés) suit un cycle resserré (1, 2, 4, 7, 14 jours) et reste en apprentissage un retour de plus. Tu la règles page par page (« Mot pour mot ») ou pour tout le cours.</li>
           <li>Ta note ajuste l’écart : « À revoir » ramène à demain, « Difficile » le divise par deux, « Facile » saute un cran. Un score (« 14 sur 20 ») donne la note : 90 % facile, 70 % bien, 50 % difficile.</li>
           <li>Le rappel du jour te fait te tester toi-même : quelques révisions, de cours mélangés, où tu écris de tête avant d’ouvrir la fiche. Un jour chargé en cours, il peut y ajouter une micro-révision de pages fragiles (réussie, elle ne fait pas monter le cran : on ne gagne rien à réviser trop tôt).</li>
           <li>Une page fragile (plusieurs notes basses de suite) passe devant dans tes révisions, jusqu’à ce que deux bons passages de suite la libèrent.</li>

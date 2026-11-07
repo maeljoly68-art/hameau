@@ -12,6 +12,15 @@ export const NIVEAU_MAX = 6;
  */
 export const ECART_JOURS: readonly number[] = [0, 1, 3, 7, 14, 30, 60];
 
+/**
+ * Une page à savoir mot pour mot (une formule, une définition, un article, un dialogue) revient plus souvent : le
+ * même cycle, resserré. Savoir par cœur, ce n'est pas avoir lu : c'est avoir été obligé de se le redire, plusieurs fois.
+ */
+export const ECART_JOURS_PAR_COEUR: readonly number[] = [0, 1, 2, 4, 7, 14, 30];
+
+/** L'échelle de la page : celle de tout le monde, ou la resserrée. */
+export const ecartsPour = (parCoeur: boolean): readonly number[] => (parCoeur ? ECART_JOURS_PAR_COEUR : ECART_JOURS);
+
 export type Note = 'a-revoir' | 'difficile' | 'bien' | 'facile';
 
 export const NOTES: readonly { id: Note; nom: string }[] = [
@@ -47,8 +56,9 @@ export function apresDecouverte(jour: string): EtatRevision {
 }
 
 /** Un passage de révision, noté. Sur un chapitre pas encore vu, c'est une découverte. */
-export function apresRevision(etat: EtatRevision, note: Note, jour: string): EtatRevision {
+export function apresRevision(etat: EtatRevision, note: Note, jour: string, parCoeur = false): EtatRevision {
   if (etat.niveau < 1) return apresDecouverte(jour);
+  const ecarts = ecartsPour(parCoeur);
   const n = etat.niveau;
   if (note === 'a-revoir') {
     // Perdu : on redescend de deux crans et on réessaie demain, sans attendre.
@@ -56,10 +66,10 @@ export function apresRevision(etat: EtatRevision, note: Note, jour: string): Eta
   }
   if (note === 'difficile') {
     // Même cran, mais on revient deux fois plus tôt : ce qui a coûté se revoit vite.
-    return { niveau: n, derniere: jour, prochaine: ajouterJours(jour, Math.max(1, Math.round(ECART_JOURS[n] / 2))) };
+    return { niveau: n, derniere: jour, prochaine: ajouterJours(jour, Math.max(1, Math.round(ecarts[n] / 2))) };
   }
   const suivant = borne(n + (note === 'facile' ? 2 : 1));
-  return { niveau: suivant, derniere: jour, prochaine: ajouterJours(jour, ECART_JOURS[suivant]) };
+  return { niveau: suivant, derniere: jour, prochaine: ajouterJours(jour, ecarts[suivant]) };
 }
 
 /**
@@ -68,10 +78,10 @@ export function apresRevision(etat: EtatRevision, note: Note, jour: string): Eta
  * pas monter — il est seulement retenu comme dernier passage. Un passage raté, lui, compte pour de vrai, sans
  * jamais reculer l'échéance déjà prévue.
  */
-export function apresRappelAnticipe(etat: EtatRevision, note: Note, jour: string): EtatRevision {
+export function apresRappelAnticipe(etat: EtatRevision, note: Note, jour: string, parCoeur = false): EtatRevision {
   if (etat.niveau < 1) return apresDecouverte(jour);
   if (note === 'bien' || note === 'facile') return { ...etat, derniere: jour };
-  const apres = apresRevision(etat, note, jour);
+  const apres = apresRevision(etat, note, jour, parCoeur);
   const prevue = etat.prochaine;
   return prevue !== null && apres.prochaine !== null && prevue < apres.prochaine ? { ...apres, prochaine: prevue } : apres;
 }

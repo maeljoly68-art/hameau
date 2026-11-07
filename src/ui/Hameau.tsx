@@ -13,6 +13,7 @@ import { accord, batiment, casesDeplacement, coutAmelioration, habitants, NIVEAU
 import type { Depot } from '../data/depot.ts';
 import { lireLocal } from '../data/local.ts';
 import { marquerRelu, noterChapitres, validerExamen, validerLectureEtVitesse } from '../data/cours.ts';
+import { etapeDe, type Etape } from '../core/pages.ts';
 import type { TypeSeance } from '../core/planning.ts';
 import { NOTES, type Note } from '../core/revision.ts';
 import { lienSillage, marquerTache, synchroniser, type LienSillage } from '../data/sillage.ts';
@@ -22,6 +23,7 @@ import { Boutique } from './Boutique.tsx';
 import { Rappels } from './Rappels.tsx';
 import { Anneau, CATEGORIES_PROPOSEES, Chrono, ecrirePreference, etatChrono, lirePreference } from './Chrono.tsx';
 import { DialogueFin } from './DialogueFin.tsx';
+import { FinApprentissage } from './FinApprentissage.tsx';
 import { FinExamen } from './FinExamen.tsx';
 import { GardeRobe } from './GardeRobe.tsx';
 import { IconeAmis, IconeCintre, IconeCours, IconeCoche, IconeEtincelle, IconeEtoile, IconeFenetre, IconeFlamme, IconeHistorique, IconeMarteau, IconeReglages, IconeStats, IconeTaches, IconeVillage } from './Icones.tsx';
@@ -41,6 +43,9 @@ interface ChapitreEnCours {
   termines: string[];
   titre: string;
   type: TypeSeance;
+  /** Absente d'une session lancée avant les étapes : elle se range alors en « réviser ». */
+  etape?: Etape;
+  parCoeur?: boolean;
   minutes: number;
 }
 /** Avant les blocs de pages : un seul chapitre, noté à la fin. Une session lancée juste avant la mise à jour doit pouvoir finir. */
@@ -55,14 +60,17 @@ interface ATraiter {
   termines: string[];
   titre: string;
   type: TypeSeance;
+  etape: Etape;
+  /** Au moins une des pages est à savoir mot pour mot. */
+  parCoeur: boolean;
   prevues: number;
   /** Minutes réellement passées (pauses déduites), ou null. */
   reelles: number | null;
 }
 const aTraiter = (c: ChapitreEnCours | AncienChapitreEnCours, reelles: number | null): ATraiter =>
   'chapitreIds' in c
-    ? { chapitreIds: c.chapitreIds, termines: c.termines, titre: c.titre, type: c.type, prevues: c.minutes, reelles }
-    : { chapitreIds: [c.chapitreId], termines: [c.chapitreId], titre: c.titre, type: 'revision', prevues: 0, reelles };
+    ? { chapitreIds: c.chapitreIds, termines: c.termines, titre: c.titre, type: c.type, etape: c.etape ?? etapeDe(c.type, 2, false), parCoeur: c.parCoeur === true, prevues: c.minutes, reelles }
+    : { chapitreIds: [c.chapitreId], termines: [c.chapitreId], titre: c.titre, type: 'revision', etape: 'reviser', parCoeur: false, prevues: 0, reelles };
 
 const chargerHistorique = () => import('./pages/Historique.tsx');
 const chargerStatistiques = () => import('./pages/Statistiques.tsx');
@@ -435,7 +443,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       if (enCours) return toast('Une session tourne déjà : termine-la d’abord.');
       void agir(async () => {
         const s = await depot.demarrer(l.titreCours, Math.min(600, Math.max(5, l.minutes)));
-        const lien: ChapitreEnCours = { session: s.id, chapitreIds: l.chapitreIds, termines: l.termines, titre: l.titre, type: l.type, minutes: l.minutes };
+        const lien: ChapitreEnCours = { session: s.id, chapitreIds: l.chapitreIds, termines: l.termines, titre: l.titre, type: l.type, etape: l.etape, parCoeur: l.parCoeur, minutes: l.minutes };
         ecrirePreference('hameau.chapitre-en-cours', lien);
       }).then(() => {
         setOnglet('village');
@@ -878,10 +886,10 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
           <div className="fenetre" onClick={(e) => e.stopPropagation()}>
             {aNoter.type === 'decouverte' ? (
               <>
-                <h2>Tu as fini « {aNoter.titre} » ?</h2>
+                <h2>Tu as fini de lire « {aNoter.titre} » ?</h2>
                 <p className="aide">
                   {aNoter.reelles !== null ? `Tu y as passé ${formatDuree(aNoter.reelles)} pour ${formatDuree(aNoter.prevues)} prévues. ` : ''}
-                  Avant de valider : ferme la fiche et redis l’essentiel de tête. Valider marque ces pages comme apprises : elles reviennent demain, puis de plus en plus espacées. Le temps réel précise ta vitesse, donc les durées des prochaines séances.
+                  Valider marque ces pages comme lues : tu les apprends par cœur demain, en les écrivant de mémoire, puis elles reviennent de plus en plus espacées. Le temps réel précise ta vitesse, donc les durées des prochaines séances.
                 </p>
                 <div className="actions">
                   <button className="bouton discret" onClick={() => setANoter(null)}>
@@ -904,6 +912,20 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                   </button>
                 </div>
               </>
+            ) : aNoter.etape === 'apprendre' ? (
+              <FinApprentissage
+                titre={aNoter.titre}
+                parCoeur={aNoter.parCoeur}
+                surPlusTard={() => setANoter(null)}
+                surNote={(note, rappel) => {
+                  const c = aNoter;
+                  setANoter(null);
+                  noterChapitres(c.chapitreIds, note, cleJour(new Date()), { rappel }).then(
+                    () => toast('Noté : le calendrier est recalculé.'),
+                    (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
+                  );
+                }}
+              />
             ) : aNoter.type === 'examen' ? (
               <FinExamen
                 titre={aNoter.titre}

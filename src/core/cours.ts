@@ -30,6 +30,8 @@ export interface Chapitre {
   derniere: string | null;
   prochaine: string | null;
   lien: string | null;
+  /** À savoir mot pour mot (formule, définition, dialogue…) : revient plus souvent, toujours par un rappel de tête. */
+  parCoeur: boolean;
 }
 
 export interface NoteChapitre {

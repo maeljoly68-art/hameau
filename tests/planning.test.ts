@@ -9,7 +9,7 @@ const PARTIEL = '2026-12-04'; // vendredi, 29 jours plus tard : celui du plan de
 
 const dispo = (m: number, libres: string[] = []): Disponibilites => ({ semaine: [m, m, m, m, m, m, m], libres });
 const cours = (id: string, partiel: string | null, ordre = 0): Cours => ({ id, titre: id, couleur: '#6b8afd', partiel, lien: null, ordre, motifs: '', enPause: false });
-const chap = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}-${ordre}`, coursId, titre: `Ch ${ordre}`, ordre, dureeMin: 30, niveau: 0, derniere: null, prochaine: null, lien: null, ...extra });
+const chap = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}-${ordre}`, coursId, titre: `Ch ${ordre}`, ordre, dureeMin: 30, niveau: 0, derniere: null, prochaine: null, lien: null, parCoeur: false, ...extra });
 const chapitres = (coursId: string, n: number, extra: Partial<Chapitre> = {}) => Array.from({ length: n }, (_, i) => chap(coursId, i, extra));
 const plan = (e: Partial<EntreePlan> & Pick<EntreePlan, 'cours' | 'chapitres'>) => planifier({ disponibilites: dispo(60), aujourdhui: AUJ, ...e });
 const minutesDe = (s: readonly Seance[], jour: string) => s.filter((x) => x.jour === jour).reduce((t, x) => t + x.minutes, 0);
@@ -729,4 +729,23 @@ test('ce qui est déjà fait aujourd’hui est retiré de l’examen blanc d’a
   const faits = [chap('A', 0, { niveau: 3, derniere: '2026-11-14', prochaine: '2026-12-20', dureeMin: 240 })]; // une révision de 96 → 95 min
   const p = planifier({ cours: [cours('A', '2026-11-18')], chapitres: [...faits, chap('A', 1, { titre: 'TD1' })], disponibilites: SEM(), aujourdhui: '2026-11-14' });
   assert.deepEqual(examens(p).map((s) => [s.jour, s.minutes]), [['2026-11-14', 85]]);
+});
+
+// ── Pages à savoir mot pour mot : un cycle resserré ──
+
+const joursDe = (p: { seances: Seance[] }, id: string) => p.seances.filter((s) => s.chapitreId === id && s.type === 'revision').map((s) => s.jour);
+
+test('une page mot pour mot revient plus tôt qu’une page ordinaire (cycle 1, 2, 4… au lieu de 1, 3, 7…)', () => {
+  const lue = (parCoeur: boolean) => [chap('A', 0, { niveau: 1, derniere: ajouterJours(AUJ, -1), prochaine: AUJ, parCoeur })];
+  const ordinaire = joursDe(plan({ cours: [cours('A', '2027-03-01')], chapitres: lue(false) }), 'A-0').slice(0, 3);
+  const parCoeur = joursDe(plan({ cours: [cours('A', '2027-03-01')], chapitres: lue(true) }), 'A-0').slice(0, 3);
+  assert.deepEqual(ordinaire, [AUJ, ajouterJours(AUJ, 3), ajouterJours(AUJ, 10)]);
+  assert.deepEqual(parCoeur, [AUJ, ajouterJours(AUJ, 2), ajouterJours(AUJ, 6)]);
+});
+
+test('les séances d’une page mot pour mot portent le réglage et le cran, pour choisir l’étape', () => {
+  const p = plan({ cours: [cours('A', '2027-03-01')], chapitres: [chap('A', 0, { niveau: 1, derniere: ajouterJours(AUJ, -1), prochaine: AUJ, parCoeur: true })] });
+  const premiere = p.seances.find((s) => s.chapitreId === 'A-0');
+  assert.equal(premiere?.parCoeur, true);
+  assert.equal(premiere?.niveau, 1);
 });

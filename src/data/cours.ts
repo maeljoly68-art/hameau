@@ -32,6 +32,8 @@ interface LigneChapitre {
   derniere_revision: string | null;
   prochaine_revision: string | null;
   lien: string | null;
+  /** Absente tant que la migration « mot pour mot » n'est pas passée. */
+  par_coeur?: boolean | null;
 }
 interface LignePassage {
   id: string;
@@ -64,6 +66,7 @@ const versChapitre = (l: LigneChapitre): Chapitre => ({
   derniere: l.derniere_revision && estJour(l.derniere_revision) ? l.derniere_revision : null,
   prochaine: l.prochaine_revision && estJour(l.prochaine_revision) ? l.prochaine_revision : null,
   lien: l.lien,
+  parCoeur: l.par_coeur === true,
 });
 // Les colonnes « numeric » reviennent parfois en texte selon la couche : on les relit comme des nombres.
 const nombreOuNull = (v: number | string | null): number | null => (v === null ? null : Number(v));
@@ -198,13 +201,20 @@ export async function ajouterChapitres(coursId: string, lignes: { titre: string;
   echec(await sb.from('chapitres').insert(lignes.map((l, i) => ({ cours_id: coursId, titre: l.titre, duree_min: dureeValide(l.dureeMin), ordre: ordreDepart + i }))));
 }
 
-export async function modifierChapitre(id: string, champs: { titre?: string; dureeMin?: number; lien?: string | null }): Promise<void> {
+export async function modifierChapitre(id: string, champs: { titre?: string; dureeMin?: number; lien?: string | null; parCoeur?: boolean }): Promise<void> {
   const sb = await client();
   const l: Record<string, unknown> = {};
+  if (champs.parCoeur !== undefined) l.par_coeur = champs.parCoeur;
   if (champs.titre !== undefined) l.titre = champs.titre;
   if (champs.dureeMin !== undefined) l.duree_min = dureeValide(champs.dureeMin);
   if (champs.lien !== undefined) l.lien = champs.lien;
   echec(await sb.from('chapitres').update(l).eq('id', id));
+}
+
+/** Toutes les pages d'un cours à savoir mot pour mot (ou plus aucune) : un dialogue, un cours de formules. */
+export async function marquerParCoeurCours(coursId: string, parCoeur: boolean): Promise<void> {
+  const sb = await client();
+  echec(await sb.from('chapitres').update({ par_coeur: parCoeur }).eq('cours_id', coursId));
 }
 
 export async function supprimerChapitre(id: string): Promise<void> {
@@ -231,12 +241,13 @@ export interface OptionsNote {
 
 export async function noterChapitre(id: string, note: Note, jour: string, options: OptionsNote = {}): Promise<void> {
   const sb = await client();
-  const lu = await sb.from('chapitres').select('niveau, derniere_revision, prochaine_revision').eq('id', id).maybeSingle<{ niveau: number; derniere_revision: string | null; prochaine_revision: string | null }>();
+  // « * » : la colonne « mot pour mot » n'existe qu'après sa migration, et son absence ne doit pas empêcher de noter.
+  const lu = await sb.from('chapitres').select('*').eq('id', id).maybeSingle<{ niveau: number; derniere_revision: string | null; prochaine_revision: string | null; par_coeur?: boolean | null }>();
   echec(lu);
   if (!lu.data) throw new Error('Ce chapitre n’existe plus.');
   const avant = niveauValide(lu.data.niveau);
   const etat = { niveau: avant, derniere: lu.data.derniere_revision, prochaine: lu.data.prochaine_revision };
-  const apres = (options.anticipe ? apresRappelAnticipe : apresRevision)(etat, note, jour);
+  const apres = (options.anticipe ? apresRappelAnticipe : apresRevision)(etat, note, jour, lu.data.par_coeur === true);
   const r = await sb
     .from('chapitres')
     .update({ niveau: apres.niveau, derniere_revision: apres.derniere, prochaine_revision: apres.prochaine })
@@ -416,7 +427,7 @@ export function lireCacheCours(userId: string): DonneesCours | null {
     // Un cache écrit avant l'emploi du temps n'a ni mots de cours ni adresse du flux : on les complète.
     return {
       cours: d.cours.map((c) => ({ ...c, motifs: typeof c.motifs === 'string' ? c.motifs : '', enPause: c.enPause === true })),
-      chapitres: d.chapitres,
+      chapitres: d.chapitres.map((c) => ({ ...c, parCoeur: c.parCoeur === true })),
       notes: d.notes,
       disponibilites: disponibilitesValides(d.disponibilites),
       agendaLien: lienValide(typeof d.agendaLien === 'string' ? d.agendaLien : ''),

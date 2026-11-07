@@ -3,6 +3,7 @@ import { momentDuCiel, type Ciel, type Moment } from '../core/ciel.ts';
 import { melanger } from '../core/couleur.ts';
 import type { Saison } from '../core/saison.ts';
 import { APPARENCE_DEFAUT, type Apparence, type Construction } from '../core/types.ts';
+import { aleatoire, graine, longueurTour, tracerTour } from '../core/promenade.ts';
 import { FEU, population, tailleTerrain } from '../core/village.ts';
 import { DX, DY, Dessin, Feu, LumiereContexte, SaisonContexte, ecran, lumierePour, pts, type Lumiere } from './village/dessins.tsx';
 import { Compagnon, Personnage } from './village/personnage.tsx';
@@ -239,10 +240,17 @@ function Firmament({ ciel, largeur, horizon }: { ciel: Ciel; largeur: number; ho
 }
 
 interface Promeneur {
-  maison: { x: number; y: number };
+  /** Le tour à l'écran : la maison, quelques arrêts au hasard, la maison. */
+  chemin: string;
   couleur: string;
   duree: number;
+  /** Où en est l'habitant au premier affichage : ils ne partent pas tous ensemble. */
+  decalage: number;
 }
+
+/** Allure de marche, en pixels d'écran par seconde : un peu différente d'un habitant à l'autre. */
+const ALLURE_MIN = 9;
+const ALLURE_MAX = 14;
 
 const TENUES = ['#d1553d', '#3d6fd1', '#7a4fc4', '#2f9e7a', '#d19a3d', '#c43d7a'];
 
@@ -296,11 +304,27 @@ export const Village = memo(function Village({ niveau, constructions, actif, cie
 
   const foyers = constructions.filter((c) => !DECOR.has(c.batiment));
   const habitants = Math.min(6, population(constructions) - 1);
-  const promeneurs: Promeneur[] = [];
-  for (let i = 0; i < habitants && foyers.length > 0; i++) {
-    const m = foyers[i % foyers.length];
-    promeneurs.push({ maison: { x: m.x, y: m.y }, couleur: TENUES[i % TENUES.length], duree: 13 + ((i * 7) % 9) });
-  }
+  // Chaque habitant a son propre tour, tiré d'une graine : le même à chaque dessin (survol, zoom…), donc sans saccade,
+  // et différent d'un habitant à l'autre. Il ne change que si le village change.
+  const promeneurs = useMemo((): Promeneur[] => {
+    const prises = new Set(constructions.map((c) => `${c.x},${c.y}`));
+    prises.add(`${FEU.x},${FEU.y}`);
+    const maisons = constructions.filter((c) => !DECOR.has(c.batiment));
+    const liste: Promeneur[] = [];
+    for (let i = 0; i < habitants && maisons.length > 0; i++) {
+      const m = maisons[i % maisons.length];
+      const tour = tracerTour({ graine: graine(i, m.x, m.y, t), maison: { x: m.x, y: m.y }, voisins: maisons.filter((v) => v !== m).map((v) => ({ x: v.x, y: v.y })), feu: FEU, taille: t, occupees: prises });
+      // La maison se quitte par la porte (un peu plus bas que le centre de la case) ; les arrêts sont au milieu des cases.
+      const points = tour.map((c, k) => {
+        const { sx, sy } = ecran(c.x, c.y);
+        return { x: sx, y: sy + (k === 0 || k === tour.length - 1 ? 10 : 6) };
+      });
+      const hasard = aleatoire(graine(i, m.x, m.y, 7));
+      const duree = Math.max(12, longueurTour(points) / (ALLURE_MIN + hasard() * (ALLURE_MAX - ALLURE_MIN)));
+      liste.push({ chemin: points.map((p, k) => `${k === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' '), couleur: TENUES[i % TENUES.length], duree, decalage: -hasard() * duree });
+    }
+    return liste;
+  }, [constructions, habitants, t]);
 
   const largeur = t * DX * 2 + 48;
   const hauteur = t * DY * 2 + 150;
@@ -434,14 +458,12 @@ export const Village = memo(function Village({ niveau, constructions, actif, cie
               </g>
             )}
 
-            {/* Les habitants vont et viennent entre leur maison et le feu ; la nuit, ils dorment. */}
+            {/* Les habitants se promènent chacun de leur côté, au hasard, puis rentrent chez eux ; la nuit, ils dorment. */}
             {!nuit &&
               promeneurs.map((m, i) => {
-                const maison = ecran(m.maison.x, m.maison.y);
-                const arrivee = { x: feu.sx + 14 - (i % 3) * 10, y: feu.sy + 8 };
                 return (
                   <g key={i} style={{ pointerEvents: 'none' }}>
-                    <animateMotion dur={`${m.duree}s`} repeatCount="indefinite" path={`M ${maison.sx} ${maison.sy + 10} L ${arrivee.x} ${arrivee.y} L ${maison.sx} ${maison.sy + 10}`} begin={`${-i * 2.3}s`} />
+                    <animateMotion dur={`${m.duree.toFixed(1)}s`} repeatCount="indefinite" path={m.chemin} begin={`${m.decalage.toFixed(1)}s`} />
                     <ellipse cx={0} cy={1} rx={3.5} ry={1.4} fill="rgba(0,0,0,.2)" />
                     <rect x={-2.5} y={-8} width={5} height={8} rx={2} fill={p(m.couleur)} />
                     <circle cx={0} cy={-10.5} r={2.8} fill={p('#f2c9a0')} />

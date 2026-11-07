@@ -5,6 +5,7 @@
 // c'est aussi l'entrelacement), prise parmi les révisions déjà au calendrier. Les autres se notent d'un geste.
 import { RAPPEL_DEFAUT, RAPPEL_MAX, type Chapitre, type Cours } from './cours.ts';
 import { ecartJours } from './jours.ts';
+import { etapeDe } from './pages.ts';
 import { SEUIL_COURS, type Seance } from './planning.ts';
 
 /** Une page se rappelle en quelques minutes : de quoi tenir « 3 pages en 5 minutes » les jours chargés. */
@@ -20,6 +21,11 @@ export interface ItemRappel {
   fragile: boolean;
   /** Dernier passage avant le partiel. */
   consolidation: boolean;
+  /**
+   * Premier retour d'une page (ou page « mot pour mot » encore en apprentissage) : c'est là qu'on l'apprend, en se
+   * forçant à la redire par écrit. Ces pages-là ne sont pas laissées à la dose du jour : elles y passent toutes.
+   */
+  obligatoire: boolean;
   retard: number;
   minutes: number;
   raison: string;
@@ -67,12 +73,13 @@ export function construireRappel(e: EntreeRappel): Rappel {
   const niveauDe = (id: string) => pages.get(id)?.niveau ?? 0;
   const dose = Number.isFinite(e.max) ? Math.max(0, Math.min(RAPPEL_MAX, Math.floor(e.max))) : 0;
   const max = Math.max(0, dose - (Number.isFinite(e.dejaFaits) ? Math.max(0, Math.floor(e.dejaFaits)) : 0));
-  if (max === 0) return { items: [], restantes: [...e.seances], minutes: 0 };
+  // Dose à zéro : le rappel est coupé (ou le journal manque), les blocs prennent tout — et exigent eux aussi l'écrit.
+  if (dose === 0) return { items: [], restantes: [...e.seances], minutes: 0 };
 
   // 1. Les révisions du jour : les pages fragiles d'abord, puis le dernier passage, puis le plus en retard, puis le moins su.
   const dues: ItemRappel[] = e.seances
     .filter((s) => s.type === 'revision' || s.type === 'consolidation')
-    .map((s) => ({ coursId: s.coursId, chapitreId: s.chapitreId, bonus: false, fragile: e.fragiles.has(s.chapitreId), consolidation: s.type === 'consolidation', retard: s.retard, minutes: s.minutes, raison: s.raison }));
+    .map((s) => ({ coursId: s.coursId, chapitreId: s.chapitreId, bonus: false, fragile: e.fragiles.has(s.chapitreId), consolidation: s.type === 'consolidation', obligatoire: etapeDe(s.type, s.niveau, s.parCoeur) === 'apprendre', retard: s.retard, minutes: s.minutes, raison: s.raison }));
   const plusUrgent = (a: ItemRappel, b: ItemRappel) =>
     Number(b.fragile) - Number(a.fragile) ||
     Number(b.consolidation) - Number(a.consolidation) ||
@@ -82,9 +89,15 @@ export function construireRappel(e: EntreeRappel): Rappel {
     ordreDe(a.chapitreId) - ordreDe(b.chapitreId) ||
     a.chapitreId.localeCompare(b.chapitreId);
   dues.sort(plusUrgent);
-  const parCours = new Map<string, ItemRappel[]>();
-  for (const it of dues) parCours.set(it.coursId, [...(parCours.get(it.coursId) ?? []), it]);
-  const items = entrelacer(parCours, max, 0);
+  const enFiles = (liste: readonly ItemRappel[]) => {
+    const parCours = new Map<string, ItemRappel[]>();
+    for (const it of liste) parCours.set(it.coursId, [...(parCours.get(it.coursId) ?? []), it]);
+    return parCours;
+  };
+  // Les pages à apprendre passent toutes (cours mélangés) ; la dose du jour ne sert qu'à compléter. En finir une
+  // en laisse une de moins à apprendre et une de plus de faite : le total ne bouge pas (pas de tapis roulant).
+  const items = entrelacer(enFiles(dues.filter((i) => i.obligatoire)), Number.POSITIVE_INFINITY, 0);
+  items.push(...entrelacer(enFiles(dues.filter((i) => !i.obligatoire)), Math.max(0, max - items.length), 0));
 
   // 2. Un jour chargé en cours : s'il reste de la place (`entrelacer` s'arrête au nombre voulu), des pages fragiles
   // qui ne sont pas dues — mieux que rien.
@@ -94,10 +107,8 @@ export function construireRappel(e: EntreeRappel): Rappel {
     const bonus = e.chapitres
       .filter((c) => e.fragiles.has(c.id) && c.niveau >= 1 && c.derniere !== e.aujourdhui && !dejaLa.has(c.id) && actifs.has(c.coursId))
       .sort((a, b) => a.niveau - b.niveau || (a.derniere ?? '').localeCompare(b.derniere ?? '') || (ordreCours.get(a.coursId) ?? 0) - (ordreCours.get(b.coursId) ?? 0) || a.ordre - b.ordre || a.id.localeCompare(b.id))
-      .map((c): ItemRappel => ({ coursId: c.coursId, chapitreId: c.id, bonus: true, fragile: true, consolidation: false, retard: 0, minutes: BONUS_MINUTES, raison: 'Micro-révision d’une page fragile' }));
-    const filesBonus = new Map<string, ItemRappel[]>();
-    for (const it of bonus) filesBonus.set(it.coursId, [...(filesBonus.get(it.coursId) ?? []), it]);
-    items.push(...entrelacer(filesBonus, max, items.length));
+      .map((c): ItemRappel => ({ coursId: c.coursId, chapitreId: c.id, bonus: true, fragile: true, consolidation: false, obligatoire: false, retard: 0, minutes: BONUS_MINUTES, raison: 'Micro-révision d’une page fragile' }));
+    items.push(...entrelacer(enFiles(bonus), max, items.length));
   }
 
   const pris = new Set(items.map((i) => i.chapitreId));

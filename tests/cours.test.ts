@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DISPONIBILITES_DEFAUT, DUREE_DEFAUT_MIN, REDUCTION_DEFAUT, REDUCTION_MAX, RELECTURE_MAX, VITESSE_MAX, VITESSE_MIN, disponibilitesValides, dureeValide, joursAvantPartiel, lienValide, lignesVersChapitres, maitriseCours, type Chapitre } from '../src/core/cours.ts';
 
-const ch = (niveau: number): Chapitre => ({ id: String(niveau), coursId: 'c', titre: 't', ordre: 0, dureeMin: 20, niveau, derniere: null, prochaine: null, lien: null });
+const ch = (niveau: number): Chapitre => ({ id: String(niveau), coursId: 'c', titre: 't', ordre: 0, dureeMin: 20, niveau, derniere: null, prochaine: null, lien: null, parCoeur: false });
 
 test('liste de chapitres collée : une ligne, un chapitre', () => {
   const r = lignesVersChapitres('Fiche 1 · Bases\n\nFiche 2 · SAS\r\n  Fiche 3  \n');

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ECART_JOURS, ETAT_INITIAL, NIVEAU_MAX, apresDecouverte, apresRappelAnticipe, apresRevision, maitrise, niveauValide, statut, type EtatRevision } from '../src/core/revision.ts';
+import { ECART_JOURS, ECART_JOURS_PAR_COEUR, ETAT_INITIAL, ecartsPour, NIVEAU_MAX, apresDecouverte, apresRappelAnticipe, apresRevision, maitrise, niveauValide, statut, type EtatRevision } from '../src/core/revision.ts';
 
 const J = '2026-11-05';
 const a = (niveau: number): EtatRevision => ({ niveau, derniere: '2026-11-01', prochaine: '2026-11-04' });
@@ -86,4 +86,33 @@ test('un rappel anticipé ne modifie pas l’état reçu', () => {
   const etat = Object.freeze({ niveau: 3, derniere: '2026-11-01', prochaine: '2026-11-12' });
   assert.doesNotThrow(() => apresRappelAnticipe(etat, 'bien', '2026-11-07'));
   assert.doesNotThrow(() => apresRappelAnticipe(etat, 'a-revoir', '2026-11-07'));
+});
+
+test('l’échelle « mot pour mot » : plus serrée à chaque cran, toujours croissante, même premier retour', () => {
+  assert.deepEqual([...ECART_JOURS_PAR_COEUR], [0, 1, 2, 4, 7, 14, 30]);
+  assert.equal(ECART_JOURS_PAR_COEUR.length, NIVEAU_MAX + 1);
+  for (let i = 2; i <= NIVEAU_MAX; i++) {
+    assert.ok(ECART_JOURS_PAR_COEUR[i] > ECART_JOURS_PAR_COEUR[i - 1], `écart ${i} croissant`);
+    assert.ok(ECART_JOURS_PAR_COEUR[i] < ECART_JOURS[i], `écart ${i} plus court que l’échelle ordinaire`);
+  }
+  assert.equal(ECART_JOURS_PAR_COEUR[1], ECART_JOURS[1], 'le premier retour reste demain');
+  assert.equal(ecartsPour(true), ECART_JOURS_PAR_COEUR);
+  assert.equal(ecartsPour(false), ECART_JOURS);
+});
+
+test('une page à savoir mot pour mot revient plus tôt après une bonne note, sans changer de cran', () => {
+  const etat = { niveau: 2, derniere: '2026-11-01', prochaine: '2026-11-05' };
+  assert.deepEqual(apresRevision(etat, 'bien', J), { niveau: 3, derniere: J, prochaine: '2026-11-12' }, 'ordinaire : 7 jours');
+  assert.deepEqual(apresRevision(etat, 'bien', J, true), { niveau: 3, derniere: J, prochaine: '2026-11-09' }, 'mot pour mot : 4 jours');
+  assert.deepEqual(apresRevision(etat, 'facile', J, true), { niveau: 4, derniere: J, prochaine: '2026-11-12' }, 'facile : cran 4, 7 jours');
+  assert.deepEqual(apresRevision(etat, 'difficile', J, true), { niveau: 2, derniere: J, prochaine: '2026-11-06' }, 'difficile : moitié de 2 jours');
+  assert.deepEqual(apresRevision(etat, 'a-revoir', J, true), { niveau: 1, derniere: J, prochaine: '2026-11-06' }, 'à revoir : demain, comme les autres');
+  assert.deepEqual(apresRevision({ niveau: 6, derniere: '2026-11-01', prochaine: '2026-11-05' }, 'bien', J, true), { niveau: 6, derniere: J, prochaine: '2026-12-05' }, 'cran maximal : 30 jours');
+  assert.deepEqual(apresRevision({ niveau: 0, derniere: null, prochaine: null }, 'bien', J, true), apresDecouverte(J), 'première lecture : pareil');
+});
+
+test('un rappel anticipé suit la même échelle', () => {
+  const etat = { niveau: 3, derniere: '2026-11-01', prochaine: '2026-11-20' };
+  assert.deepEqual(apresRappelAnticipe(etat, 'difficile', J, true), { niveau: 3, derniere: J, prochaine: '2026-11-07' }, 'mot pour mot : moitié de 4 jours');
+  assert.deepEqual(apresRappelAnticipe(etat, 'difficile', J, false), { niveau: 3, derniere: J, prochaine: '2026-11-09' }, 'ordinaire : moitié de 7 jours (4)');
 });

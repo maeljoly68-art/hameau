@@ -4,7 +4,7 @@ import { COULEURS_COURS, lienValide, lignesVersChapitres, maitriseCours, type Ch
 import { estJour, jourCourt } from '../../core/jours.ts';
 import { numerosDePages } from '../../core/pages.ts';
 import { NIVEAU_MAX, NOTES, type Note } from '../../core/revision.ts';
-import { ajouterChapitres, ajouterNote, modifierChapitre, modifierCours, modifierNote, noterChapitre, remettreAZero, supprimerChapitre, supprimerCours, supprimerNote } from '../../data/cours.ts';
+import { ajouterChapitres, ajouterNote, marquerParCoeurCours, modifierChapitre, modifierCours, modifierNote, noterChapitre, remettreAZero, supprimerChapitre, supprimerCours, supprimerNote } from '../../data/cours.ts';
 import { IconeChevron, IconeCoche, IconeLien } from '../Icones.tsx';
 import { BlocAgendaCours } from './Creneaux.tsx';
 
@@ -165,6 +165,7 @@ function LigneChapitre({ chapitre, numero, cours, notes, aujourdhui, faire }: { 
           <strong>{chapitre.titre}</strong>
           <span className="aide">
             Page {numero} · {chapitre.dureeMin} min
+            {chapitre.parCoeur ? ' · mot pour mot' : ''}
             {chapitre.niveau === 0 ? ' · à découvrir' : chapitre.derniere ? ` · vu le ${jourCourt(chapitre.derniere)}` : ''}
             {chapitre.niveau > 0 && chapitre.prochaine && <span className={enRetard ? 'retard' : undefined}> · à revoir {enRetard ? 'maintenant' : `le ${jourCourt(chapitre.prochaine)}`}</span>}
           </span>
@@ -173,6 +174,14 @@ function LigneChapitre({ chapitre, numero, cours, notes, aujourdhui, faire }: { 
       <div className="chapitre-actions">
         <Notation niveau={chapitre.niveau} surNote={(n) => faire(() => noterChapitre(chapitre.id, n, aujourdhui), 'Noté.')} />
         <span className="chapitre-outils">
+          <button
+            className={chapitre.parCoeur ? 'lien actif' : 'lien'}
+            aria-pressed={chapitre.parCoeur}
+            title="À savoir mot pour mot (formule, définition, dialogue) : la page revient plus souvent et s’écrit de mémoire plus longtemps."
+            onClick={() => faire(() => modifierChapitre(chapitre.id, { parCoeur: !chapitre.parCoeur }), chapitre.parCoeur ? 'Page redevenue ordinaire.' : 'Page à savoir mot pour mot : elle reviendra plus souvent.')}
+          >
+            Mot pour mot
+          </button>
           <button className={ouvert === 'notes' ? 'lien actif' : 'lien'} onClick={() => setOuvert(ouvert === 'notes' ? null : 'notes')} aria-expanded={ouvert === 'notes'}>
             Notes{notes.length > 0 ? ` (${notes.length})` : ''}
           </button>
@@ -240,6 +249,20 @@ export function PageCours({ cours, chapitres, notes, aujourdhui, faire, creneaux
             {cours.enPause ? 'Remettre au calendrier' : 'Mettre en pause'}
           </button>
           <span className="aide petite">{cours.enPause ? 'En pause : ni séance, ni alerte, ni partiel affiché.' : 'En pause, un cours reste ici mais sort du calendrier.'}</span>
+        </div>
+        <div className="ligne-pause">
+          <button
+            className={chapitres.length > 0 && chapitres.every((c) => c.parCoeur) ? 'bouton petit' : 'bouton petit discret'}
+            aria-pressed={chapitres.length > 0 && chapitres.every((c) => c.parCoeur)}
+            disabled={chapitres.length === 0}
+            onClick={() => {
+              const tous = chapitres.every((c) => c.parCoeur);
+              faire(() => marquerParCoeurCours(cours.id, !tous), tous ? 'Pages redevenues ordinaires.' : 'Toutes les pages sont à savoir mot pour mot : elles reviendront plus souvent.');
+            }}
+          >
+            {chapitres.length > 0 && chapitres.every((c) => c.parCoeur) ? 'Tout le cours mot pour mot ✓' : 'Tout le cours mot pour mot'}
+          </button>
+          <span className="aide petite">Pour un cours à réciter (langue, formules, articles) : chaque page revient plus souvent et s’écrit de mémoire. Une page seule se règle dans la liste.</span>
         </div>
         <div className="deux">
           <label>

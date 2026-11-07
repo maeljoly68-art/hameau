@@ -16,10 +16,13 @@ const teinte = (c: string) => ({ '--teinte': c }) as CSSProperties;
 function PageDuRappel({ item, cours, chapitre, numero, aujourdhui, faire }: { item: ItemRappel; cours: Cours; chapitre: Chapitre; numero: number; aujourdhui: string; faire: Faire }) {
   const [texte, setTexte] = useState('');
   const [compare, setCompare] = useState(false);
+  const [surPapier, setSurPapier] = useState(false);
+  // Une page à apprendre ne se note pas sans avoir été écrite de mémoire (ici ou sur papier) : sinon la note dirait « reconnu », pas « su ».
+  const peutComparer = !item.obligatoire || texte.trim() !== '' || surPapier;
   const lien = chapitre.lien ?? cours.lien;
   // Une page pas encore due (micro-révision) : réussi, le rappel ne fait pas monter son cran ; raté, il compte.
   const noter = (note: Note, pct: number | null) => faire(() => noterChapitre(chapitre.id, note, aujourdhui, { sorte: 'rappel', anticipe: item.bonus, rappel: texte, scorePct: pct }), item.bonus ? 'Noté : une page fragile de plus travaillée.' : 'Noté : le calendrier est recalculé.');
-  const sorte = item.bonus ? 'Micro-révision' : item.consolidation ? 'Dernier passage' : 'Révision';
+  const sorte = item.bonus ? 'Micro-révision' : item.consolidation ? 'Dernier passage' : item.obligatoire ? (chapitre.parCoeur ? 'Apprendre par cœur · mot pour mot' : 'Apprendre par cœur') : chapitre.parCoeur ? 'Réviser · mot pour mot' : 'Réviser';
   return (
     <li className="rappel-page" style={teinte(cours.couleur)}>
       <div className="seance-corps">
@@ -33,8 +36,13 @@ function PageDuRappel({ item, cours, chapitre, numero, aujourdhui, faire }: { it
       </div>
       {!compare ? (
         <div className="rappel-saisie">
-          <textarea rows={2} value={texte} onChange={(e) => setTexte(e.target.value)} placeholder="Sans regarder la fiche : écris l’essentiel de tête (facultatif)" aria-label={`Ce dont tu te souviens de ${chapitre.titre}`} />
-          <button className="bouton petit" onClick={() => setCompare(true)}>
+          <textarea rows={2} value={texte} onChange={(e) => setTexte(e.target.value)} placeholder={item.obligatoire ? 'Écris de mémoire (ou sur papier, puis coche ci-dessous)' : 'Sans regarder la fiche : écris l’essentiel de tête (facultatif)'} aria-label={`Ce dont tu te souviens de ${chapitre.titre}`} />
+          {item.obligatoire && (
+            <label className="case-papier">
+              <input type="checkbox" checked={surPapier} onChange={(e) => setSurPapier(e.target.checked)} /> Je l’ai écrit sur papier
+            </label>
+          )}
+          <button className="bouton petit" disabled={!peutComparer} onClick={() => setCompare(true)}>
             Comparer avec la fiche
           </button>
         </div>
@@ -64,7 +72,7 @@ export function RappelDuJour({ rappel, donnees, aujourdhui, faire }: { rappel: R
         <h3 className="sous-titre">Rappel du jour</h3>
         <span className="pastille">≈ {formatDuree(arrondi5(rappel.minutes))}</span>
       </div>
-      <p className="aide petite">Se rappeler sans regarder dit si tu sais ; relire donne seulement l’impression de savoir. Quelques pages, de cours mélangés : écris de tête, ouvre la fiche pour comparer, puis note-toi.</p>
+      <p className="aide petite">Se rappeler sans regarder dit si tu sais ; relire donne seulement l’impression de savoir. Écris de tête, ouvre la fiche pour comparer, puis note-toi. Les pages à apprendre par cœur (premier retour) y passent toutes, et s’écrivent obligatoirement.</p>
       <ul className="seances">
         {rappel.items.map((item) => {
           const chapitre = donnees.chapitres.find((c) => c.id === item.chapitreId);

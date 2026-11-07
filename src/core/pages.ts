@@ -45,10 +45,39 @@ export const sansCoupure = (texte: string): string => texte.replace(/(\d) (j|min
 /** Une durée annoncée à 5 minutes près : « ≈ 55 min » ne promet pas la minute. */
 export const arrondi5 = (minutes: number): number => Math.max(5, Math.round(minutes / 5) * 5);
 
+/**
+ * Les trois temps d'une page : LIRE (jour 0, comprendre), APPRENDRE PAR CŒUR (le premier retour, le lendemain :
+ * c'est là qu'on se force à se redire la page, par écrit) puis RÉVISER (les retours suivants). Un retour est le
+ * premier tant que la page n'a jamais réussi un rappel (cran 1) ; une page « mot pour mot » reste en apprentissage
+ * un retour de plus (cran 2), puisque son cycle est resserré et qu'il lui faut plus de rappels.
+ */
+export type Etape = 'lire' | 'apprendre' | 'reviser' | 'dernier' | 'relire' | 'examen';
+
+export function etapeDe(type: TypeSeance, niveau: number, parCoeur: boolean): Etape {
+  if (type === 'decouverte') return 'lire';
+  if (type === 'relecture') return 'relire';
+  if (type === 'examen') return 'examen';
+  if (type === 'consolidation') return 'dernier';
+  return niveau <= (parCoeur ? 2 : 1) ? 'apprendre' : 'reviser';
+}
+
+export const LIBELLE_ETAPE: Record<Etape, string> = {
+  lire: 'Lire',
+  apprendre: 'Apprendre par cœur',
+  reviser: 'Réviser',
+  dernier: 'Dernier passage',
+  relire: 'Relecture',
+  examen: 'Examen blanc',
+};
+
 export interface Bloc {
   jour: string;
   coursId: string;
   type: TypeSeance;
+  /** Lire, apprendre par cœur ou réviser : deux étapes d'un même cours ne se valident pas ensemble. */
+  etape: Etape;
+  /** Au moins une page du bloc est à savoir mot pour mot. */
+  parCoeur: boolean;
   /** Les chapitres du bloc, dans l'ordre des pages. */
   chapitreIds: string[];
   pages: number[];
@@ -72,7 +101,7 @@ export function regrouper(seances: readonly Seance[], chapitres: readonly Chapit
   const numeros = numerosDePages(chapitres);
   const blocs = new Map<string, Seance[]>();
   for (const s of seances) {
-    const cle = `${s.coursId}|${s.type}`;
+    const cle = `${s.coursId}|${etapeDe(s.type, s.niveau, s.parCoeur)}`;
     blocs.set(cle, [...(blocs.get(cle) ?? []), s]);
   }
   return [...blocs.values()].map((liste) => {
@@ -88,6 +117,8 @@ export function regrouper(seances: readonly Seance[], chapitres: readonly Chapit
       jour: premiere.jour,
       coursId: premiere.coursId,
       type: premiere.type,
+      etape: etapeDe(premiere.type, premiere.niveau, premiere.parCoeur),
+      parCoeur: triees.some((s) => s.parCoeur),
       chapitreIds: triees.map((s) => s.chapitreId),
       pages: triees.map((s) => numeros.get(s.chapitreId) ?? 0),
       termines: triees.filter((s) => s.complete).map((s) => s.chapitreId),

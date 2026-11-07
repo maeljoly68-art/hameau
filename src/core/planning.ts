@@ -7,7 +7,7 @@
 import type { Chapitre, Cours, Disponibilites } from './cours.ts';
 import { MINUTES_JOUR_MAX, REDUCTION_DEFAUT, REDUCTION_MAX, RELECTURE_MAX, vitesseValide } from './cours.ts';
 import { ajouterJours, ecartJours, estJour, jourSemaine } from './jours.ts';
-import { ECART_JOURS, NIVEAU_MAX, niveauValide } from './revision.ts';
+import { NIVEAU_MAX, ecartsPour, niveauValide } from './revision.ts';
 
 /**
  * `relecture` : un passage sans note sur un chapitre déjà vu des cours les plus proches de leur partiel, les jours
@@ -35,6 +35,10 @@ export interface Seance {
   retard: number;
   /** La page est fragile (plusieurs notes basses de suite) : le calendrier la revoit en priorité. */
   fragile: boolean;
+  /** Le cran de la page AVANT cette séance (0 : jamais lue). Une révision au cran 1 est le premier retour : « apprendre par cœur ». */
+  niveau: number;
+  /** La page est à savoir mot pour mot : son cycle est resserré et ses révisions passent par un rappel de tête. */
+  parCoeur: boolean;
 }
 
 export type Alerte =
@@ -141,6 +145,8 @@ interface Suivi {
   dernierFait: boolean;
   /** Dernier jour où on l'a travaillé : jamais deux séances le même jour. */
   vuLe: string | null;
+  /** Son échelle de révision : l'ordinaire, ou la resserrée (mot pour mot). */
+  parCoeur: boolean;
 }
 
 export function planifier(entree: EntreePlan): Plan {
@@ -200,6 +206,7 @@ export function planifier(entree: EntreePlan): Plan {
           // Déjà passé en revue dans la fenêtre finale, pour de vrai : pas besoin de le refaire.
           dernierFait: debutFenetre !== null && niveau >= 1 && ch.derniere !== null && estJour(ch.derniere) && ecartJours(debutFenetre, ch.derniere) >= 0,
           vuLe: ch.derniere !== null && estJour(ch.derniere) ? ch.derniere : null,
+          parCoeur: ch.parCoeur === true,
         };
       });
     parCours.set(c.id, suivis);
@@ -361,10 +368,10 @@ export function planifier(entree: EntreePlan): Plan {
     const examen = examensDuJour.get(jour);
     if (examen) {
       const minutes = Math.min(examen.minutes, reste);
-      seances.push({ jour, coursId: examen.cours.id, chapitreId: examen.page.id, type: 'examen', minutes, raison: `Examen blanc · partiel dans ${ecartJours(jour, examen.cours.partiel!)} j`, suite: false, complete: true, retard: 0, fragile: false });
+      const suiviExamen = parCours.get(examen.cours.id)!.find((x) => x.ch.id === examen.page.id);
+      seances.push({ jour, coursId: examen.cours.id, chapitreId: examen.page.id, type: 'examen', minutes, raison: `Examen blanc · partiel dans ${ecartJours(jour, examen.cours.partiel!)} j`, suite: false, complete: true, retard: 0, fragile: false, niveau: suiviExamen?.niveau ?? 0, parCoeur: suiviExamen?.parCoeur ?? false });
       reste -= minutes;
-      const suivi = parCours.get(examen.cours.id)!.find((x) => x.ch.id === examen.page.id);
-      if (suivi) suivi.vuLe = jour;
+      if (suiviExamen) suiviExamen.vuLe = jour;
     }
     // Les jours de cours, un bloc de relecture passe AVANT toute lecture neuve. Ce qu'il ne remplit pas
     // (rien à relire encore) retourne à la journée : le bloc est réservé, pas perdu. Une fois la journée
@@ -374,7 +381,7 @@ export function planifier(entree: EntreePlan): Plan {
       for (const { s, c, avant } of aRelire(jour)) {
         const minutes = Math.min(dureeRevision(s.ch, vitesse), budget);
         if (minutes < CRENEAU_MIN) break;
-        seances.push({ jour, coursId: c.id, chapitreId: s.ch.id, type: 'relecture', minutes, raison: avant === null ? 'Relecture' : `Relecture avant le partiel (dans ${avant} j)`, suite: false, complete: true, retard: 0, fragile: fragiles.has(s.ch.id) });
+        seances.push({ jour, coursId: c.id, chapitreId: s.ch.id, type: 'relecture', minutes, raison: avant === null ? 'Relecture' : `Relecture avant le partiel (dans ${avant} j)`, suite: false, complete: true, retard: 0, fragile: fragiles.has(s.ch.id), niveau: s.niveau, parCoeur: s.parCoeur });
         s.vuLe = jour;
         reste -= minutes;
         budget -= minutes;
@@ -391,7 +398,7 @@ export function planifier(entree: EntreePlan): Plan {
       if (type === 'decouverte') raison = dejaCommence ? 'Suite de la lecture' : avant === null ? 'À découvrir' : `À découvrir avant le partiel (dans ${avant} j)`;
       else if (type === 'consolidation') raison = 'Dernier passage avant le partiel';
       else raison = retard > 0 ? `En retard de ${retard} j` : `Révision espacée (niveau ${s.niveau})`;
-      seances.push({ jour, coursId: c.id, chapitreId: s.ch.id, type, minutes, raison, suite: type === 'decouverte' && dejaCommence, complete: type !== 'decouverte' || minutes >= s.restant, retard, fragile: fragiles.has(s.ch.id) });
+      seances.push({ jour, coursId: c.id, chapitreId: s.ch.id, type, minutes, raison, suite: type === 'decouverte' && dejaCommence, complete: type !== 'decouverte' || minutes >= s.restant, retard, fragile: fragiles.has(s.ch.id), niveau: s.niveau, parCoeur: s.parCoeur });
       reste -= minutes;
       s.vuLe = jour;
       if (type === 'decouverte') {
@@ -399,12 +406,12 @@ export function planifier(entree: EntreePlan): Plan {
         if (s.restant <= 0) {
           s.restant = 0;
           s.niveau = 1;
-          s.prochaine = ajouterJours(jour, ECART_JOURS[1]);
+          s.prochaine = ajouterJours(jour, ecartsPour(s.parCoeur)[1]);
         }
       } else {
         // La note à venir est inconnue : on suppose « bien », le cas médian.
         s.niveau = Math.min(NIVEAU_MAX, s.niveau + 1);
-        s.prochaine = ajouterJours(jour, ECART_JOURS[s.niveau]);
+        s.prochaine = ajouterJours(jour, ecartsPour(s.parCoeur)[s.niveau]);
         if (avant !== null && avant <= FENETRE_FINALE) s.dernierFait = true;
       }
     }

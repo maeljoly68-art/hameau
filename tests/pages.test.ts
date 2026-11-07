@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Chapitre } from '../src/core/cours.ts';
-import { arrondi5, libellePages, numerosDePages, regrouper, sansCoupure } from '../src/core/pages.ts';
+import { LIBELLE_ETAPE, arrondi5, etapeDe, libellePages, numerosDePages, regrouper, sansCoupure } from '../src/core/pages.ts';
 import type { Seance } from '../src/core/planning.ts';
 
-const chap = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}-${ordre}`, coursId, titre: `Ch ${ordre}`, ordre, dureeMin: 30, niveau: 0, derniere: null, prochaine: null, lien: null, ...extra });
-const sea = (coursId: string, ordre: number, extra: Partial<Seance> = {}): Seance => ({ jour: '2026-11-05', coursId, chapitreId: `${coursId}-${ordre}`, type: 'decouverte', minutes: 30, raison: 'À découvrir', suite: false, complete: true, retard: 0, fragile: false, ...extra });
+const chap = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}-${ordre}`, coursId, titre: `Ch ${ordre}`, ordre, dureeMin: 30, niveau: 0, derniere: null, prochaine: null, lien: null, parCoeur: false, ...extra });
+const sea = (coursId: string, ordre: number, extra: Partial<Seance> = {}): Seance => ({ jour: '2026-11-05', coursId, chapitreId: `${coursId}-${ordre}`, type: 'decouverte', minutes: 30, raison: 'À découvrir', suite: false, complete: true, retard: 0, fragile: false, niveau: 2, parCoeur: false, ...extra });
 
 test('le numéro d’une page est son rang dans le cours, en partant de 1, quel que soit l’ordre reçu', () => {
   const n = numerosDePages([chap('B', 5), chap('A', 7), chap('A', 2), chap('B', 1), chap('A', 4)]);
@@ -128,4 +128,45 @@ test('un bloc est fragile dès qu’une de ses pages l’est', () => {
   assert.equal(regrouper([sea('A', 0), sea('A', 1), sea('A', 2)], chapitres)[0].fragile, false);
   assert.equal(regrouper([sea('A', 0), sea('A', 1, { fragile: true }), sea('A', 2)], chapitres)[0].fragile, true);
   assert.equal(regrouper([sea('A', 0, { fragile: true })], chapitres)[0].fragile, true);
+});
+
+test('étapes : lire (jour 0), apprendre par cœur (premier retour), réviser (retours suivants)', () => {
+  assert.equal(etapeDe('decouverte', 0, false), 'lire');
+  assert.equal(etapeDe('revision', 1, false), 'apprendre');
+  assert.equal(etapeDe('revision', 2, false), 'reviser');
+  assert.equal(etapeDe('revision', 6, false), 'reviser');
+  assert.equal(etapeDe('consolidation', 1, false), 'dernier');
+  assert.equal(etapeDe('relecture', 1, false), 'relire');
+  assert.equal(etapeDe('examen', 4, false), 'examen');
+});
+
+test('étapes : une page mot pour mot reste en apprentissage un retour de plus (cran 2)', () => {
+  assert.equal(etapeDe('revision', 1, true), 'apprendre');
+  assert.equal(etapeDe('revision', 2, true), 'apprendre');
+  assert.equal(etapeDe('revision', 3, true), 'reviser');
+});
+
+test('étapes : les libellés sont ceux que l’on voit', () => {
+  assert.deepEqual([LIBELLE_ETAPE.lire, LIBELLE_ETAPE.apprendre, LIBELLE_ETAPE.reviser], ['Lire', 'Apprendre par cœur', 'Réviser']);
+});
+
+test('regrouper : le premier retour et les retours suivants d’un même cours font deux blocs', () => {
+  const chapitres = [chap('A', 0), chap('A', 1), chap('A', 2)];
+  const blocs = regrouper(
+    [sea('A', 0, { type: 'revision', niveau: 1 }), sea('A', 1, { type: 'revision', niveau: 3 }), sea('A', 2, { type: 'revision', niveau: 4 })],
+    chapitres,
+  );
+  assert.equal(blocs.length, 2);
+  const apprendre = blocs.find((b) => b.etape === 'apprendre');
+  const reviser = blocs.find((b) => b.etape === 'reviser');
+  assert.deepEqual(apprendre?.chapitreIds, ['A-0']);
+  assert.deepEqual(reviser?.chapitreIds, ['A-1', 'A-2']);
+});
+
+test('regrouper : un bloc sait si une de ses pages est à savoir mot pour mot', () => {
+  const chapitres = [chap('A', 0), chap('A', 1)];
+  const [bloc] = regrouper([sea('A', 0, { type: 'revision', niveau: 1 }), sea('A', 1, { type: 'revision', niveau: 1, parCoeur: true })], chapitres);
+  assert.equal(bloc.parCoeur, true);
+  const [ordinaire] = regrouper([sea('A', 0, { type: 'revision', niveau: 1 })], chapitres);
+  assert.equal(ordinaire.parCoeur, false);
 });

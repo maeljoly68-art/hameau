@@ -6,8 +6,8 @@ import { BONUS_MINUTES, RAPPEL_DEFAUT, RAPPEL_MAX, construireRappel, type Entree
 
 const AUJ = '2026-11-20';
 const cours = (id: string, ordre: number, extra: Partial<Cours> = {}): Cours => ({ id, titre: id, couleur: '#888', partiel: '2026-12-20', lien: null, ordre, motifs: '', enPause: false, ...extra });
-const page = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}${ordre}`, coursId, titre: `P${ordre}`, ordre, dureeMin: 20, niveau: 2, derniere: '2026-11-10', prochaine: AUJ, lien: null, ...extra });
-const sea = (coursId: string, ordre: number, type: TypeSeance = 'revision', extra: Partial<Seance> = {}): Seance => ({ jour: AUJ, coursId, chapitreId: `${coursId}${ordre}`, type, minutes: 10, raison: 'Révision espacée', suite: false, complete: true, retard: 0, fragile: false, ...extra });
+const page = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}${ordre}`, coursId, titre: `P${ordre}`, ordre, dureeMin: 20, niveau: 2, derniere: '2026-11-10', prochaine: AUJ, lien: null, parCoeur: false, ...extra });
+const sea = (coursId: string, ordre: number, type: TypeSeance = 'revision', extra: Partial<Seance> = {}): Seance => ({ jour: AUJ, coursId, chapitreId: `${coursId}${ordre}`, type, minutes: 10, raison: 'Révision espacée', suite: false, complete: true, retard: 0, fragile: false, niveau: 2, parCoeur: false, ...extra });
 const COURS = [cours('A', 0), cours('B', 1), cours('C', 2)];
 const rappel = (seances: Seance[], chapitres: Chapitre[], extra: Partial<EntreeRappel> = {}) => construireRappel({ seances, chapitres, cours: COURS, fragiles: new Set(), aujourdhui: AUJ, max: 3, dejaFaits: 0, chargeJour: 0, ...extra });
 const ids = (r: { items: { chapitreId: string }[] }) => r.items.map((i) => i.chapitreId);
@@ -76,8 +76,8 @@ test('seules les révisions se rappellent : lecture, relecture et examen restent
 test('chaque page du rappel porte sa durée, son cours et sa raison ; le total est la somme', () => {
   const r = rappel([sea('A', 0, 'revision', { minutes: 15, raison: 'En retard de 2 j', retard: 2 }), sea('B', 0, 'revision', { minutes: 10 })], TOUT);
   assert.deepEqual(r.items, [
-    { coursId: 'A', chapitreId: 'A0', bonus: false, fragile: false, consolidation: false, retard: 2, minutes: 15, raison: 'En retard de 2 j' },
-    { coursId: 'B', chapitreId: 'B0', bonus: false, fragile: false, consolidation: false, retard: 0, minutes: 10, raison: 'Révision espacée' },
+    { coursId: 'A', chapitreId: 'A0', bonus: false, fragile: false, consolidation: false, obligatoire: false, retard: 2, minutes: 15, raison: 'En retard de 2 j' },
+    { coursId: 'B', chapitreId: 'B0', bonus: false, fragile: false, consolidation: false, obligatoire: false, retard: 0, minutes: 10, raison: 'Révision espacée' },
   ]);
   assert.equal(r.minutes, 25);
 });
@@ -92,7 +92,7 @@ test('un jour chargé et peu de révisions : des pages fragiles, 3 minutes chacu
   // Les deux places libres vont aux pages fragiles les moins sues, de cours différents.
   assert.deepEqual(ids(r), ['A0', 'A5', 'B0']);
   assert.deepEqual(r.items.map((i) => i.bonus), [false, true, true]);
-  assert.deepEqual(r.items[1], { coursId: 'A', chapitreId: 'A5', bonus: true, fragile: true, consolidation: false, retard: 0, minutes: BONUS_MINUTES, raison: 'Micro-révision d’une page fragile' });
+  assert.deepEqual(r.items[1], { coursId: 'A', chapitreId: 'A5', bonus: true, fragile: true, consolidation: false, obligatoire: false, retard: 0, minutes: BONUS_MINUTES, raison: 'Micro-révision d’une page fragile' });
   assert.equal(r.minutes, 10 + 2 * BONUS_MINUTES);
   assert.equal(BONUS_MINUTES, 3);
   // Les pages fragiles déjà au calendrier du jour ne sont pas ajoutées deux fois.
@@ -159,4 +159,63 @@ test('les rappels déjà faits aujourd’hui comptent dans la dose : en finir un
   assert.equal(ids(rappel(REVISIONS, TOUT, { max: 3, dejaFaits: 1.9 })).length, 2, 'la partie entière');
   // La micro-révision d'un jour chargé aussi : la dose est la même.
   assert.equal(rappel([], AVEC_FRAGILES, { chargeJour: 480, fragiles: new Set(fragiles), max: 3, dejaFaits: 2 }).items.length, 1);
+});
+
+test('apprendre par cœur : les pages du premier retour passent toutes, même au-delà de la dose du jour', () => {
+  const seances = [sea('A', 0, 'revision', { niveau: 1 }), sea('A', 1, 'revision', { niveau: 1 }), sea('B', 0, 'revision', { niveau: 1 }), sea('B', 1, 'revision', { niveau: 1 }), sea('C', 0, 'revision', { niveau: 1 })];
+  const chapitres = [page('A', 0, { niveau: 1 }), page('A', 1, { niveau: 1 }), page('B', 0, { niveau: 1 }), page('B', 1, { niveau: 1 }), page('C', 0, { niveau: 1 })];
+  const r = rappel(seances, chapitres, { max: 2 });
+  assert.equal(r.items.length, 5);
+  assert.ok(r.items.every((i) => i.obligatoire));
+  assert.deepEqual(r.restantes, []);
+});
+
+test('apprendre par cœur : les pages à apprendre passent avant, la dose ne sert qu’à compléter', () => {
+  const seances = [sea('A', 0, 'revision', { niveau: 3 }), sea('B', 0, 'revision', { niveau: 3 }), sea('C', 0, 'revision', { niveau: 1 })];
+  const chapitres = [page('A', 0, { niveau: 3 }), page('B', 0, { niveau: 3 }), page('C', 0, { niveau: 1 })];
+  const r = rappel(seances, chapitres, { max: 2 });
+  assert.deepEqual(ids(r), ['C0', 'A0']);
+  assert.deepEqual(r.items.map((i) => i.obligatoire), [true, false]);
+  assert.deepEqual(r.restantes.map((s) => s.chapitreId), ['B0']);
+});
+
+test('apprendre par cœur : une page mot pour mot est obligatoire au cran 2, pas au cran 3', () => {
+  const seances = [sea('A', 0, 'revision', { niveau: 2, parCoeur: true }), sea('B', 0, 'revision', { niveau: 3, parCoeur: true })];
+  const chapitres = [page('A', 0, { niveau: 2, parCoeur: true }), page('B', 0, { niveau: 3, parCoeur: true })];
+  const r = rappel(seances, chapitres, { max: 1 });
+  assert.deepEqual(r.items.map((i) => [i.chapitreId, i.obligatoire]), [['A0', true]]);
+});
+
+test('apprendre par cœur : en finir une ne fait pas apparaître une page de plus (pas de tapis roulant)', () => {
+  const tout = [sea('A', 0, 'revision', { niveau: 1 }), sea('B', 0, 'revision', { niveau: 3 }), sea('C', 0, 'revision', { niveau: 3 })];
+  const chapitres = [page('A', 0, { niveau: 1 }), page('B', 0, { niveau: 3 }), page('C', 0, { niveau: 3 })];
+  const avant = rappel(tout, chapitres, { max: 2 });
+  assert.equal(avant.items.length, 2);
+  // A0 est faite (rappel noté) : elle sort des séances, et le rappel faite compte dans la dose.
+  const apres = rappel(tout.slice(1), chapitres, { max: 2, dejaFaits: 1 });
+  assert.equal(apres.items.length, 1);
+  assert.equal(apres.items.length + 1, avant.items.length);
+});
+
+test('apprendre par cœur : dose à zéro, le rappel est coupé et les blocs prennent tout', () => {
+  const seances = [sea('A', 0, 'revision', { niveau: 1 })];
+  const r = rappel(seances, [page('A', 0, { niveau: 1 })], { max: 0 });
+  assert.deepEqual(r.items, []);
+  assert.equal(r.restantes.length, 1);
+});
+
+test('apprendre par cœur : la dose du jour est faite, mais les pages à apprendre restent à faire', () => {
+  const seances = [sea('A', 0, 'revision', { niveau: 1 }), sea('B', 0, 'revision', { niveau: 3 })];
+  const chapitres = [page('A', 0, { niveau: 1 }), page('B', 0, { niveau: 3 })];
+  const r = rappel(seances, chapitres, { max: 3, dejaFaits: 3 });
+  assert.deepEqual(ids(r), ['A0']);
+  assert.deepEqual(r.restantes.map((s) => s.chapitreId), ['B0']);
+});
+
+test('une micro-révision n’est jamais obligatoire', () => {
+  const chapitres = [page('A', 0, { niveau: 3, prochaine: '2026-12-30', derniere: '2026-11-10' })];
+  const r = rappel([], chapitres, { max: 2, chargeJour: SEUIL_COURS, fragiles: new Set(['A0']) });
+  assert.equal(r.items.length, 1);
+  assert.equal(r.items[0].bonus, true);
+  assert.equal(r.items[0].obligatoire, false);
 });

@@ -534,6 +534,21 @@ do $$ begin insert into public.rappels (titre, lien) values ('x', 'https://exemp
 do $$ begin insert into public.rappels (titre, lien) values ('x', 'https://exemple.fr/' || repeat('x', 500)); raise exception 'ÉCHEC : lien de plus de 500 caractères accepté'; exception when check_violation then null; end $$;
 do $$ begin insert into public.rappels (titre, fait_le) values ('x', 'pas une date'); raise exception 'ÉCHEC : date absurde acceptée'; exception when invalid_datetime_format then null; end $$;
 
+-- Migration 10 : pages à savoir mot pour mot — un réglage de la page, faux par défaut, qui ne touche pas au cycle.
+do $$ begin
+  if (select par_coeur from public.chapitres where id = current_setting('test.hid')::uuid) is distinct from false then raise exception 'ÉCHEC : une page neuve est à savoir mot pour mot (ou le réglage est nul)'; end if;
+end $$;
+update public.chapitres set par_coeur = true where id = :'hid';
+do $$ begin
+  if (select par_coeur from public.chapitres where id = current_setting('test.hid')::uuid) is distinct from true then raise exception 'ÉCHEC : réglage mot pour mot non enregistré'; end if;
+  if (select niveau from public.chapitres where id = current_setting('test.hid')::uuid) <> 0 then raise exception 'ÉCHEC : le réglage a touché au niveau de la page'; end if;
+end $$;
+do $$ begin update public.chapitres set par_coeur = null where id = current_setting('test.hid')::uuid; raise exception 'ÉCHEC : réglage nul accepté'; exception when not_null_violation then null; end $$;
+update public.chapitres set par_coeur = false where id = :'hid';
+do $$ begin
+  if (select par_coeur from public.chapitres where id = current_setting('test.hid')::uuid) is distinct from false then raise exception 'ÉCHEC : réglage mot pour mot non levé'; end if;
+end $$;
+
 -- La date de modification se met à jour toute seule.
 select maj_le as avant from public.chapitres where id = :'hid' \gset
 select set_config('test.avant', :'avant', false) \gset
