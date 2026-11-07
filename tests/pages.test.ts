@@ -147,7 +147,7 @@ test('étapes : une page mot pour mot reste en apprentissage un retour de plus (
 });
 
 test('étapes : les libellés sont ceux que l’on voit', () => {
-  assert.deepEqual([LIBELLE_ETAPE.lire, LIBELLE_ETAPE.apprendre, LIBELLE_ETAPE.reviser], ['Lire', 'Apprendre par cœur', 'Réviser']);
+  assert.deepEqual([LIBELLE_ETAPE.lire, LIBELLE_ETAPE.apprendre, LIBELLE_ETAPE.reviser], ['Lire + écrire', 'Apprendre par cœur', 'Réviser']);
 });
 
 test('regrouper : le premier retour et les retours suivants d’un même cours font deux blocs', () => {

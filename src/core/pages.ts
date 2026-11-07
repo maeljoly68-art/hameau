@@ -46,8 +46,9 @@ export const sansCoupure = (texte: string): string => texte.replace(/(\d) (j|min
 export const arrondi5 = (minutes: number): number => Math.max(5, Math.round(minutes / 5) * 5);
 
 /**
- * Les trois temps d'une page : LIRE (jour 0, comprendre), APPRENDRE PAR CŒUR (le premier retour, le lendemain :
- * c'est là qu'on se force à se redire la page, par écrit) puis RÉVISER (les retours suivants). Un retour est le
+ * Les trois temps d'une page : LIRE + ÉCRIRE (jour 0 : on lit, puis on ferme la fiche et on écrit de mémoire — on
+ * apprend dès la première fois, on ne se contente pas de lire), APPRENDRE PAR CŒUR (le premier retour, le lendemain :
+ * même effort, plus dur) puis RÉVISER (les retours suivants). Un retour est le
  * premier tant que la page n'a jamais réussi un rappel (cran 1) ; une page « mot pour mot » reste en apprentissage
  * un retour de plus (cran 2), puisque son cycle est resserré et qu'il lui faut plus de rappels.
  */
@@ -62,7 +63,7 @@ export function etapeDe(type: TypeSeance, niveau: number, parCoeur: boolean): Et
 }
 
 export const LIBELLE_ETAPE: Record<Etape, string> = {
-  lire: 'Lire',
+  lire: 'Lire + écrire',
   apprendre: 'Apprendre par cœur',
   reviser: 'Réviser',
   dernier: 'Dernier passage',

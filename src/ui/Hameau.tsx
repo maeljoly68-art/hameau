@@ -31,6 +31,7 @@ import { miniChronoDisponible, useMiniChrono } from './MiniChrono.tsx';
 import { ModeFocus } from './ModeFocus.tsx';
 import type { LancerChapitre } from './pages/Cours.tsx';
 import { useHameau, useMaintenant } from './useHameau.ts';
+import { usePointsApprentissage } from './usePointsApprentissage.ts';
 import { CadreVillage } from './Village.tsx';
 import { Dessin, SaisonContexte } from './village/dessins.tsx';
 
@@ -249,7 +250,8 @@ function FicheBatiment({ construction: c, niveauVillage, solde, saison, surAmeli
 }
 
 export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: string | null; surDeconnexion: () => void }) {
-  const { donnees, frais, derive, erreur, setErreur, agir } = useHameau(depot);
+  const pointsEnApprenant = usePointsApprentissage(depot.synchronise ? depot.userId : null);
+  const { donnees, frais, derive, erreur, setErreur, agir } = useHameau(depot, pointsEnApprenant);
   // Une demi-minute suffit pour l'heure du ciel et le total du jour : le
   // chrono, lui, a sa propre horloge à la seconde.
   const maintenant = useMaintenant(30_000);
@@ -885,42 +887,48 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
         <div className="voile" role="dialog" aria-modal="true" aria-label="Valider la séance" onClick={() => setANoter(null)}>
           <div className="fenetre" onClick={(e) => e.stopPropagation()}>
             {aNoter.type === 'decouverte' ? (
-              <>
-                <h2>Tu as fini de lire « {aNoter.titre} » ?</h2>
-                <p className="aide">
-                  {aNoter.reelles !== null ? `Tu y as passé ${formatDuree(aNoter.reelles)} pour ${formatDuree(aNoter.prevues)} prévues. ` : ''}
-                  Valider marque ces pages comme lues : tu les apprends par cœur demain, en les écrivant de mémoire, puis elles reviennent de plus en plus espacées. Le temps réel précise ta vitesse, donc les durées des prochaines séances.
-                </p>
-                <div className="actions">
-                  <button className="bouton discret" onClick={() => setANoter(null)}>
-                    Plus tard
-                  </button>
-                  <button
-                    className="bouton"
-                    disabled={!depot.userId || aNoter.termines.length === 0}
-                    onClick={() => {
+              aNoter.termines.length === 0 ? (
+                <>
+                  <h2>« {aNoter.titre} » continue un autre jour</h2>
+                  <p className="aide">Cette séance ne finit aucune page aujourd’hui : rien à valider. Elle reprendra où tu t’es arrêté.</p>
+                  <div className="actions">
+                    <button className="bouton" onClick={() => setANoter(null)}>
+                      D’accord
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="aide">{aNoter.reelles !== null ? `Tu y as passé ${formatDuree(aNoter.reelles)} pour ${formatDuree(aNoter.prevues)} prévues (rappel écrit compris). Le temps réel précise ta vitesse.` : 'Le temps réel précise ta vitesse quand le chrono a servi.'}</p>
+                  <FinApprentissage
+                    titre={aNoter.titre}
+                    premiere
+                    erreurPossible={aNoter.termines.length === 1}
+                    parCoeur={aNoter.parCoeur}
+                    surPlusTard={() => setANoter(null)}
+                    surNote={(note, r) => {
                       const c = aNoter;
                       setANoter(null);
                       if (!depot.userId) return;
-                      validerLectureEtVitesse(depot.userId, c.termines, cleJour(new Date()), { reelles: c.reelles, prevues: c.prevues }).then(
-                        () => toast('Séance validée : à revoir demain.'),
+                      validerLectureEtVitesse(depot.userId, c.termines, cleJour(new Date()), { reelles: c.reelles, prevues: c.prevues }, { rappel: r.texte, note, confiance: r.confiance, erreur: r.erreur ? { texte: r.erreur.texte, chapitreId: c.termines.length === 1 ? c.termines[0] : undefined } : null }).then(
+                        () => toast('Page apprise : tu la reverras demain, pour l’apprendre par cœur.'),
                         (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
                       );
                     }}
-                  >
-                    Valider les pages
-                  </button>
-                </div>
-              </>
+                  />
+                </>
+              )
             ) : aNoter.etape === 'apprendre' ? (
               <FinApprentissage
                 titre={aNoter.titre}
+                premiere={false}
+                erreurPossible={aNoter.chapitreIds.length === 1}
                 parCoeur={aNoter.parCoeur}
                 surPlusTard={() => setANoter(null)}
-                surNote={(note, rappel) => {
+                surNote={(note, r) => {
                   const c = aNoter;
                   setANoter(null);
-                  noterChapitres(c.chapitreIds, note, cleJour(new Date()), { rappel }).then(
+                  noterChapitres(c.chapitreIds, note, cleJour(new Date()), { rappel: r.texte, confiance: r.confiance, erreur: r.erreur }).then(
                     () => toast('Noté : le calendrier est recalculé.'),
                     (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
                   );

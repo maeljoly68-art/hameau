@@ -4,7 +4,7 @@ import { pointsGagnes, solde } from '../core/village.ts';
 import { ecrireCache, lireCache, type Depot, type Donnees } from '../data/depot.ts';
 
 /** État du hameau : peint depuis le cache, puis rechargé à chaque changement. */
-export function useHameau(depot: Depot) {
+export function useHameau(depot: Depot, pointsEnApprenant = 0) {
   const [donnees, setDonnees] = useState<Donnees | null>(() => lireCache(depot.cleCache));
   const [frais, setFrais] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -48,14 +48,15 @@ export function useHameau(depot: Depot) {
 
   const derive = useMemo(() => {
     if (!donnees) return null;
-    const gagnes = pointsGagnes(donnees.sessions);
+    // Le temps de travail ET ce qu'on apprend vraiment (voir pointsApprentissage.ts) : une seule monnaie pour le village.
+    const gagnes = pointsGagnes(donnees.sessions) + pointsEnApprenant;
     return {
       enCours: donnees.sessions.find((s) => s.fin === null) ?? null,
       gagnes,
-      solde: solde(donnees.sessions, donnees.constructions),
+      solde: solde(donnees.sessions, donnees.constructions) + pointsEnApprenant,
       niveau: niveauPour(gagnes),
     };
-  }, [donnees]);
+  }, [donnees, pointsEnApprenant]);
 
   /** Exécute une écriture puis recharge ; l'erreur s'affiche au lieu de disparaître. */
   const agir = useCallback(

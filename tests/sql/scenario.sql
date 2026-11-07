@@ -549,6 +549,45 @@ do $$ begin
   if (select par_coeur from public.chapitres where id = current_setting('test.hid')::uuid) is distinct from false then raise exception 'ÉCHEC : réglage mot pour mot non levé'; end if;
 end $$;
 
+-- Migration 11 : confiance, carnet d'erreurs, cartes.
+insert into public.passages (chapitre_id, jour, sorte, note, confiance) values (:'hid', '2026-11-07', 'rappel', 'a-revoir', 3);
+do $$ begin
+  if (select count(*) from public.passages where confiance = 3 and note = 'a-revoir') <> 1 then raise exception 'ÉCHEC : confiance non enregistrée'; end if;
+  if (select count(*) from public.passages where confiance is null) < 1 then raise exception 'ÉCHEC : la confiance doit rester absente quand on ne la dit pas'; end if;
+end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte, confiance) values (current_setting('test.hid')::uuid, '2026-11-07', 'rappel', 4); raise exception 'ÉCHEC : confiance 4 acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.passages (chapitre_id, jour, sorte, confiance) values (current_setting('test.hid')::uuid, '2026-11-07', 'rappel', -1); raise exception 'ÉCHEC : confiance -1 acceptée'; exception when check_violation then null; end $$;
+insert into public.passages (chapitre_id, jour, sorte, confiance) values (:'hid', '2026-11-07', 'rappel', 0);
+
+insert into public.erreurs (chapitre_id, texte, jour) values (:'hid', 'Je confonds SA et SAS', '2026-11-07') returning id as eid \gset
+select set_config('test.eid', :'eid', false) \gset
+do $$ begin
+  if (select reglee_le from public.erreurs where id = current_setting('test.eid')::uuid) is not null then raise exception 'ÉCHEC : une erreur neuve ne doit pas être déjà sue'; end if;
+  if (select revue_le from public.erreurs where id = current_setting('test.eid')::uuid) is not null then raise exception 'ÉCHEC : une erreur neuve n''a pas déjà été revue'; end if;
+  if (select user_id from public.erreurs where id = current_setting('test.eid')::uuid) <> current_setting('test.uid')::uuid then raise exception 'ÉCHEC : le compte de l''erreur'; end if;
+end $$;
+update public.erreurs set revue_le = '2026-11-13' where id = :'eid';
+update public.erreurs set reglee_le = '2026-11-16' where id = :'eid';
+do $$ begin
+  if (select reglee_le from public.erreurs where id = current_setting('test.eid')::uuid) <> '2026-11-16' or (select revue_le from public.erreurs where id = current_setting('test.eid')::uuid) <> '2026-11-13' then raise exception 'ÉCHEC : « encore flou » puis « je sais » non enregistrés'; end if;
+end $$;
+do $$ begin insert into public.erreurs (chapitre_id, texte, jour) values (current_setting('test.hid')::uuid, '   ', '2026-11-07'); raise exception 'ÉCHEC : erreur vide acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.erreurs (chapitre_id, texte, jour) values (current_setting('test.hid')::uuid, repeat('x', 301), '2026-11-07'); raise exception 'ÉCHEC : erreur de 301 caractères acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.erreurs (chapitre_id, texte, jour) values (current_setting('test.hid')::uuid, repeat('x', 300), '2026-11-07'); exception when check_violation then raise exception 'ÉCHEC : erreur de 300 caractères refusée'; end $$;
+do $$ begin insert into public.erreurs (chapitre_id, texte, jour) values (current_setting('test.hid')::uuid, 'x', 'pas une date'); raise exception 'ÉCHEC : date absurde acceptée'; exception when invalid_datetime_format then null; end $$;
+do $$ begin insert into public.erreurs (chapitre_id, texte, jour) values (gen_random_uuid(), 'x', '2026-11-07'); raise exception 'ÉCHEC : erreur sur un chapitre inconnu acceptée'; exception when foreign_key_violation then null; end $$;
+
+insert into public.cartes (chapitre_id, question, reponse, ordre) values (:'hid', 'Capital minimum d''une SA ?', '37 000 €', 0), (:'hid', 'Quorum en première convocation ?', 'Un quart', 1);
+do $$ begin
+  if (select count(*) from public.cartes where chapitre_id = current_setting('test.hid')::uuid) <> 2 then raise exception 'ÉCHEC : cartes non enregistrées'; end if;
+  if (select string_agg(question, '|' order by ordre) from public.cartes) <> 'Capital minimum d''une SA ?|Quorum en première convocation ?' then raise exception 'ÉCHEC : ordre des cartes'; end if;
+end $$;
+do $$ begin insert into public.cartes (chapitre_id, question, reponse) values (current_setting('test.hid')::uuid, '', 'r'); raise exception 'ÉCHEC : question vide acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.cartes (chapitre_id, question, reponse) values (current_setting('test.hid')::uuid, 'q', '  '); raise exception 'ÉCHEC : réponse vide acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.cartes (chapitre_id, question, reponse) values (current_setting('test.hid')::uuid, repeat('q', 301), 'r'); raise exception 'ÉCHEC : question de 301 caractères acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.cartes (chapitre_id, question, reponse) values (current_setting('test.hid')::uuid, 'q', repeat('r', 801)); raise exception 'ÉCHEC : réponse de 801 caractères acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.cartes (chapitre_id, question, reponse) values (gen_random_uuid(), 'q', 'r'); raise exception 'ÉCHEC : carte sur un chapitre inconnu acceptée'; exception when foreign_key_violation then null; end $$;
+
 -- La date de modification se met à jour toute seule.
 select maj_le as avant from public.chapitres where id = :'hid' \gset
 select set_config('test.avant', :'avant', false) \gset
@@ -642,6 +681,8 @@ do $$ begin
      + (select count(*) from public.notes_chapitres where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.passages where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.rappels where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.erreurs where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.cartes where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.reglages_cours where user_id = '11111111-1111-1111-1111-111111111111') <> 0 then
     raise exception 'ÉCHEC : cascade';
   end if;

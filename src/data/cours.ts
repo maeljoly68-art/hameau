@@ -1,8 +1,11 @@
 // Cours, chapitres, notes, temps disponible : lecture et écriture dans Supabase.
 // Réservé au compte : le calendrier doit être le même sur le téléphone, l'iPad
 // et le PC, ce qu'un stockage sur l'appareil ne ferait pas.
+import { carteValide, type Carte } from '../core/cartes.ts';
 import { disponibilitesValides, dureeValide, lienValide, vitesseValide, type Chapitre, type Cours, type Disponibilites, type DonneesCours, type NoteChapitre } from '../core/cours.ts';
+import { erreurValide, texteErreur, type Erreur } from '../core/erreurs.ts';
 import { estJour } from '../core/jours.ts';
+import type { PassageLeger } from '../core/pointsApprentissage.ts';
 import { noteDepuisPct, passageValide, type Passage, type SortePassage } from '../core/passages.ts';
 import { apresDecouverte, apresRappelAnticipe, apresRevision, niveauValide, type Note } from '../core/revision.ts';
 import { cleJour, decalerJours } from '../core/temps.ts';
@@ -45,7 +48,24 @@ interface LignePassage {
   score_pct: number | string | null;
   vitesse: number | string | null;
   rappel: string | null;
+  /** Absente tant que la migration « apprentissage actif » n'est pas passée. */
+  confiance?: number | null;
   cree_le: string;
+}
+interface LigneErreur {
+  id: string;
+  chapitre_id: string;
+  texte: string;
+  jour: string;
+  reglee_le: string | null;
+  revue_le: string | null;
+}
+interface LigneCarte {
+  id: string;
+  chapitre_id: string;
+  question: string;
+  reponse: string;
+  ordre: number;
 }
 interface LigneNote {
   id: string;
@@ -70,7 +90,9 @@ const versChapitre = (l: LigneChapitre): Chapitre => ({
 });
 // Les colonnes « numeric » reviennent parfois en texte selon la couche : on les relit comme des nombres.
 const nombreOuNull = (v: number | string | null): number | null => (v === null ? null : Number(v));
-const versPassage = (l: LignePassage): Passage | null => passageValide({ id: l.id, chapitreId: l.chapitre_id, jour: l.jour, sorte: l.sorte, note: l.note, minutes: l.minutes, scorePct: nombreOuNull(l.score_pct), vitesse: nombreOuNull(l.vitesse), rappel: l.rappel, creeLe: l.cree_le });
+const versPassage = (l: LignePassage): Passage | null => passageValide({ id: l.id, chapitreId: l.chapitre_id, jour: l.jour, sorte: l.sorte, note: l.note, minutes: l.minutes, scorePct: nombreOuNull(l.score_pct), vitesse: nombreOuNull(l.vitesse), rappel: l.rappel, confiance: l.confiance ?? null, creeLe: l.cree_le });
+const versErreur = (l: LigneErreur): Erreur | null => erreurValide({ id: l.id, chapitreId: l.chapitre_id, texte: l.texte, jour: l.jour, regleeLe: l.reglee_le, revueLe: l.revue_le });
+const versCarte = (l: LigneCarte): Carte | null => carteValide({ id: l.id, chapitreId: l.chapitre_id, question: l.question, reponse: l.reponse, ordre: l.ordre });
 const versNote = (l: LigneNote): NoteChapitre => ({ id: l.id, chapitreId: l.chapitre_id, texte: l.texte, citation: l.citation, creeLe: l.cree_le });
 
 interface ErreurBase {
@@ -115,6 +137,23 @@ async function lirePassages(sb: Awaited<ReturnType<typeof client>>): Promise<{ p
   }
 }
 
+/** Le carnet d'erreurs et les cartes. Leurs tables n'existent qu'après leur migration : sans elles, `carnet` est faux et rien d'autre ne change. */
+async function lireCarnet(sb: Awaited<ReturnType<typeof client>>): Promise<{ erreurs: Erreur[]; cartes: Carte[]; carnet: boolean }> {
+  try {
+    const [e, k] = await Promise.all([
+      toutLire<LigneErreur>((de, a) => sb.from('erreurs').select('*').order('jour').order('cree_le').order('id').range(de, a)),
+      toutLire<LigneCarte>((de, a) => sb.from('cartes').select('*').order('chapitre_id').order('ordre').order('id').range(de, a)),
+    ]);
+    return { erreurs: e.map(versErreur).filter((x): x is Erreur => x !== null), cartes: k.map(versCarte).filter((x): x is Carte => x !== null), carnet: true };
+  } catch (e) {
+    if (e instanceof Error && e.message === MESSAGE_MIGRATION) return { erreurs: [], cartes: [], carnet: false };
+    throw e;
+  }
+}
+
+/** Un passage vient d'être écrit sur cet appareil : le village recalcule ses points d'apprentissage sans attendre le temps réel. */
+export const EVENEMENT_PASSAGE = 'hameau-passage';
+
 /**
  * Laisse une ligne dans le journal. Le journal est un plus : un passage qui ne s'écrit pas (table pas encore migrée,
  * réseau coupé) ne doit JAMAIS empêcher de valider une page, ni s'afficher comme une erreur.
@@ -124,8 +163,10 @@ async function journaliser(lignes: readonly NouveauPassage[]): Promise<void> {
   try {
     const sb = await client();
     await sb.from('passages').insert(
-      lignes.map((l) => ({ chapitre_id: l.chapitreId, jour: l.jour, sorte: l.sorte, note: l.note, minutes: l.minutes, score_pct: l.scorePct, vitesse: l.vitesse, rappel: l.rappel === null ? null : l.rappel.trim().slice(0, 2000) || null })),
+      // La confiance n'est écrite que si on l'a dite : une base sans sa colonne continue d'accepter tout le reste.
+      lignes.map((l) => ({ chapitre_id: l.chapitreId, jour: l.jour, sorte: l.sorte, note: l.note, minutes: l.minutes, score_pct: l.scorePct, vitesse: l.vitesse, rappel: l.rappel === null ? null : l.rappel.trim().slice(0, 2000) || null, ...(l.confiance === null || l.confiance === undefined ? {} : { confiance: l.confiance }) })),
     );
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(EVENEMENT_PASSAGE));
   } catch {
     // Voir plus haut : rien à signaler.
   }
@@ -140,20 +181,23 @@ export interface NouveauPassage {
   scorePct: number | null;
   vitesse: number | null;
   rappel: string | null;
+  /** « Je pense savoir… », dit avant de comparer : 0 à 3. */
+  confiance?: number | null;
 }
 
 export async function chargerCours(): Promise<DonneesCours> {
   const sb = await client();
-  const [c, h, n, r, j] = await Promise.all([
+  const [c, h, n, r, j, k] = await Promise.all([
     toutLire<LigneCours>((de, a) => sb.from('cours').select('*').order('ordre').order('cree_le').order('id').range(de, a)),
     toutLire<LigneChapitre>((de, a) => sb.from('chapitres').select('*').order('cours_id').order('ordre').order('id').range(de, a)),
     toutLire<LigneNote>((de, a) => sb.from('notes_chapitres').select('*').order('cree_le').order('id').range(de, a)),
     // « * » : la colonne de l'adresse du flux n'existe qu'après la migration de l'emploi du temps, et son absence ne doit rien casser.
     sb.from('reglages_cours').select('*').maybeSingle<{ disponibilites: unknown; agenda_url?: string | null }>(),
     lirePassages(sb),
+    lireCarnet(sb),
   ]);
   echec(r);
-  return { cours: c.map(versCours), chapitres: h.map(versChapitre), notes: n.map(versNote), disponibilites: disponibilitesValides(r.data?.disponibilites), agendaLien: lienValide(r.data?.agenda_url ?? ''), passages: j.passages, journal: j.journal };
+  return { cours: c.map(versCours), chapitres: h.map(versChapitre), notes: n.map(versNote), disponibilites: disponibilitesValides(r.data?.disponibilites), agendaLien: lienValide(r.data?.agenda_url ?? ''), passages: j.passages, journal: j.journal, erreurs: k.erreurs, cartes: k.cartes, carnet: k.carnet };
 }
 
 export interface ChampsCours {
@@ -237,6 +281,10 @@ export interface OptionsNote {
   /** Ce qu'on a écrit de tête avant d'ouvrir la fiche. */
   rappel?: string | null;
   minutes?: number | null;
+  /** « Je pense savoir… » dit avant de comparer : 0 à 3. */
+  confiance?: number | null;
+  /** Une erreur à garder dans le carnet : le texte, et la page (par défaut, celle qu'on note). */
+  erreur?: { texte: string; chapitreId?: string } | null;
 }
 
 export async function noterChapitre(id: string, note: Note, jour: string, options: OptionsNote = {}): Promise<void> {
@@ -260,7 +308,7 @@ export async function noterChapitre(id: string, note: Note, jour: string, option
   // Un examen blanc ou un rappel garde sa sorte : c'est elle qui empêche d'en proposer un autre le même jour.
   const sorte = options.sorte ?? 'revision';
   const decouverte = avant < 1 && sorte === 'revision';
-  await journaliser([{ chapitreId: id, jour, sorte: decouverte ? 'lecture' : sorte, note: decouverte ? null : note, minutes: options.minutes ?? null, scorePct: options.scorePct ?? null, vitesse: null, rappel: options.rappel ?? null }]);
+  await journaliser([{ chapitreId: id, jour, sorte: decouverte ? 'lecture' : sorte, note: decouverte ? null : note, minutes: options.minutes ?? null, scorePct: options.scorePct ?? null, vitesse: null, rappel: options.rappel ?? null, confiance: options.confiance ?? null }]);
 }
 
 /**
@@ -269,9 +317,13 @@ export async function noterChapitre(id: string, note: Note, jour: string, option
  * recalculé depuis la base, ne repropose que celles qui restent à faire.
  */
 export async function noterChapitres(ids: readonly string[], note: Note, jour: string, options: OptionsNote = {}): Promise<void> {
-  const resultats = await Promise.allSettled(ids.map((id) => noterChapitre(id, note, jour, options)));
+  const { erreur, ...pourLesPages } = options;
+  const resultats = await Promise.allSettled(ids.map((id) => noterChapitre(id, note, jour, pourLesPages)));
   const echec = resultats.find((r): r is PromiseRejectedResult => r.status === 'rejected');
   if (echec) throw echec.reason instanceof Error ? echec.reason : new Error(String(echec.reason));
+  // Le carnet est un plus, comme le journal : une erreur qui ne s'écrit pas n'empêche pas d'avoir noté la page.
+  const chapitreId = erreur?.chapitreId ?? (ids.length === 1 ? ids[0] : undefined);
+  if (erreur && chapitreId) await ajouterErreur(chapitreId, erreur.texte, jour).catch(() => undefined);
 }
 
 /**
@@ -360,12 +412,23 @@ export type MesureVitesse = { ressenti: Ressenti } | { reelles: number | null; p
  * Valide les pages lues ET précise ta vitesse. Les pages d'abord : si elles étaient déjà validées (autre
  * appareil), la vitesse ne bouge pas, une même lecture ne comptant qu'une fois.
  */
-export async function validerLectureEtVitesse(userId: string, ids: readonly string[], jour: string, mesure: MesureVitesse): Promise<void> {
+export interface RappelPremiere {
+  /** Ce qu'on a écrit de tête à la fin de la première séance. */
+  rappel: string | null;
+  /** La note qu'on s'est donnée en comparant à la fiche. */
+  note: Note;
+  confiance: number | null;
+  erreur?: { texte: string; chapitreId?: string } | null;
+}
+
+export async function validerLectureEtVitesse(userId: string, ids: readonly string[], jour: string, mesure: MesureVitesse, rappel: RappelPremiere | null = null): Promise<void> {
   const faites = await marquerLues(ids, jour);
   const vitesse = await ajusterVitesse(userId, (v) => ('ressenti' in mesure ? vitesseApresCoche(v, mesure.ressenti) : vitesseApresChrono(v, mesure.reelles, mesure.prevues)));
   // Le temps d'une seule page est connu quand le chrono a servi à elle seule ; pour un bloc, on ne le répartit pas.
   const minutes = faites.length === 1 && 'reelles' in mesure && mesure.reelles !== null && mesure.reelles > 0 ? Math.min(1440, Math.round(mesure.reelles)) : null;
-  await journaliser(faites.map((id) => ({ chapitreId: id, jour, sorte: 'lecture' as const, note: null, minutes, scorePct: null, vitesse, rappel: null })));
+  await journaliser(faites.map((id) => ({ chapitreId: id, jour, sorte: 'lecture' as const, note: rappel?.note ?? null, minutes, scorePct: null, vitesse, rappel: rappel?.rappel ?? null, confiance: rappel?.confiance ?? null })));
+  const chapitreId = rappel?.erreur?.chapitreId ?? (faites.length === 1 ? faites[0] : undefined);
+  if (rappel?.erreur && chapitreId) await ajouterErreur(chapitreId, rappel.erreur.texte, jour).catch(() => undefined);
 }
 
 /**
@@ -379,6 +442,74 @@ export async function validerExamen(chapitreId: string, jour: string, mesure: { 
   const sb = await client();
   echec(await sb.from('chapitres').update({ derniere_revision: jour }).eq('id', chapitreId).gte('niveau', 1));
   await journaliser([{ chapitreId, jour, sorte: 'examen', note: null, minutes, scorePct: null, vitesse: null, rappel: null }]);
+}
+
+/** Note une erreur dans le carnet. Le texte est nettoyé et borné ; vide, rien n'est écrit. */
+export async function ajouterErreur(chapitreId: string, texte: string, jour: string): Promise<void> {
+  const t = texteErreur(texte);
+  if (t === null) return;
+  const sb = await client();
+  echec(await sb.from('erreurs').insert({ chapitre_id: chapitreId, texte: t, jour }));
+}
+
+/** « Je sais » : l'erreur ne revient plus. */
+export async function reglerErreur(id: string, jour: string): Promise<void> {
+  const sb = await client();
+  echec(await sb.from('erreurs').update({ reglee_le: jour }).eq('id', id));
+}
+
+/** « Encore flou » : elle revient dans quelques jours. */
+export async function revoirErreur(id: string, jour: string): Promise<void> {
+  const sb = await client();
+  echec(await sb.from('erreurs').update({ revue_le: jour }).eq('id', id));
+}
+
+export async function supprimerErreur(id: string): Promise<void> {
+  const sb = await client();
+  echec(await sb.from('erreurs').delete().eq('id', id));
+}
+
+/** Ajoute des cartes à une page, à la suite de celles qu'elle a déjà. */
+export async function ajouterCartes(chapitreId: string, cartes: readonly { question: string; reponse: string }[], ordreDepart: number): Promise<void> {
+  if (cartes.length === 0) return;
+  const sb = await client();
+  echec(await sb.from('cartes').insert(cartes.map((c, i) => ({ chapitre_id: chapitreId, question: c.question, reponse: c.reponse, ordre: ordreDepart + i }))));
+}
+
+export async function supprimerCarte(id: string): Promise<void> {
+  const sb = await client();
+  echec(await sb.from('cartes').delete().eq('id', id));
+}
+
+/**
+ * Tous les passages, en version légère (jour, sorte, note) : les points d'apprentissage se comptent depuis le premier
+ * jour, pas sur les quatre derniers mois du journal — sinon le solde du village baisserait à mesure que le temps passe.
+ */
+export async function chargerPassagesLegers(): Promise<PassageLeger[]> {
+  const sb = await client();
+  try {
+    const lignes = await toutLire<{ jour: string; sorte: string; note: string | null }>((de, a) => sb.from('passages').select('jour, sorte, note').order('jour').order('id').range(de, a));
+    return lignes.filter((l) => estJour(l.jour)).map((l) => ({ jour: l.jour, sorte: l.sorte, note: l.note === 'a-revoir' || l.note === 'difficile' || l.note === 'bien' || l.note === 'facile' ? l.note : null }));
+  } catch (e) {
+    // Le journal n'existe pas encore : pas de points d'apprentissage, et rien d'autre ne change.
+    if (e instanceof Error && e.message === MESSAGE_MIGRATION) return [];
+    throw e;
+  }
+}
+
+/** Prévient quand un passage est écrit ailleurs (autre appareil, autre onglet) : les points d'apprentissage se recalculent. */
+export function ecouterPassages(rappel: () => void): () => void {
+  let fini = false;
+  let retirer: (() => void) | null = null;
+  void client().then((sb) => {
+    if (fini) return;
+    const canal = sb.channel(`hameau-passages-${Math.random().toString(36).slice(2, 8)}`).on('postgres_changes', { event: '*', schema: 'public', table: 'passages' }, rappel).subscribe();
+    retirer = () => void sb.removeChannel(canal);
+  });
+  return () => {
+    fini = true;
+    retirer?.();
+  };
 }
 
 /** L'adresse du flux d'emploi du temps (null pour la retirer). Un upsert qui ne touche qu'à cette colonne : le temps disponible reste. */
@@ -400,6 +531,8 @@ export function ecouterCours(userId: string, rappel: () => void): () => void {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notes_chapitres' }, rappel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reglages_cours' }, rappel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'passages' }, rappel)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'erreurs' }, rappel)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cartes' }, rappel)
       .subscribe();
     retirer = () => void sb.removeChannel(canal);
   });
@@ -434,6 +567,9 @@ export function lireCacheCours(userId: string): DonneesCours | null {
       // Un cache écrit avant le journal n'en a pas : il se remplira au premier chargement.
       passages: Array.isArray(d.passages) ? d.passages.map(passageValide).filter((p): p is Passage => p !== null) : [],
       journal: d.journal === true,
+      erreurs: Array.isArray(d.erreurs) ? d.erreurs.map(erreurValide).filter((x): x is Erreur => x !== null) : [],
+      cartes: Array.isArray(d.cartes) ? d.cartes.map(carteValide).filter((x): x is Carte => x !== null) : [],
+      carnet: d.carnet === true,
     };
   } catch {
     return null;

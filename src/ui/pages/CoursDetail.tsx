@@ -1,12 +1,17 @@
 import { useState } from 'react';
 import type { Creneau } from '../../core/agenda.ts';
+import { cartesParPage, type Carte } from '../../core/cartes.ts';
 import { COULEURS_COURS, lienValide, lignesVersChapitres, maitriseCours, type Chapitre, type Cours, type NoteChapitre } from '../../core/cours.ts';
+import type { Erreur } from '../../core/erreurs.ts';
+import { construireFiche } from '../../core/fiche.ts';
 import { estJour, jourCourt } from '../../core/jours.ts';
 import { numerosDePages } from '../../core/pages.ts';
 import { NIVEAU_MAX, NOTES, type Note } from '../../core/revision.ts';
 import { ajouterChapitres, ajouterNote, marquerParCoeurCours, modifierChapitre, modifierCours, modifierNote, noterChapitre, remettreAZero, supprimerChapitre, supprimerCours, supprimerNote } from '../../data/cours.ts';
 import { IconeChevron, IconeCoche, IconeLien } from '../Icones.tsx';
+import { PanneauCartes } from './Carnet.tsx';
 import { BlocAgendaCours } from './Creneaux.tsx';
+import { FicheVeille } from './Fiche.tsx';
 
 export type Faire = (f: () => Promise<unknown>, message?: string) => void;
 
@@ -153,8 +158,8 @@ function EditionChapitre({ chapitre, faire, surFermer }: { chapitre: Chapitre; f
   );
 }
 
-function LigneChapitre({ chapitre, numero, cours, notes, aujourdhui, faire }: { chapitre: Chapitre; numero: number; cours: Cours; notes: NoteChapitre[]; aujourdhui: string; faire: Faire }) {
-  const [ouvert, setOuvert] = useState<'notes' | 'edition' | null>(null);
+function LigneChapitre({ chapitre, numero, cours, notes, cartes, carnet, aujourdhui, faire }: { chapitre: Chapitre; numero: number; cours: Cours; notes: NoteChapitre[]; cartes: Carte[]; carnet: boolean; aujourdhui: string; faire: Faire }) {
+  const [ouvert, setOuvert] = useState<'notes' | 'cartes' | 'edition' | null>(null);
   const lien = chapitre.lien ?? cours.lien;
   const enRetard = chapitre.prochaine !== null && chapitre.prochaine <= aujourdhui;
   return (
@@ -185,6 +190,11 @@ function LigneChapitre({ chapitre, numero, cours, notes, aujourdhui, faire }: { 
           <button className={ouvert === 'notes' ? 'lien actif' : 'lien'} onClick={() => setOuvert(ouvert === 'notes' ? null : 'notes')} aria-expanded={ouvert === 'notes'}>
             Notes{notes.length > 0 ? ` (${notes.length})` : ''}
           </button>
+          {carnet && (
+            <button className={ouvert === 'cartes' ? 'lien actif' : 'lien'} onClick={() => setOuvert(ouvert === 'cartes' ? null : 'cartes')} aria-expanded={ouvert === 'cartes'}>
+              Cartes{cartes.length > 0 ? ` (${cartes.length})` : ''}
+            </button>
+          )}
           <button className={ouvert === 'edition' ? 'lien actif' : 'lien'} onClick={() => setOuvert(ouvert === 'edition' ? null : 'edition')} aria-expanded={ouvert === 'edition'}>
             Modifier
           </button>
@@ -196,19 +206,22 @@ function LigneChapitre({ chapitre, numero, cours, notes, aujourdhui, faire }: { 
         </span>
       </div>
       {ouvert === 'notes' && <Notes chapitre={chapitre} notes={notes} faire={faire} />}
+      {ouvert === 'cartes' && <PanneauCartes chapitreId={chapitre.id} cartes={cartes} faire={faire} />}
       {ouvert === 'edition' && <EditionChapitre chapitre={chapitre} faire={faire} surFermer={() => setOuvert(null)} />}
     </li>
   );
 }
 
 /** `creneaux` : les cours de cette matière dans l'emploi du temps, ou null tant qu'aucun emploi du temps n'est branché. */
-export function PageCours({ cours, chapitres, notes, aujourdhui, faire, creneaux, retour }: { cours: Cours; chapitres: Chapitre[]; notes: NoteChapitre[]; aujourdhui: string; faire: Faire; creneaux: readonly Creneau[] | null; retour: () => void }) {
+export function PageCours({ cours, chapitres, notes, cartes, erreurs, fragiles, carnet, ficheAuDepart, aujourdhui, faire, creneaux, retour }: { cours: Cours; chapitres: Chapitre[]; notes: NoteChapitre[]; cartes: Carte[]; erreurs: Erreur[]; fragiles: ReadonlySet<string>; carnet: boolean; /** Ouverte d'emblée (depuis « la fiche de la veille t'attend »). */ ficheAuDepart: boolean; aujourdhui: string; faire: Faire; creneaux: readonly Creneau[] | null; retour: () => void }) {
+  const [fiche, setFiche] = useState(ficheAuDepart);
   const [titre, setTitre] = useState(cours.titre);
   const [lien, setLien] = useState(cours.lien ?? '');
   const [message, setMessage] = useState<string | null>(null);
   const [liste, setListe] = useState('');
   const maitrise = maitriseCours(chapitres);
   const notesDe = (id: string) => notes.filter((n) => n.chapitreId === id);
+  const cartesDe = cartesParPage(cartes);
   const suivant = chapitres.reduce((m, c) => Math.max(m, c.ordre + 1), 0);
   const numeros = numerosDePages(chapitres);
 
@@ -247,6 +260,9 @@ export function PageCours({ cours, chapitres, notes, aujourdhui, faire, creneaux
             onClick={() => faire(() => modifierCours(cours.id, { enPause: !cours.enPause }), cours.enPause ? 'Cours remis au calendrier.' : 'Cours en pause : il sort du calendrier, rien n’est perdu.')}
           >
             {cours.enPause ? 'Remettre au calendrier' : 'Mettre en pause'}
+          </button>
+          <button className={fiche ? 'bouton petit' : 'bouton petit discret'} aria-pressed={fiche} onClick={() => setFiche(!fiche)}>
+            Fiche de la veille
           </button>
           <span className="aide petite">{cours.enPause ? 'En pause : ni séance, ni alerte, ni partiel affiché.' : 'En pause, un cours reste ici mais sort du calendrier.'}</span>
         </div>
@@ -303,6 +319,8 @@ export function PageCours({ cours, chapitres, notes, aujourdhui, faire, creneaux
         {message && <p className="alerte douce">{message}</p>}
       </section>
 
+      {fiche && <FicheVeille fiche={construireFiche({ cours, chapitres, notes, cartes, erreurs, fragiles, aujourdhui })} surFermer={() => setFiche(false)} />}
+
       {creneaux && <BlocAgendaCours cours={cours} creneaux={creneaux} aujourdhui={aujourdhui} faire={faire} />}
 
       <section className="carte">
@@ -313,7 +331,7 @@ export function PageCours({ cours, chapitres, notes, aujourdhui, faire, creneaux
         {chapitres.length === 0 && <p className="aide">Aucun chapitre. Colle la liste ci-dessous, un par ligne.</p>}
         <ol className="chapitres">
           {chapitres.map((ch) => (
-            <LigneChapitre key={ch.id} chapitre={ch} numero={numeros.get(ch.id) ?? 0} cours={cours} notes={notesDe(ch.id)} aujourdhui={aujourdhui} faire={faire} />
+            <LigneChapitre key={ch.id} chapitre={ch} numero={numeros.get(ch.id) ?? 0} cours={cours} notes={notesDe(ch.id)} cartes={cartesDe.get(ch.id) ?? []} carnet={carnet} aujourdhui={aujourdhui} faire={faire} />
           ))}
         </ol>
       </section>

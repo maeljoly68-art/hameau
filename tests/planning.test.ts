@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DISPONIBILITES_DEFAUT, type Chapitre, type Cours, type Disponibilites } from '../src/core/cours.ts';
 import { ajouterJours, ecartJours, jourSemaine } from '../src/core/jours.ts';
-import { EXAMEN_DUREE_DEFAUT, EXAMEN_FENETRE_DEBUT, EXAMEN_FENETRE_FIN, EXAMEN_MIN, FENETRE_FINALE, FRAGILE_COEF, JOURS_AVANT_DEBUT, JOURS_SANS_NOUVEAU, PLEIN_COURS, SEUIL_COURS, capaciteDuJour, estPageExamen, dureeLecture, dureeRevision, planifier, resumeParJour, seancesDuJour, type EntreePlan, type Seance } from '../src/core/planning.ts';
+import { EXAMEN_DUREE_DEFAUT, EXAMEN_FENETRE_DEBUT, EXAMEN_FENETRE_FIN, EXAMEN_MIN, FENETRE_FINALE, FRAGILE_COEF, JOURS_AVANT_DEBUT, JOURS_SANS_NOUVEAU, PART_RAPPEL_PREMIERE, PLEIN_COURS, SEUIL_COURS, capaciteDuJour, estPageExamen, dureeLecture, dureeRevision, planifier, resumeParJour, seancesDuJour, type EntreePlan, type Seance } from '../src/core/planning.ts';
 
 const AUJ = '2026-11-05'; // jeudi
 const PARTIEL = '2026-12-04'; // vendredi, 29 jours plus tard : celui du plan de révision de Droit des sociétés
@@ -11,7 +11,9 @@ const dispo = (m: number, libres: string[] = []): Disponibilites => ({ semaine: 
 const cours = (id: string, partiel: string | null, ordre = 0): Cours => ({ id, titre: id, couleur: '#6b8afd', partiel, lien: null, ordre, motifs: '', enPause: false });
 const chap = (coursId: string, ordre: number, extra: Partial<Chapitre> = {}): Chapitre => ({ id: `${coursId}-${ordre}`, coursId, titre: `Ch ${ordre}`, ordre, dureeMin: 30, niveau: 0, derniere: null, prochaine: null, lien: null, parCoeur: false, ...extra });
 const chapitres = (coursId: string, n: number, extra: Partial<Chapitre> = {}) => Array.from({ length: n }, (_, i) => chap(coursId, i, extra));
-const plan = (e: Partial<EntreePlan> & Pick<EntreePlan, 'cours' | 'chapitres'>) => planifier({ disponibilites: dispo(60), aujourdhui: AUJ, ...e });
+// Sauf mention contraire, ces tests parlent de lecture pure (sans le rappel écrit qui suit une première séance) : le rappel
+// a ses propres tests plus bas, et ses minutes ne doivent pas brouiller les autres règles (découpe, relecture, temps fait…).
+const plan = (e: Partial<EntreePlan> & Pick<EntreePlan, 'cours' | 'chapitres'>) => planifier({ disponibilites: dispo(60), aujourdhui: AUJ, partRappel: 0, ...e });
 const minutesDe = (s: readonly Seance[], jour: string) => s.filter((x) => x.jour === jour).reduce((t, x) => t + x.minutes, 0);
 
 test('un cours sans rien à faire ne produit aucune séance', () => {
@@ -347,13 +349,12 @@ test('ta vitesse allonge (ou raccourcit) toutes les durées : lecture, révision
 });
 
 test('la vitesse 1 ne change rien : 47 min restent 47 min, une vitesse absurde revient dans ses bornes', () => {
-  assert.equal(dureeLecture({ dureeMin: 47 }), 47);
-  assert.equal(dureeLecture({ dureeMin: 47 }, 1), 47);
-  assert.equal(dureeLecture({ dureeMin: 40 }, 2.5), 100);
-  assert.equal(dureeLecture({ dureeMin: 40 }, 99), 100, 'plafonnée à 2,5');
-  assert.equal(dureeLecture({ dureeMin: 40 }, Number.NaN), 40, 'illisible : 1');
-  assert.equal(dureeLecture({ dureeMin: 5 }, 0.01), 5, 'jamais sous 5 min');
-  assert.equal(dureeLecture({ dureeMin: 40 }, 0.5), 20);
+  assert.equal(dureeLecture({ dureeMin: 47 }, 1, 0), 47);
+  assert.equal(dureeLecture({ dureeMin: 40 }, 2.5, 0), 100);
+  assert.equal(dureeLecture({ dureeMin: 40 }, 99, 0), 100, 'plafonnée à 2,5');
+  assert.equal(dureeLecture({ dureeMin: 40 }, Number.NaN, 0), 40, 'illisible : 1');
+  assert.equal(dureeLecture({ dureeMin: 5 }, 0.01, 0), 5, 'jamais sous 5 min');
+  assert.equal(dureeLecture({ dureeMin: 40 }, 0.5, 0), 20);
 });
 
 // ---- Cours en pause ----
@@ -748,4 +749,39 @@ test('les séances d’une page mot pour mot portent le réglage et le cran, pou
   const premiere = p.seances.find((s) => s.chapitreId === 'A-0');
   assert.equal(premiere?.parCoeur, true);
   assert.equal(premiere?.niveau, 1);
+});
+
+// ── Première séance = lire PUIS écrire de mémoire : le rappel est dans la durée ──
+
+test('une première séance dure la lecture plus 30 % de rappel écrit, à ta vitesse', () => {
+  assert.equal(PART_RAPPEL_PREMIERE, 0.3);
+  assert.equal(dureeLecture({ dureeMin: 40 }), 52);
+  assert.equal(dureeLecture({ dureeMin: 40 }, 1), 52);
+  assert.equal(dureeLecture({ dureeMin: 40 }, 1.5), 78, 'le rappel suit ta vitesse comme la lecture');
+  assert.equal(dureeLecture({ dureeMin: 40 }, 1, 0), 40, 'sans rappel : la lecture seule');
+  assert.equal(dureeLecture({ dureeMin: 5 }, 0.01), 5, 'jamais sous 5 min');
+});
+
+test('le calendrier compte ce rappel : une page de 30 min se planifie à 39 min, pas 30', () => {
+  const entree = { cours: [cours('A', PARTIEL)], chapitres: [chap('A', 0, { dureeMin: 30 })], disponibilites: dispo(120) };
+  const avec = planifier({ ...entree, aujourdhui: AUJ }).seances.find((s) => s.type === 'decouverte');
+  const sans = planifier({ ...entree, aujourdhui: AUJ, partRappel: 0 }).seances.find((s) => s.type === 'decouverte');
+  assert.equal(avec?.minutes, 39);
+  assert.equal(sans?.minutes, 30);
+});
+
+test('une part de rappel illisible ou négative retombe sur la valeur par défaut, ou zéro', () => {
+  const entree = { cours: [cours('A', PARTIEL)], chapitres: [chap('A', 0, { dureeMin: 30 })], disponibilites: dispo(120), aujourdhui: AUJ };
+  assert.equal(planifier({ ...entree, partRappel: Number.NaN }).seances.find((s) => s.type === 'decouverte')?.minutes, 39);
+  assert.equal(planifier({ ...entree, partRappel: -1 }).seances.find((s) => s.type === 'decouverte')?.minutes, 30);
+});
+
+test('une page apprise aujourd’hui compte sa durée avec le rappel sur le temps du jour', () => {
+  // 60 min par jour, une page de 30 min apprise aujourd'hui = 39 min avec le rappel : il reste 21 min (et non 30).
+  // Des pages neuves de 10 min = 13 min avec le rappel : une seule tient dans les 21 min.
+  const fait = chap('A', 0, { niveau: 1, derniere: AUJ, prochaine: '2026-11-06', dureeMin: 30 });
+  const p = planifier({ cours: [cours('A', PARTIEL)], chapitres: [fait, ...chapitres('A', 8, { dureeMin: 10 }).slice(1)], disponibilites: dispo(60), aujourdhui: AUJ });
+  assert.equal(minutesDe(p.seances, AUJ), 13);
+  const sans = planifier({ cours: [cours('A', PARTIEL)], chapitres: chapitres('A', 8, { dureeMin: 10 }), disponibilites: dispo(60), aujourdhui: AUJ });
+  assert.equal(minutesDe(sans.seances, AUJ), 52, 'sans rien de fait : quatre pages de 13 min');
 });

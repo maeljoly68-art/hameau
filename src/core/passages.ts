@@ -24,6 +24,8 @@ export interface Passage {
   vitesse: number | null;
   /** Ce qu'on a écrit de tête avant d'ouvrir la fiche. */
   rappel: string | null;
+  /** « Je pense savoir… » dit AVANT de comparer à la fiche : de 0 (pas du tout) à 3 (sûr de moi). Voir confiance.ts. */
+  confiance: number | null;
   /** Pour départager deux passages du même jour : l'ordre où ils ont été écrits. */
   creeLe: string;
 }
@@ -48,6 +50,7 @@ export function passageValide(brut: unknown): Passage | null {
     scorePct: entre(o.scorePct, 0, 100),
     vitesse: entre(o.vitesse, VITESSE_MIN, VITESSE_MAX),
     rappel: typeof o.rappel === 'string' && o.rappel.length > 0 ? o.rappel.slice(0, 2000) : null,
+    confiance: typeof o.confiance === 'number' && Number.isInteger(o.confiance) ? entre(o.confiance, 0, 3) : null,
     creeLe: typeof o.creeLe === 'string' ? o.creeLe : '',
   };
 }

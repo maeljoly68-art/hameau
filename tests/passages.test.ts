@@ -7,13 +7,13 @@ import type { Note } from '../src/core/revision.ts';
 
 const AUJ = '2026-11-20';
 let n = 0;
-const passage = (chapitreId: string, jour: string, sorte: SortePassage, note: Note | null = null, extra: Partial<Passage> = {}): Passage => ({ id: `p${++n}`, chapitreId, jour, sorte, note, minutes: null, scorePct: null, vitesse: null, rappel: null, creeLe: `${jour}T10:${String(n % 60).padStart(2, '0')}:00Z`, ...extra });
+const passage = (chapitreId: string, jour: string, sorte: SortePassage, note: Note | null = null, extra: Partial<Passage> = {}): Passage => ({ id: `p${++n}`, chapitreId, jour, sorte, note, minutes: null, scorePct: null, vitesse: null, rappel: null, confiance: null, creeLe: `${jour}T10:${String(n % 60).padStart(2, '0')}:00Z`, ...extra });
 const il = (jours: number) => ajouterJours(AUJ, -jours);
 
 // ── Lecture d'un passage ──
 
 test('un passage lu : chaque champ est vérifié, une ligne illisible est écartée', () => {
-  const ok = { id: 'x', chapitreId: 'c', jour: '2026-11-05', sorte: 'revision', note: 'bien', minutes: 12, scorePct: 85.5, vitesse: 1.1, rappel: 'les trois points', creeLe: '2026-11-05T10:00:00Z' };
+  const ok = { id: 'x', chapitreId: 'c', jour: '2026-11-05', sorte: 'revision', note: 'bien', minutes: 12, scorePct: 85.5, vitesse: 1.1, rappel: 'les trois points', confiance: 2, creeLe: '2026-11-05T10:00:00Z' };
   assert.deepEqual(passageValide(ok), ok);
   for (const casse of [null, undefined, 'x', 3, [], { ...ok, id: 4 }, { ...ok, chapitreId: undefined }, { ...ok, jour: '2026-02-30' }, { ...ok, jour: 'demain' }, { ...ok, jour: 20261105 }, { ...ok, sorte: 'devinette' }, { ...ok, sorte: undefined }]) assert.equal(passageValide(casse), null, JSON.stringify(casse));
   assert.equal(passageValide({ ...ok, note: 'moyen' })!.note, null, 'note inconnue : sans note, le passage reste lisible');

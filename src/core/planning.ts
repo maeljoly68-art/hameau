@@ -71,6 +71,8 @@ export interface EntreePlan {
   examens?: ReadonlyMap<string, number>;
   /** Les matières qui ont eu leur examen blanc récemment : pas besoin d'un autre. */
   examensFaits?: ReadonlySet<string>;
+  /** Part de rappel écrit dans une première séance (voir `PART_RAPPEL_PREMIERE`, la valeur par défaut). */
+  partRappel?: number;
 }
 
 /** Aucune lecture nouvelle dans les derniers jours : on consolide, on n'apprend plus. */
@@ -122,12 +124,18 @@ export function capaciteDuJour(d: Disponibilites, jour: string, minutesDeCours =
 }
 
 /**
- * Minutes pour lire un chapitre en entier, à TA vitesse : l'estimation tirée de la taille des pages, multipliée
- * par `vitesse` (1 = l'estimation telle quelle, 1,3 = tu mets 30 % de plus). Arrondie à la minute : avec la
- * vitesse 1, une durée de 47 min reste 47 min.
+ * Une première séance ne se termine pas à la dernière ligne lue : on ferme la fiche et on écrit de mémoire ce
+ * qu'on a retenu (c'est là que ça s'apprend, pas dans la lecture). Ce rappel prend ce rapport du temps de lecture.
  */
-export function dureeLecture(c: Pick<Chapitre, 'dureeMin'>, vitesse = 1): number {
-  return Math.max(5, Math.round(c.dureeMin * vitesseValide(vitesse)));
+export const PART_RAPPEL_PREMIERE = 0.3;
+
+/**
+ * Minutes pour apprendre un chapitre la première fois, à TA vitesse : la lecture (estimation tirée de la taille
+ * des pages) puis le rappel écrit qui la suit, le tout multiplié par `vitesse` (1 = l'estimation telle quelle,
+ * 1,3 = tu mets 30 % de plus). Arrondie à la minute.
+ */
+export function dureeLecture(c: Pick<Chapitre, 'dureeMin'>, vitesse = 1, partRappel = PART_RAPPEL_PREMIERE): number {
+  return Math.max(5, Math.round(c.dureeMin * (1 + partRappel) * vitesseValide(vitesse)));
 }
 
 export function dureeRevision(c: Pick<Chapitre, 'dureeMin'>, vitesse = 1): number {
@@ -157,11 +165,13 @@ export function planifier(entree: EntreePlan): Plan {
   const libres = new Set(disponibilites.libres);
   const capacite = (jour: string) => capaciteDuJour(disponibilites, jour, charge?.get(jour) ?? 0, libres);
   const vitesse = vitesseValide(disponibilites.vitesse);
+  const partRappel = Number.isFinite(entree.partRappel) ? Math.max(0, entree.partRappel as number) : PART_RAPPEL_PREMIERE;
+  const lecture = (ch: Pick<Chapitre, 'dureeMin'>) => dureeLecture(ch, vitesse, partRappel);
   // Ce qui est déjà fait aujourd'hui compte sur le temps d'aujourd'hui. Sans cela, valider une séance libérerait
   // du temps et une autre apparaîtrait à sa place : la journée ne finirait jamais. Le plan n'étant pas stocké, on
   // estime à partir des chapitres travaillés aujourd'hui : une première lecture (cran 1) coûte sa durée de
   // lecture, tout autre passage (révision, relecture) une durée de révision.
-  const minutesFaites = chapitres.reduce((t, ch) => (ch.derniere === aujourdhui ? t + (niveauValide(ch.niveau) === 1 ? dureeLecture(ch, vitesse) : dureeRevision(ch, vitesse)) : t), 0);
+  const minutesFaites = chapitres.reduce((t, ch) => (ch.derniere === aujourdhui ? t + (niveauValide(ch.niveau) === 1 ? lecture(ch) : dureeRevision(ch, vitesse)) : t), 0);
   const relecture = typeof disponibilites.relecture === 'number' && Number.isFinite(disponibilites.relecture) ? Math.min(RELECTURE_MAX, Math.max(0, Math.round(disponibilites.relecture))) : 0;
 
   // Seuls comptent les cours dont le partiel est à venir (ou sans date).
@@ -202,7 +212,7 @@ export function planifier(entree: EntreePlan): Plan {
           ch,
           niveau,
           prochaine: niveau >= 1 ? (ch.prochaine && estJour(ch.prochaine) ? ch.prochaine : aujourdhui) : null,
-          restant: niveau === 0 ? dureeLecture(ch, vitesse) : 0,
+          restant: niveau === 0 ? lecture(ch) : 0,
           // Déjà passé en revue dans la fenêtre finale, pour de vrai : pas besoin de le refaire.
           dernierFait: debutFenetre !== null && niveau >= 1 && ch.derniere !== null && estJour(ch.derniere) && ecartJours(debutFenetre, ch.derniere) >= 0,
           vuLe: ch.derniere !== null && estJour(ch.derniere) ? ch.derniere : null,
@@ -392,7 +402,7 @@ export function planifier(entree: EntreePlan): Plan {
       const choix = meilleur(jour, reste);
       if (!choix) break;
       const { cours: c, suivi: s, type, retard, avant } = choix;
-      const dejaCommence = s.restant < dureeLecture(s.ch, vitesse);
+      const dejaCommence = s.restant < lecture(s.ch);
       const minutes = type === 'decouverte' ? Math.min(s.restant, reste) : Math.min(dureeRevision(s.ch, vitesse), reste);
       let raison: string;
       if (type === 'decouverte') raison = dejaCommence ? 'Suite de la lecture' : avant === null ? 'À découvrir' : `À découvrir avant le partiel (dans ${avant} j)`;

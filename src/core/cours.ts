@@ -1,4 +1,6 @@
 // Cours, chapitres, notes : les types, et ce qu'on en déduit. Pur.
+import type { Carte } from './cartes.ts';
+import type { Erreur } from './erreurs.ts';
 import { ecartJours, estJour } from './jours.ts';
 import type { Passage } from './passages.ts';
 import { maitrise } from './revision.ts';
@@ -81,6 +83,12 @@ export interface DonneesCours {
   passages: Passage[];
   /** La table du journal existe-t-elle ? Sinon, tout le reste marche, sans pages fragiles ni bilan. */
   journal: boolean;
+  /** Le carnet d'erreurs : ce qu'on a noté en se trompant (voir erreurs.ts). */
+  erreurs: Erreur[];
+  /** Les cartes question/réponse des pages (voir cartes.ts). */
+  cartes: Carte[];
+  /** Les tables du carnet et des cartes existent-elles ? Sinon, tout le reste marche, sans elles. */
+  carnet: boolean;
 }
 
 export const DUREE_DEFAUT_MIN = 20;

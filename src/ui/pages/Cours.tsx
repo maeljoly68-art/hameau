@@ -4,7 +4,10 @@ import { COULEURS_COURS, DISPONIBILITES_DEFAUT, MAX_LIBRES, MINUTES_JOUR_MAX, RA
 import { ajouterJours, debutDuMois, estJour, grilleDuMois, jourCourt, jourSemaine, moisSuivant, versDate } from '../../core/jours.ts';
 import { LIBELLE_ETAPE, arrondi5, libellePages, regrouper, sansCoupure, type Etape } from '../../core/pages.ts';
 import { examensFaits as calculerExamensFaits, pagesFragiles } from '../../core/passages.ts';
+import { cartesParPage } from '../../core/cartes.ts';
 import { construireRappel } from '../../core/rappel.ts';
+import { estVeille } from '../../core/fiche.ts';
+import { heuresProductives, type Heures } from '../../core/heures.ts';
 import { JOURS_AVANT_DEBUT, PLEIN_COURS, SEUIL_COURS, planifier, resumeParJour, seancesDuJour, type Alerte, type Plan, type TypeSeance } from '../../core/planning.ts';
 import { cleJour, formatDuree } from '../../core/temps.ts';
 import { libelleVitesse } from '../../core/vitesse.ts';
@@ -14,6 +17,7 @@ import { IconeChevron } from '../Icones.tsx';
 import { useAgenda } from '../useAgenda.ts';
 import { useCours } from '../useCours.ts';
 import { Bilan } from './Bilan.tsx';
+import { CarnetDuJour } from './Carnet.tsx';
 import { ValiderBloc } from './Blocs.tsx';
 import { PageCours, type Faire } from './CoursDetail.tsx';
 import { RappelDuJour } from './Rappel.tsx';
@@ -36,6 +40,11 @@ export interface LancerChapitre {
   /** Durée prévue : l'objectif du chrono, et ce à quoi la durée réelle sera comparée pour préciser ta vitesse. */
   minutes: number;
 }
+/** L'heure, sur l'appareil, à laquelle un passage a été écrit (le cœur ne lit ni l'horloge ni le fuseau). */
+const heureLocale = (creeLe: string): number | null => {
+  const d = new Date(creeLe);
+  return Number.isNaN(d.getTime()) ? null : d.getHours();
+};
 const JOURS_COURTS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
 const teinte = (c: string) => ({ '--teinte': c }) as CSSProperties;
@@ -46,14 +55,16 @@ const couleurCreneau = (edt: EmploiDuTemps | null, cours: readonly CoursT[]) => 
   return id ? (cours.find((x) => x.id === id)?.couleur ?? null) : null;
 };
 
-function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId, fragiles }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; faire: Faire; surLancer: (l: LancerChapitre) => void; edt: EmploiDuTemps | null; userId: string; fragiles: ReadonlySet<string> }) {
+function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId, fragiles, ouvrirFiche, moments }: { plan: Plan; donnees: DonneesCours; aujourdhui: string; faire: Faire; surLancer: (l: LancerChapitre) => void; edt: EmploiDuTemps | null; userId: string; fragiles: ReadonlySet<string>; ouvrirFiche: (coursId: string) => void; moments: Heures }) {
   const seances = seancesDuJour(plan, aujourdhui);
   // Quelques révisions du jour se font par rappel (de tête, cours mélangés) ; le reste, en blocs, se note d'un geste.
   // Sans le journal on ne saurait pas combien de rappels sont déjà faits aujourd'hui : pas de rappel, plutôt qu'un rappel sans fin.
   const dejaFaits = donnees.passages.filter((p) => p.sorte === 'rappel' && p.jour === aujourdhui).length;
   const rappel = construireRappel({ seances, chapitres: donnees.chapitres, cours: donnees.cours, fragiles, aujourdhui, max: donnees.journal ? (donnees.disponibilites.rappel ?? RAPPEL_DEFAUT) : 0, dejaFaits, chargeJour: edt?.charge.get(aujourdhui) ?? 0 });
   const blocs = regrouper(rappel.restantes, donnees.chapitres);
+  const cartesDe = cartesParPage(donnees.cartes);
   const cours = edt?.parJour.get(aujourdhui) ?? [];
+  const veilles = donnees.cours.filter((c) => !c.enPause && estVeille(joursAvantPartiel(c, aujourdhui)));
   const total = seances.reduce((t, s) => t + s.minutes, 0);
   const faits = donnees.chapitres.filter((c) => c.derniere === aujourdhui);
   return (
@@ -70,7 +81,18 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId, 
         </div>
       )}
       {seances.length === 0 && rappel.items.length === 0 && <p className="aide">{faits.length > 0 ? 'Tout est fait pour aujourd’hui.' : 'Rien de prévu aujourd’hui : ni révision à faire, ni temps disponible. Le calendrier ci-dessous montre la suite.'}</p>}
+      {veilles.map((c) => (
+        <button key={c.id} className="alerte douce fiche-veille-banniere" onClick={() => ouvrirFiche(c.id)}>
+          <strong>Partiel de {c.titre} dans {joursAvantPartiel(c, aujourdhui)} jour{joursAvantPartiel(c, aujourdhui) === 1 ? '' : 's'}</strong> : la fiche de la veille t’attend (erreurs, mot pour mot, pages fragiles).
+        </button>
+      ))}
       <RappelDuJour rappel={rappel} donnees={donnees} aujourdhui={aujourdhui} faire={faire} />
+      <CarnetDuJour donnees={donnees} aujourdhui={aujourdhui} faire={faire} />
+      {moments.meilleur && fragiles.size > 0 && (
+        <p className="aide petite conseil-heure">
+          Tes notes sont les meilleures {moments.meilleur.nom === 'Matin' ? 'le matin' : moments.meilleur.nom === 'Midi' ? 'à midi' : moments.meilleur.nom === 'Après-midi' ? 'l’après-midi' : moments.meilleur.nom === 'Soir' ? 'le soir' : 'la nuit'} ({moments.meilleur.plage}) : garde ce moment pour tes pages fragiles.
+        </p>
+      )}
       <ul className="seances">
         {blocs.map((b) => {
           const c = donnees.cours.find((x) => x.id === b.coursId);
@@ -92,7 +114,7 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, edt, userId, 
                 {!seule && <span className="aide petite pages-titres">{titres.join(' · ')}</span>}
               </div>
               <div className="seance-actions">
-                <ValiderBloc bloc={b} aujourdhui={aujourdhui} userId={userId} faire={faire} />
+                <ValiderBloc bloc={b} aujourdhui={aujourdhui} userId={userId} faire={faire} pages={b.chapitreIds.map((id, i) => ({ id, titre: titres[i], cartes: cartesDe.get(id) ?? [] }))} lien={(seule ? donnees.chapitres.find((x) => x.id === b.chapitreIds[0])?.lien : null) ?? c.lien} />
                 <button className="lien" onClick={() => surLancer({ coursId: c.id, titreCours: c.titre, titre: nom, chapitreIds: b.chapitreIds, termines: b.termines, type: b.type, etape: b.etape, parCoeur: b.parCoeur, minutes: b.minutes })}>
                   Lancer le chrono
                 </button>
@@ -416,6 +438,8 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
   const [vue, setVue] = useState<string | null>(null);
   const [reglage, setReglage] = useState(false);
   const [reglageEdt, setReglageEdt] = useState(false);
+  // La fiche de la veille s'ouvre d'emblée quand on y arrive depuis « la fiche de la veille t'attend ».
+  const [ficheAuDepart, setFicheAuDepart] = useState(false);
   const aujourdhui = cleJour(new Date(maintenant));
 
   const faire = useCallback<Faire>(
@@ -434,6 +458,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
   const passages = donnees?.passages;
   const chapitresDonnees = donnees?.chapitres;
   const fragiles = useMemo(() => pagesFragiles(passages ?? [], aujourdhui), [passages, aujourdhui]);
+  const moments = useMemo(() => heuresProductives(passages ?? [], heureLocale), [passages]);
   // Sans le journal, on ne saurait pas qu'un examen blanc a été passé : il reviendrait sans fin. Pas d'examen blanc alors.
   const journal = donnees?.journal ?? false;
   const coursDonnees = donnees?.cours;
@@ -499,7 +524,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
     return (
       <>
         {bandeau}
-        <PageCours cours={ouvert} chapitres={chapitresDe(ouvert.id)} notes={donnees.notes.filter((n) => chapitresDe(ouvert.id).some((c) => c.id === n.chapitreId))} aujourdhui={aujourdhui} faire={faire} creneaux={edt ? (edt.parCours.get(ouvert.id) ?? []) : null} retour={() => setVue(null)} />
+        <PageCours cours={ouvert} chapitres={chapitresDe(ouvert.id)} notes={donnees.notes.filter((n) => chapitresDe(ouvert.id).some((c) => c.id === n.chapitreId))} cartes={donnees.cartes} erreurs={donnees.erreurs} fragiles={fragiles} carnet={donnees.carnet} ficheAuDepart={ficheAuDepart} aujourdhui={aujourdhui} faire={faire} creneaux={edt ? (edt.parCours.get(ouvert.id) ?? []) : null} retour={() => { setFicheAuDepart(false); setVue(null); }} />
       </>
     );
 
@@ -558,7 +583,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
         </section>
       ) : (
         <>
-          <Aujourdhui plan={plan} donnees={donnees} aujourdhui={aujourdhui} faire={faire} surLancer={surLancer} edt={edt} userId={userId} fragiles={fragiles} />
+          <Aujourdhui plan={plan} donnees={donnees} aujourdhui={aujourdhui} faire={faire} surLancer={surLancer} edt={edt} userId={userId} fragiles={fragiles} moments={moments} ouvrirFiche={(id) => { setFicheAuDepart(true); setVue(id); }} />
           <Alertes alertes={plan.alertes} donnees={donnees} aujourdhui={aujourdhui} ouvrir={setVue} />
           {/* Sans emploi du temps lu (jamais, ou plus de cache), le calendrier ignore les cours : on le dit, au lieu de laisser croire qu'il en tient compte. Hors ligne avec un cache, rien à dire : le panneau montre l'erreur. */}
           {donnees.agendaLien && agenda.erreur && agenda.creneaux === null && <p className="alerte douce">Emploi du temps : {agenda.erreur}</p>}
@@ -569,7 +594,7 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
             </details>
           )}
           <Calendrier plan={plan} donnees={donnees} aujourdhui={aujourdhui} edt={edt} />
-          <Bilan donnees={donnees} aujourdhui={aujourdhui} fragiles={fragiles} ouvert={jourSemaine(aujourdhui) === 6} />
+          <Bilan donnees={donnees} aujourdhui={aujourdhui} fragiles={fragiles} moments={moments} ouvert={jourSemaine(aujourdhui) === 6} />
           <section className="carte">
             <div className="entete">
               <h2>Mes cours</h2>
@@ -614,7 +639,9 @@ export default function OngletCours({ userId, synchronise, maintenant, surLancer
         <ol>
           <li>Le partiel le plus proche passe en premier.</li>
           <li>Une page = un tableau de l’artefact. Sa durée vient de sa taille, multipliée par TA vitesse ; le calendrier te dit « pages 1 à 7 » plutôt qu’un chapitre pour une heure.</li>
-          <li>Trois temps. « Lire » (jour 0) : tu comprends, sans te forcer à tout retenir. « Apprendre par cœur » (le lendemain) : tu fermes la fiche et tu écris de mémoire, ici ou sur papier, avant de comparer et de te noter : c’est obligatoire. « Réviser » : les retours suivants, de plus en plus espacés. « Relire » revoit une page sans te noter.</li>
+          <li>Trois temps, et on apprend dès la première fois. « Lire + écrire » (jour 0) : tu lis, puis tu fermes la fiche et tu écris de mémoire ce que tu as retenu, avant de comparer et de te noter. « Apprendre par cœur » (le lendemain) : même exercice, obligatoire (ici ou sur papier). « Réviser » : les retours suivants, de plus en plus espacés. « Relire » revoit une page sans te noter. Le temps annoncé d’une première séance compte ce rappel (30 % de la lecture en plus).</li>
+          <li>Avant de comparer à la fiche, dis si tu penses savoir : le bilan mesure l’écart avec ta note (l’illusion de savoir). Une erreur ? Note-la en une ligne : elle revient 6 jours après, jusqu’à ce que tu dises « je sais », et finit dans la fiche de la veille du partiel.</li>
+          <li>Les cartes question/réponse d’une page (bouton « Cartes ») remplacent « redis ce que tu retiens » par de vraies questions. Les points du village viennent aussi de ce que tu apprends (pages apprises, rappels réussis, examens blancs, série de jours), plafonnés par jour.</li>
           <li>Une page lue est revue dès le lendemain, puis après 3, 7, 14, 30 jours : l’écart grandit à chaque révision réussie.</li>
           <li>Une page « mot pour mot » (une formule, un article, un dialogue, des chiffres clés) suit un cycle resserré (1, 2, 4, 7, 14 jours) et reste en apprentissage un retour de plus. Tu la règles page par page (« Mot pour mot ») ou pour tout le cours.</li>
           <li>Ta note ajuste l’écart : « À revoir » ramène à demain, « Difficile » le divise par deux, « Facile » saute un cran. Un score (« 14 sur 20 ») donne la note : 90 % facile, 70 % bien, 50 % difficile.</li>
