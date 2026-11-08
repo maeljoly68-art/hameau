@@ -6,7 +6,7 @@ import { noteDepuisPct, scorePct } from '../../core/passages.ts';
 import { formatDuree } from '../../core/temps.ts';
 import { NOTES, type Note } from '../../core/revision.ts';
 import type { Ressenti } from '../../core/vitesse.ts';
-import { marquerRelu, noterChapitres, validerExamen, validerLectureEtVitesse } from '../../data/cours.ts';
+import { marquerRelu, noterChapitres, validerExamen, validerLectureEtVitesse, type OptionsNote } from '../../data/cours.ts';
 import { IconeCoche, IconeLien } from '../Icones.tsx';
 import { NotesRevision, type Faire } from './CoursDetail.tsx';
 import { RappelEcrit, type ResultatRappel } from '../RappelEcrit.tsx';
@@ -76,6 +76,19 @@ export interface PageDuBloc {
   cartes: Carte[];
 }
 
+const AUCUNE_PAGE: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Note les pages d'une séance. Celles qui ne sont pas encore dues (séance faite d'avance) comptent comme un rappel en
+ * plus : réussies, elles ne font pas monter le cran (voir `apresRappelAnticipe`) ; les autres, comme d'habitude.
+ */
+async function noterPages(ids: readonly string[], note: Note, jour: string, options: OptionsNote, anticipes: ReadonlySet<string>): Promise<void> {
+  const dues = ids.filter((id) => !anticipes.has(id));
+  const tot = ids.filter((id) => anticipes.has(id));
+  if (dues.length > 0) await noterChapitres(dues, note, jour, options);
+  if (tot.length > 0) await noterChapitres(tot, note, jour, { ...options, anticipe: true, erreur: dues.length > 0 ? null : options.erreur });
+}
+
 const OuvrirLaFiche = ({ lien }: { lien: string | null }) =>
   lien ? (
     <a className="bouton petit discret" href={lien} target="_blank" rel="noopener noreferrer">
@@ -89,7 +102,7 @@ const OuvrirLaFiche = ({ lien }: { lien: string | null }) =>
  * Le texte, s'il est tapé ici, est gardé dans le journal : c'est ta réponse, pas un simple geste. La confiance dite
  * avant de comparer mesure l'illusion de savoir (voir confiance.ts).
  */
-function ValiderApprentissage({ bloc, aujourdhui, faire, pages, lien }: { bloc: Bloc; aujourdhui: string; faire: Faire; pages: PageDuBloc[]; lien: string | null }) {
+function ValiderApprentissage({ bloc, aujourdhui, faire, pages, lien, anticipes }: { bloc: Bloc; aujourdhui: string; faire: Faire; pages: PageDuBloc[]; lien: string | null; anticipes: ReadonlySet<string> }) {
   return (
     <RappelEcrit
       obligatoire
@@ -99,7 +112,7 @@ function ValiderApprentissage({ bloc, aujourdhui, faire, pages, lien }: { bloc: 
       pages={pages}
       fiche={<OuvrirLaFiche lien={lien} />}
       enfants={(r) => {
-        const noter = (note: Note, pct: number | null) => faire(() => noterChapitres(bloc.chapitreIds, note, aujourdhui, { rappel: r.texte, scorePct: pct, confiance: r.confiance, erreur: r.erreur }), 'Noté : le calendrier est recalculé.');
+        const noter = (note: Note, pct: number | null) => faire(() => noterPages(bloc.chapitreIds, note, aujourdhui, { rappel: r.texte, scorePct: pct, confiance: r.confiance, erreur: r.erreur }, anticipes), 'Noté : le calendrier est recalculé.');
         return (
           <>
             <NotesRevision surNote={(n) => noter(n, null)} />
@@ -147,7 +160,7 @@ function EtapeValidation({ bloc, aujourdhui, userId, faire, r }: { bloc: Bloc; a
  * Valider une séance entière : première séance (lire PUIS écrire de mémoire, avec ton ressenti sur la vitesse), premier
  * retour (écrire de mémoire, puis se noter), révision notée, relecture, ou examen blanc. Ce qui n'est pas validé revient dans le calendrier.
  */
-export function ValiderBloc({ bloc, aujourdhui, userId, faire, pages, lien }: { bloc: Bloc; aujourdhui: string; userId: string; faire: Faire; pages: PageDuBloc[]; lien: string | null }) {
+export function ValiderBloc({ bloc, aujourdhui, userId, faire, pages, lien, anticipes = AUCUNE_PAGE }: { bloc: Bloc; aujourdhui: string; userId: string; faire: Faire; pages: PageDuBloc[]; lien: string | null; anticipes?: ReadonlySet<string> }) {
   if (bloc.etape === 'lire') {
     if (bloc.termines.length === 0) return <span className="aide petite">Cette séance se termine un autre jour : rien à valider aujourd’hui.</span>;
     const faites = pages.filter((p) => bloc.termines.includes(p.id));
@@ -170,12 +183,12 @@ export function ValiderBloc({ bloc, aujourdhui, userId, faire, pages, lien }: { 
       </button>
     );
   if (bloc.etape === 'examen') return <ValiderExamen bloc={bloc} aujourdhui={aujourdhui} faire={faire} />;
-  if (bloc.etape === 'apprendre') return <ValiderApprentissage bloc={bloc} aujourdhui={aujourdhui} faire={faire} pages={pages} lien={lien} />;
+  if (bloc.etape === 'apprendre') return <ValiderApprentissage bloc={bloc} aujourdhui={aujourdhui} faire={faire} pages={pages} lien={lien} anticipes={anticipes} />;
   return (
     <div className="valider-bloc">
       <span className="aide petite">Valider la séance, en te notant :</span>
-      <NotesRevision surNote={(n) => faire(() => noterChapitres(bloc.chapitreIds, n, aujourdhui), 'Noté : le calendrier est recalculé.')} />
-      <SaisieScore surScore={(pct) => faire(() => noterChapitres(bloc.chapitreIds, noteDepuisPct(pct), aujourdhui, { scorePct: pct }), 'Noté d’après ton score : le calendrier est recalculé.')} />
+      <NotesRevision surNote={(n) => faire(() => noterPages(bloc.chapitreIds, n, aujourdhui, {}, anticipes), 'Noté : le calendrier est recalculé.')} />
+      <SaisieScore surScore={(pct) => faire(() => noterPages(bloc.chapitreIds, noteDepuisPct(pct), aujourdhui, { scorePct: pct }, anticipes), 'Noté d’après ton score : le calendrier est recalculé.')} />
     </div>
   );
 }

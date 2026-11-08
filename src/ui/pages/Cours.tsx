@@ -26,6 +26,7 @@ import { PageCours, type Faire } from './CoursDetail.tsx';
 import { PratiqueDuJour } from './Pratique.tsx';
 import { RevisionLibreDuJour } from './RevisionLibre.tsx';
 import { RappelDuJour } from './Rappel.tsx';
+import { Semaine } from './Semaine.tsx';
 import { ListeCreneaux, NoteCharge, ReglageAgenda } from './Creneaux.tsx';
 
 /** Une séance lancée au chrono : une page, ou un bloc de pages (« Pages 1 à 7 »). */
@@ -619,6 +620,7 @@ export default function OngletCours({ userId, synchronise, maintenant, sessions,
               {panneauAgenda(true)}
             </details>
           )}
+          <Semaine plan={plan} donnees={donnees} libres={libres} aujourdhui={aujourdhui} charge={edt?.charge} userId={userId} faire={faire} surLancer={surLancer} />
           <Calendrier plan={plan} libres={libres} donnees={donnees} aujourdhui={aujourdhui} edt={edt} />
           <Bilan donnees={donnees} aujourdhui={aujourdhui} fragiles={fragiles} moments={moments} ouvert={jourSemaine(aujourdhui) === 6} />
           <section className="carte">

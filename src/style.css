@@ -907,3 +907,27 @@ div.ag-partiel p { margin: 0; }
 .case-relance input { width: auto; flex: none; margin: 3px 0 0; }
 .etat-blocage { margin: 0; }
 .etat-blocage-ok { color: var(--vert); font-weight: 600; }
+
+/* ── Ma semaine (onglet Cours) ── */
+.semaine-plan { display: grid; gap: 12px; }
+.sem-bilan, .sem-avance { display: grid; gap: 8px; }
+.sem-bilan .sous-titre { margin: 0; }
+.sem-objectifs { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: 8px !important; }
+.sem-objectifs > li { display: grid; gap: 6px; background: var(--fond-2); border: 1px solid var(--bord); border-left: 4px solid var(--teinte, var(--accent)); border-radius: 14px; padding: 10px 12px; }
+.sem-objectif-tete { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.sem-objectifs ul { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: 3px !important; font-size: 14px; }
+.sem-jours { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: 12px !important; }
+.sem-jour { display: grid; gap: 8px; border-top: 1px solid var(--bord); padding-top: 10px; }
+.sem-jour.aujourdhui { border-top-color: var(--accent); }
+.sem-jour.passe { opacity: .85; }
+.sem-jour.replie { padding-top: 6px; opacity: .6; }
+.sem-jour-tete { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; }
+.sem-jour-tete h3 { margin: 0; font-size: 15px; text-transform: capitalize; }
+.sem-badge { margin-left: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 2px 8px; border-radius: 99px; background: var(--accent); color: var(--accent-texte); vertical-align: 1px; }
+.sem-faits { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: 4px !important; font-size: 14px; }
+.sem-faits li { display: flex; align-items: center; gap: 8px; color: var(--texte-2); }
+.sem-coche { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 99px; background: var(--vert); color: var(--fond); }
+.sem-valider { display: grid; gap: 8px; border-top: 1px dashed var(--bord-fort); padding-top: 10px; }
+.sem-ajout { display: grid; gap: 10px; background: var(--fond-2); border: 1px solid var(--bord); border-radius: 14px; padding: 12px; }
+.sem-plage { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 420px) { .sem-plage { grid-template-columns: 1fr; } }
