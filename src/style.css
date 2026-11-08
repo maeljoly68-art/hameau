@@ -901,3 +901,5 @@ div.ag-partiel p { margin: 0; }
 .blocage-sites code { background: var(--fond-2); border-radius: 6px; padding: 1px 6px; font-size: .9em; white-space: nowrap; }
 .case-relance { display: flex; align-items: flex-start; gap: 8px; font-size: 13.5px; color: var(--texte-2); cursor: pointer; }
 .case-relance input { width: auto; flex: none; margin: 3px 0 0; }
+.etat-blocage { margin: 0; }
+.etat-blocage-ok { color: var(--vert); font-weight: 600; }

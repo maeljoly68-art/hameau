@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Hameau · concentration",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Pendant un chrono Hameau : te demande « tu es sûr ? » avant de changer de page, et bloque les sites ou les adresses que tu choisis (YouTube, LinkedIn, Instagram…). Tout se relâche à l'arrêt du chrono.",
   "minimum_chrome_version": "120",
   "permissions": [

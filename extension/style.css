@@ -38,3 +38,5 @@ body.bloque { min-height: 100vh; display: grid; place-items: center; text-align:
 .options .deux { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 select { font: inherit; color: var(--texte); background: var(--carte); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 10px; padding: 8px 10px; }
 @media (max-width: 520px) { .options .deux { grid-template-columns: 1fr; } }
+
+body.popup.plein { width: auto; max-width: 420px; margin: 40px auto; }

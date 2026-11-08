@@ -2,7 +2,7 @@
 // détecte. Une extension chargée « non empaquetée » ne se met pas à jour toute seule : il faut le dire. Pur.
 
 /** La version du manifeste d'extension/manifest.json : un test vérifie qu'elles restent identiques. */
-export const VERSION_EXTENSION = '1.1.0';
+export const VERSION_EXTENSION = '1.1.1';
 
 const morceaux = (v: string): number[] | null => {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v.trim());

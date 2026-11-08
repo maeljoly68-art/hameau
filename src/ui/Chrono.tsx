@@ -5,6 +5,7 @@ import { ecouleEffectif, enPause } from '../core/session.ts';
 import { formatChrono, formatDuree, MINUTE_MS } from '../core/temps.ts';
 import type { Session } from '../core/types.ts';
 import { IconeLecture, IconePause, IconePleinEcran, IconeStop } from './Icones.tsx';
+import { EtatBlocage } from './EtatBlocage.tsx';
 import { useMaintenant } from './useHameau.ts';
 
 export const CATEGORIES_PROPOSEES = ['Travail', 'Études', 'Projet perso', 'Lecture', 'Admin', 'Sport'];
@@ -160,6 +161,7 @@ function ChronoActif({ session, surArreter, surPause, surReprendre, surFocus }: 
         {session.objectif !== null && <span> · objectif {session.objectif} min</span>}
         <span className="discret"> · lancée sur {session.appareil || 'un appareil'}</span>
       </p>
+      <EtatBlocage depuisS={Math.floor(e.ecouleMs / 1000)} />
       {e.suspecte && !e.enPause && <p className="alerte douce petite">Plus de 3 h d’affilée : chrono oublié ? Tu pourras corriger l’heure de fin en terminant.</p>}
       <div className="actions centre actions-chrono">
         {/* Clés distinctes : sans elles, React réutilise le même bouton pour

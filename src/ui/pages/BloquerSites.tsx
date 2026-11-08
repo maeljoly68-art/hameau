@@ -3,16 +3,25 @@ import { VERSION_EXTENSION, enRetard } from '../../core/extension.ts';
 import { useExtension } from '../useExtension.ts';
 
 export function BloquerSites() {
-  const ext = useExtension();
+  const ext = useExtension(true);
   return (
     <section className="carte blocage-sites">
       <h2>Rester concentré pendant le chrono</h2>
       <p className="aide">
         Une extension Chrome (ordinateur) te demande « tu es sûr ? » quand tu changes de site pendant un chrono, et ferme les sites ou les adresses que tu choisis (YouTube, LinkedIn, Instagram, <code>youtube.com/shorts</code>…) — chrono lancé d’ici, du téléphone ou de l’iPad. Tout se relâche dès que tu l’arrêtes.
       </p>
-      <p className={ext.etat === 'presente' && !enRetard(ext.version) ? 'aide extension-ok' : 'aide'} role="status">
-        {ext.etat === 'presente' ? `Extension détectée dans ce navigateur (version ${ext.version}) ${enRetard(ext.version) ? '' : '✓'}` : ext.etat === 'cherche' ? 'Recherche de l’extension…' : 'Extension non détectée dans ce navigateur.'}
+      <p className={ext.etat === 'presente' && !enRetard(ext.version) && ext.connecte !== false ? 'aide extension-ok' : 'aide'} role="status">
+        {ext.etat === 'presente'
+          ? `Extension détectée dans ce navigateur (version ${ext.version})${enRetard(ext.version) ? '' : ext.connecte === false ? ' — mais pas connectée à ton compte.' : ext.connecte ? ' et connectée à ton compte ✓' : ' ✓'}`
+          : ext.etat === 'cherche'
+            ? 'Recherche de l’extension…'
+            : 'Extension non détectée dans ce navigateur (téléphone, autre navigateur, fenêtre privée, ou pas encore installée).'}
       </p>
+      {ext.etat === 'presente' && !enRetard(ext.version) && ext.connecte === false && (
+        <p className="alerte douce">
+          Sans compte, l’extension ne sait pas quand ton chrono tourne : <strong>rien n’est bloqué</strong>. Clique sur son icône (menu puzzle → épingle-la) et connecte-toi avec l’e-mail et le mot de passe de Hameau. Pas de mot de passe (connexion par lien) ? Utilise « Mot de passe oublié » sur l’écran de connexion de Hameau pour en choisir un.
+        </p>
+      )}
       {ext.etat === 'presente' && enRetard(ext.version) && (
         <p className="alerte douce">
           La version {VERSION_EXTENSION} est disponible (la confirmation avant de changer de page, et les adresses précises). Télécharge-la, remplace le dossier « hameau-bloqueur », puis clique sur ⟳ (recharger) sur la carte de l’extension dans <code>chrome://extensions</code>.

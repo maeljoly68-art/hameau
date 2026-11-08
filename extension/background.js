@@ -52,6 +52,7 @@ async function seDeconnecter() {
   await appliquer(false, (await reglages()).sites);
   await chrome.storage.local.remove('compte');
   await chrome.storage.local.set({ etat: etatVide });
+  await badge(etatVide, null);
 }
 
 /** Renouvelle le jeton. null : refusé pour de bon (compte déconnecté ailleurs) ; 'reseau' : pas de réponse. */
@@ -112,44 +113,91 @@ async function appliquer(bloque, sites) {
   }
 }
 
+/**
+ * L'icône de l'extension dit où l'on en est, sans ouvrir quoi que ce soit : « ON » rouge quand les sites sont bloqués,
+ * « ! » orange quand l'extension n'est pas connectée au compte (alors rien ne peut être bloqué), « II » en pause, « ? »
+ * quand la base ne répond pas. Rien du tout sans chrono.
+ */
+async function badge(etat, diag) {
+  let texte = '';
+  let couleur = '#d9534f';
+  let titre = 'Hameau · aucun chrono : rien n’est bloqué';
+  if (!etat.connecte) {
+    texte = '!';
+    couleur = '#e8a33d';
+    titre = 'Hameau · pas connecté à ton compte : rien ne peut être bloqué (clique pour te connecter)';
+  } else if (diag && diag.reussi === false) {
+    texte = '?';
+    couleur = '#8a8fa8';
+    titre = 'Hameau · la base ne répond pas : l’état d’avant est gardé';
+  } else if (etat.bloque) {
+    texte = 'ON';
+    titre = 'Hameau · chrono en cours : sites bloqués';
+  } else if (etat.enCours && etat.enPause) {
+    texte = 'II';
+    couleur = '#e8a33d';
+    titre = 'Hameau · chrono en pause';
+  }
+  await chrome.action.setBadgeText({ text: texte });
+  await chrome.action.setBadgeBackgroundColor({ color: couleur });
+  await chrome.action.setTitle({ title: titre });
+}
+
 let enCours = null;
 
 /** Une vérification à la fois : l'alarme, Hameau et la fenêtre peuvent la demander ensemble. */
 export function verifier() {
   if (enCours) return enCours;
   enCours = (async () => {
-    const { compte, etat: precedent } = await chrome.storage.local.get(['compte', 'etat']);
-    const r = await reglages();
-    if (!compte) {
-      await appliquer(false, r.sites);
-      await chrome.storage.local.set({ etat: etatVide });
-      return { connecte: false };
+    try {
+      return await calculer();
+    } catch (e) {
+      // Une erreur inattendue ne passe pas inaperçue : elle va dans le diagnostic, que la fenêtre de l'extension affiche.
+      await chrome.storage.local.set({ diag: { verifieLe: maintenant(), reussi: false, raison: null, erreur: String(e?.message ?? e).slice(0, 200), nbRegles: null, session: null } }).catch(() => undefined);
+      throw e;
     }
-    const s = await sessionOuverte(compte);
-    if (!s.ok && s.raison === 'deconnecte') {
-      await chrome.storage.local.remove('compte');
-      await appliquer(false, r.sites);
-      await chrome.storage.local.set({ etat: etatVide });
-      return { connecte: false };
-    }
-    let etat;
-    if (s.ok) etat = { ...etatDepuisSession(s.ligne, { debloquerEnPause: r.debloquerEnPause }), connecte: true, dernierSucces: maintenant() };
-    else {
-      // Base injoignable : on garde l'état d'avant tant qu'il est assez récent (voir garderBlocage).
-      const garde = garderBlocage(precedent, maintenant());
-      etat = { ...(precedent ?? etatDepuisSession(null)), connecte: true, bloque: garde, dernierSucces: precedent?.dernierSucces ?? null };
-    }
-    // Les règles d'abord, l'état ensuite : la page de blocage qui voit « débloqué » repart aussitôt vers le site, et si
-    // la règle y était encore, elle la renverrait ici en boucle.
-    await appliquer(etat.bloque, r.sites);
-    await chrome.storage.local.set({ etat });
-    // Un laissez-passer vaut pour CE chrono : le suivant redemande.
-    if (!etat.enCours) await chrome.storage.local.remove('passes');
-    return etat;
   })().finally(() => {
     enCours = null;
   });
   return enCours;
+}
+
+async function calculer() {
+  const { compte, etat: precedent } = await chrome.storage.local.get(['compte', 'etat']);
+  const r = await reglages();
+  const noter = async (etat, diag) => {
+    // Les règles d'abord, l'état ensuite : la page de blocage qui voit « débloqué » repart aussitôt vers le site, et si
+    // la règle y était encore, elle la renverrait ici en boucle.
+    await appliquer(etat.bloque, r.sites);
+    const nbRegles = (await chrome.declarativeNetRequest.getDynamicRules()).length;
+    const complet = { verifieLe: maintenant(), reussi: true, raison: null, erreur: null, session: null, ...diag, nbRegles };
+    await chrome.storage.local.set({ etat, diag: complet });
+    await badge(etat, complet);
+    return etat;
+  };
+  if (!compte) return noter(etatVide, {});
+  const s = await sessionOuverte(compte);
+  if (!s.ok && s.raison === 'deconnecte') {
+    await chrome.storage.local.remove('compte');
+    return noter(etatVide, { raison: 'deconnecte' });
+  }
+  let etat;
+  if (s.ok) etat = { ...etatDepuisSession(s.ligne, { debloquerEnPause: r.debloquerEnPause }), connecte: true, dernierSucces: maintenant() };
+  else {
+    // Base injoignable : on garde l'état d'avant tant qu'il est assez récent (voir garderBlocage).
+    const garde = garderBlocage(precedent, maintenant());
+    etat = { ...(precedent ?? etatDepuisSession(null)), connecte: true, bloque: garde, dernierSucces: precedent?.dernierSucces ?? null };
+  }
+  await noter(etat, s.ok ? { session: Boolean(s.ligne) } : { reussi: false, raison: s.raison });
+  // Un laissez-passer vaut pour CE chrono : le suivant redemande.
+  if (!etat.enCours) await chrome.storage.local.remove('passes');
+  return etat;
+}
+
+/** Ce que Hameau (la page) peut savoir de l'extension : qu'elle est là, quelle version, connectée ou non, bloquante ou non. */
+async function statut() {
+  const { etat, compte, diag } = await chrome.storage.local.get(['etat', 'compte', 'diag']);
+  return { version: chrome.runtime.getManifest().version, connecte: Boolean(compte), bloque: Boolean(etat?.bloque), enCours: Boolean(etat?.enCours), reussi: diag ? diag.reussi : null };
 }
 
 /**
@@ -166,9 +214,13 @@ async function surNavigation(tabId, destination) {
   await chrome.tabs.update(tabId, { url: `${chrome.runtime.getURL('confirmer.html')}?de=${encodeURIComponent(actuelle)}&u=${destination}` }).catch(() => undefined);
 }
 
-chrome.webNavigation.onBeforeNavigate.addListener((d) => {
-  if (d.frameId === 0) void surNavigation(d.tabId, d.url);
-});
+// Si cette permission manquait (manifeste d'une autre version), le service ne doit pas tomber en entier : le blocage et le
+// badge n'en dépendent pas.
+if (chrome.webNavigation?.onBeforeNavigate) {
+  chrome.webNavigation.onBeforeNavigate.addListener((d) => {
+    if (d.frameId === 0) void surNavigation(d.tabId, d.url);
+  });
+}
 
 /** Une minute pour revenir à la page d'où l'on venait sans que le retour lui-même redemande « tu es sûr ? ». */
 const RETOUR_MIN = 1;
@@ -200,7 +252,12 @@ chrome.alarms.get(ALARME).then((a) => {
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === ALARME) void verifier();
 });
-chrome.runtime.onInstalled.addListener(() => void verifier());
+chrome.runtime.onInstalled.addListener((d) => {
+  // À l'installation, la fenêtre de connexion s'ouvre dans un onglet : sans compte, rien ne peut être bloqué, et l'icône
+  // d'une extension fraîchement chargée est cachée dans le menu « puzzle ».
+  if (d.reason === 'install') void chrome.tabs.create({ url: chrome.runtime.getURL('popup.html?page=1') });
+  void verifier();
+});
 chrome.runtime.onStartup.addListener(() => void verifier());
 // La liste ou l'option de pause changent : les règles se recalculent aussitôt.
 chrome.storage.onChanged.addListener((changes, zone) => {
@@ -211,6 +268,7 @@ chrome.runtime.onMessage.addListener((message, expediteur, repondre) => {
   // Seules les pages de l'extension et le relais sur Hameau écrivent ici ; rien d'autre ne peut ouvrir une session.
   if (expediteur.id !== chrome.runtime.id) return false;
   if (message?.type === 'verifier') void verifier().then(repondre);
+  else if (message?.type === 'statut') void statut().then(repondre);
   else if (message?.type === 'connexion') void seConnecter(String(message.email ?? '').trim(), String(message.motDePasse ?? '')).then(async (r) => repondre(r.ok ? { ...r, etat: await verifier() } : r));
   else if (message?.type === 'choix' && (message.choix === 'rester' || message.choix === 'continuer')) void choisir(message.choix, String(message.destination ?? '')).then(repondre);
   else if (message?.type === 'deconnexion') void seDeconnecter().then(() => repondre({ ok: true }));
