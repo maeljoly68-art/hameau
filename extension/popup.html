@@ -7,35 +7,52 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body class="popup">
-    <header>
-      <img src="icones/icone-48.png" alt="" width="32" height="32" />
+    <header class="entete">
+      <img src="icones/icone-48.png" alt="" width="28" height="28" />
       <strong>Hameau</strong>
+      <nav id="onglets" class="onglets" role="tablist" aria-label="Vues" hidden>
+        <button id="t-chrono" type="button" role="tab" aria-selected="true" aria-controls="v-chrono">Chrono</button>
+        <button id="t-reglages" type="button" role="tab" aria-selected="false" aria-controls="v-reglages" aria-label="Paramètres" title="Paramètres">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+        </button>
+      </nav>
     </header>
-    <section id="etat" aria-live="polite">
-      <h1 id="titre">…</h1>
-      <p id="detail" class="aide"></p>
-      <p id="bilan" class="aide petite"></p>
-      <p id="diagnostic" class="aide petite"></p>
-      <ul id="sites-travail" class="sites-travail" hidden></ul>
+
+    <section id="v-chrono" role="tabpanel" aria-labelledby="t-chrono" hidden>
+      <div id="carte" class="carte-chrono" data-etat="libre" aria-live="polite">
+        <span class="puce"><i class="point" aria-hidden="true"></i><span id="puce">…</span></span>
+        <p id="temps" class="temps">—</p>
+        <p id="categorie" class="categorie" hidden></p>
+        <p id="alerte" class="alerte-popup" role="status" hidden></p>
+        <ul id="sites-travail" class="sites-travail" aria-label="Sites du chrono" hidden></ul>
+      </div>
+      <div class="rangee">
+        <a id="ouvrir" class="bouton primaire" href="#" target="_blank" rel="noopener">
+          Ouvrir Hameau
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg>
+        </a>
+        <button id="verifier" type="button" class="bouton icone" title="Vérifier maintenant" aria-label="Vérifier maintenant">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4" /><path d="M21 4v5h-5" /></svg>
+        </button>
+      </div>
     </section>
-    <form id="connexion" hidden>
-      <p class="aide">Connecte-toi avec le compte que tu utilises dans Hameau : l’extension saura quand ton chrono tourne, même s’il a été lancé depuis ton téléphone.</p>
+
+    <section id="v-reglages" role="tabpanel" aria-labelledby="t-reglages" hidden>
+      <h2 class="rubrique">Sites bloqués</h2>
+      <ul id="liste-bloques" class="puces-sites"></ul>
+      <button id="reglages" type="button" class="bouton discret plein">Modifier les sites et les règles</button>
+      <h2 class="rubrique">Compte</h2>
+      <button id="sortir" type="button" class="bouton discret danger plein">Se déconnecter</button>
+      <p id="diagnostic" class="etat-technique"></p>
+    </section>
+
+    <form id="connexion" class="carte-connexion" hidden>
+      <span id="titre" class="puce alerte"><i class="point" aria-hidden="true"></i>Pas connecté · rien n’est bloqué</span>
       <label>E-mail <input id="email" type="email" autocomplete="username" required /></label>
       <label>Mot de passe <input id="mdp" type="password" autocomplete="current-password" required /></label>
-      <button id="entrer" class="bouton">Se connecter</button>
+      <button id="entrer" class="bouton primaire plein">Se connecter</button>
       <p id="erreur" class="erreur" role="alert"></p>
     </form>
-    <section id="compte" hidden>
-      <p class="aide">Connecté : <span id="adresse"></span></p>
-      <div class="actions">
-        <button id="verifier" class="bouton discret">Vérifier maintenant</button>
-        <a id="ouvrir" class="bouton discret" href="#" target="_blank" rel="noopener">Ouvrir Hameau</a>
-      </div>
-      <div class="actions">
-        <a id="reglages" class="lien" href="#">Choisir les sites bloqués</a>
-        <button id="sortir" class="lien">Se déconnecter</button>
-      </div>
-    </section>
     <script type="module" src="popup.js"></script>
   </body>
 </html>

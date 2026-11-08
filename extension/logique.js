@@ -79,7 +79,7 @@ export function lireSites(texte) {
  * Une pause laisse bloqué, sauf si l'on a choisi de débloquer pendant les pauses.
  */
 export function etatDepuisSession(ligne, options = {}) {
-  if (!ligne || ligne.fin) return { enCours: false, bloque: false, enPause: false, categorie: '', debut: null, sessionId: null };
+  if (!ligne || ligne.fin) return { enCours: false, bloque: false, enPause: false, categorie: '', debut: null, sessionId: null, pauseSecondes: 0, pauseDepuis: null };
   const enPause = ligne.pause_depuis != null;
   return {
     enCours: true,
@@ -88,6 +88,8 @@ export function etatDepuisSession(ligne, options = {}) {
     categorie: typeof ligne.categorie === 'string' ? ligne.categorie : '',
     debut: typeof ligne.debut === 'string' ? ligne.debut : null,
     sessionId: typeof ligne.id === 'string' ? ligne.id : null,
+    pauseSecondes: Number.isFinite(Number(ligne.pause_secondes)) && Number(ligne.pause_secondes) > 0 ? Number(ligne.pause_secondes) : 0,
+    pauseDepuis: typeof ligne.pause_depuis === 'string' ? ligne.pause_depuis : null,
   };
 }
 
@@ -151,21 +153,37 @@ export function urlOriginale(search, hash = '') {
   }
 }
 
-/** Minutes écoulées depuis le début d'une session ; null si le début est illisible. */
-export function minutesDepuis(debutIso, maintenantMs) {
-  const d = Date.parse(String(debutIso ?? ''));
-  return Number.isFinite(d) ? Math.max(0, Math.floor((maintenantMs - d) / 60000)) : null;
+/**
+ * Le temps de travail du chrono, en secondes, pauses déduites (comme le chrono de Hameau : une pause ne compte pas) ;
+ * null si le début est illisible. Une pause en cours est déduite jusqu'à maintenant.
+ */
+export function secondesDeTravail(etat, maintenantMs) {
+  const debut = Date.parse(String(etat?.debut ?? ''));
+  if (!Number.isFinite(debut)) return null;
+  const faites = Number(etat.pauseSecondes);
+  const depuisPause = Date.parse(String(etat.pauseDepuis ?? ''));
+  const pause = (Number.isFinite(faites) && faites > 0 ? faites : 0) + (Number.isFinite(depuisPause) ? Math.max(0, (maintenantMs - depuisPause) / 1000) : 0);
+  return Math.max(0, Math.floor((maintenantMs - debut) / 1000 - pause));
 }
 
-/** Ce que dit la fenêtre de l'extension : le titre et le détail, d'après l'état et la liste. */
-export function phraseEtat(etat, sites, maintenantMs) {
-  if (!etat || !etat.enCours) return { titre: 'Aucun chrono', detail: 'Rien n’est bloqué : tout se débloque quand le chrono s’arrête.' };
-  const duree = minutesDepuis(etat.debut, maintenantMs);
-  const sur = etat.categorie.trim() === '' ? '' : ` sur « ${etat.categorie.trim()} »`;
-  const depuis = duree === null ? '' : ` depuis ${duree} min`;
-  if (!etat.bloque) return { titre: `Pause${sur}`, detail: 'Les sites sont débloqués pendant la pause : ils se rebloquent à la reprise.' };
-  const liste = sites.length === 0 ? 'aucun site (la liste est vide)' : sites.join(', ');
-  return { titre: `Chrono en cours${sur}${depuis}`, detail: `Bloqués : ${liste}.` };
+/** « 44:12 » sous l'heure, « 1:44:12 » au-delà. */
+export function formatChronoCourt(secondes) {
+  const s = Math.max(0, Math.floor(Number.isFinite(secondes) ? secondes : 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const reste = String(s % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${reste}` : `${String(m).padStart(2, '0')}:${reste}`;
+}
+
+/**
+ * Où en est le blocage, pour la fenêtre : `cle` (la couleur de la carte) et `puce` (le mot court qui l'accompagne).
+ * Sans chrono, tout est libre ; en pause, les sites sont libres seulement si l'option « tout relâcher » est cochée.
+ */
+export function situation(etat) {
+  if (!etat || !etat.enCours) return { cle: 'libre', puce: 'Sites libres' };
+  if (!etat.bloque) return { cle: 'pause-libre', puce: 'En pause · sites libres' };
+  if (etat.enPause) return { cle: 'pause', puce: 'En pause · sites bloqués' };
+  return { cle: 'bloque', puce: 'Sites bloqués' };
 }
 
 /**

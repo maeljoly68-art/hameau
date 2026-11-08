@@ -14,15 +14,19 @@ export interface EtatBlocage {
   categorie: string;
   debut: string | null;
   sessionId: string | null;
+  /** Secondes de pause déjà cumulées, et le début de la pause en cours (null hors pause). */
+  pauseSecondes: number;
+  pauseDepuis: string | null;
 }
-export function etatDepuisSession(ligne: { id?: unknown; debut?: unknown; fin?: unknown; categorie?: unknown; pause_depuis?: unknown } | null, options?: { debloquerEnPause?: boolean }): EtatBlocage;
+export function etatDepuisSession(ligne: { id?: unknown; debut?: unknown; fin?: unknown; categorie?: unknown; pause_depuis?: unknown; pause_secondes?: unknown } | null, options?: { debloquerEnPause?: boolean }): EtatBlocage;
 export function garderBlocage(precedent: { bloque?: boolean; dernierSucces?: unknown } | null | undefined, maintenantMs: number): boolean;
 export function reglesBlocage(sites: string[], racineExtension: string): { id: number; priority: number; action: { type: string; redirect: { regexSubstitution: string } }; condition: { regexFilter: string; requestDomains?: string[]; resourceTypes: string[] } }[];
 export function urlBloquee(adresse: unknown, sites: string[]): boolean;
 export function hoteBloque(hote: unknown, sites: string[]): boolean;
 export function urlOriginale(search: unknown, hash?: unknown): string | null;
-export function minutesDepuis(debutIso: unknown, maintenantMs: number): number | null;
-export function phraseEtat(etat: EtatBlocage | null, sites: string[], maintenantMs: number): { titre: string; detail: string };
+export function secondesDeTravail(etat: Pick<EtatBlocage, 'debut' | 'pauseSecondes' | 'pauseDepuis'> | null | undefined, maintenantMs: number): number | null;
+export function formatChronoCourt(secondes: number): string;
+export function situation(etat: EtatBlocage | null | undefined): { cle: 'libre' | 'pause-libre' | 'pause' | 'bloque'; puce: string };
 export function originesAAutoriser(sites: string[]): string[];
 
 export interface Confirmation { active: boolean; delaiS: number; passeMin: number }

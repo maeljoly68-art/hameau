@@ -9,7 +9,7 @@ const ALARME = 'hameau-verifier';
 const MARGE_JETON_S = 60;
 
 const maintenant = () => Date.now();
-const etatVide = { enCours: false, bloque: false, enPause: false, categorie: '', debut: null, sessionId: null, connecte: false, dernierSucces: null };
+const etatVide = { enCours: false, bloque: false, enPause: false, categorie: '', debut: null, sessionId: null, pauseSecondes: 0, pauseDepuis: null, connecte: false, dernierSucces: null };
 
 async function reglages() {
   const r = await chrome.storage.sync.get({ sites: SITES_PAR_DEFAUT, debloquerEnPause: false, confirmation: CONFIRMATION_DEFAUT, autorises: SITES_DE_TRAVAIL_DEFAUT, suivi: SUIVI_DEFAUT });
@@ -79,7 +79,7 @@ async function sessionOuverte(compte) {
     if (n === 'reseau') return { ok: false, raison: 'reseau' };
     c = n;
   }
-  const demander = async (jeton) => fetch(`${URL_SUPABASE}/rest/v1/sessions?select=id,debut,categorie,pause_depuis,fin&fin=is.null&limit=1`, { headers: await enteteBase(jeton) });
+  const demander = async (jeton) => fetch(`${URL_SUPABASE}/rest/v1/sessions?select=id,debut,categorie,pause_depuis,pause_secondes,fin&fin=is.null&limit=1`, { headers: await enteteBase(jeton) });
   let r;
   try {
     r = await demander(c.access_token);

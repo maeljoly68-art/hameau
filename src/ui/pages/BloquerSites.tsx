@@ -24,7 +24,7 @@ export function BloquerSites() {
       )}
       {ext.etat === 'presente' && enRetard(ext.version) && (
         <p className="alerte douce">
-          La version {VERSION_EXTENSION} est disponible (elle retient les sites sur lesquels tu travailles, pour l’Historique et les Statistiques). Télécharge-la, remplace le dossier « hameau-bloqueur », puis clique sur ⟳ (recharger) sur la carte de l’extension dans <code>chrome://extensions</code>.
+          La version {VERSION_EXTENSION} est disponible (fenêtre repensée, et suivi des sites sur lesquels tu travailles pour l’Historique et les Statistiques). Télécharge-la, remplace le dossier « hameau-bloqueur », puis clique sur ⟳ (recharger) sur la carte de l’extension dans <code>chrome://extensions</code>.
         </p>
       )}
       <a className="bouton" href={`${import.meta.env.BASE_URL}hameau-bloqueur.zip`} download="hameau-bloqueur.zip">

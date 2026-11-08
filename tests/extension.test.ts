@@ -42,9 +42,10 @@ import {
   garderBlocage,
   hoteBloque,
   lireSites,
-  minutesDepuis,
+  secondesDeTravail,
+  formatChronoCourt,
+  situation,
   originesAAutoriser,
-  phraseEtat,
   reglesBlocage,
   urlOriginale,
 } from '../extension/logique.js';
@@ -109,7 +110,7 @@ test('les sites par défaut sont ceux demandés, et aucun n’est protégé', ()
 
 test('une session ouverte bloque ; sans session, ou close, rien n’est bloqué', () => {
   const ligne = { id: 's1', debut: '2026-11-07T10:00:00Z', fin: null, categorie: 'Droit', pause_depuis: null };
-  assert.deepEqual(etatDepuisSession(ligne), { enCours: true, bloque: true, enPause: false, categorie: 'Droit', debut: '2026-11-07T10:00:00Z', sessionId: 's1' });
+  assert.deepEqual(etatDepuisSession(ligne), { enCours: true, bloque: true, enPause: false, categorie: 'Droit', debut: '2026-11-07T10:00:00Z', sessionId: 's1', pauseSecondes: 0, pauseDepuis: null });
   assert.equal(etatDepuisSession(null).bloque, false);
   assert.equal(etatDepuisSession(null).enCours, false);
   assert.equal(etatDepuisSession({ ...ligne, fin: '2026-11-07T11:00:00Z' }).bloque, false);
@@ -175,27 +176,44 @@ test('l’adresse demandée se retrouve, avec sa requête et son fragment ; seul
   assert.equal(urlOriginale(undefined), null);
 });
 
-test('minutes écoulées : arrondies vers le bas, jamais négatives, null si illisible', () => {
+test('temps de travail : depuis le début, pauses déduites (comme le chrono de Hameau), jamais négatif, null si illisible', () => {
   const t = Date.parse('2026-11-07T10:30:59Z');
-  assert.equal(minutesDepuis('2026-11-07T10:00:00Z', t), 30);
-  assert.equal(minutesDepuis('2026-11-07T11:00:00Z', t), 0, 'début dans le futur (horloge décalée)');
-  assert.equal(minutesDepuis('n’importe quoi', t), null);
-  assert.equal(minutesDepuis(null, t), null);
+  const etat = (extra = {}) => etatDepuisSession({ id: 's', debut: '2026-11-07T10:00:00Z', fin: null, categorie: '', pause_depuis: null, pause_secondes: 0, ...extra });
+  assert.equal(secondesDeTravail(etat(), t), 30 * 60 + 59);
+  assert.equal(secondesDeTravail(etat({ pause_secondes: 600 }), t), 20 * 60 + 59, 'les pauses passées ne comptent pas');
+  assert.equal(secondesDeTravail(etat({ pause_depuis: '2026-11-07T10:20:00Z' }), t), 20 * 60, 'la pause en cours est déduite jusqu’à maintenant : le chrono est figé');
+  assert.equal(secondesDeTravail(etat({ pause_depuis: '2026-11-07T10:20:00Z', pause_secondes: 300 }), t), 15 * 60, 'pauses passées et pause en cours se cumulent');
+  assert.equal(secondesDeTravail(etat({ debut: '2026-11-07T11:00:00Z' }), t), 0, 'début dans le futur (horloge décalée)');
+  assert.equal(secondesDeTravail(etat({ pause_secondes: 99999 }), t), 0, 'plus de pause que de temps : zéro, pas négatif');
+  assert.equal(secondesDeTravail(etat({ pause_secondes: -50 }), t), 30 * 60 + 59, 'une pause négative est ignorée');
+  assert.equal(secondesDeTravail(etat({ pause_depuis: 'n’importe quoi' }), t), 30 * 60 + 59, 'un début de pause illisible est ignoré');
+  assert.equal(secondesDeTravail({ debut: '2026-11-07T10:00:00Z', pauseSecondes: -50, pauseDepuis: null }, t), 30 * 60 + 59, 'une pause négative donnée directement est ignorée aussi');
+  assert.equal(secondesDeTravail(etat(), t + 900), 30 * 60 + 59, 'la seconde en cours n’est pas comptée avant d’être écoulée');
+  assert.equal(secondesDeTravail(etat({ debut: 'n’importe quoi' }), t), null);
+  assert.equal(secondesDeTravail(null, t), null);
 });
 
-test('la fenêtre de l’extension dit où l’on en est', () => {
-  const t = Date.parse('2026-11-07T10:30:00Z');
-  const sites = ['youtube.com', 'linkedin.com'];
-  const en = etatDepuisSession({ id: 's', debut: '2026-11-07T10:00:00Z', fin: null, categorie: 'Droit des sociétés', pause_depuis: null });
-  assert.deepEqual(phraseEtat(en, sites, t), { titre: 'Chrono en cours sur « Droit des sociétés » depuis 30 min', detail: 'Bloqués : youtube.com, linkedin.com.' });
-  assert.equal(phraseEtat(etatDepuisSession(null), sites, t).titre, 'Aucun chrono');
-  assert.match(phraseEtat(etatDepuisSession(null), sites, t).detail, /Rien n’est bloqué/);
-  const libre = etatDepuisSession({ id: 's', debut: '2026-11-07T10:00:00Z', fin: null, categorie: '', pause_depuis: null });
-  assert.equal(phraseEtat(libre, sites, t).titre, 'Chrono en cours depuis 30 min', 'sans catégorie, pas de « sur »');
-  assert.match(phraseEtat(libre, [], t).detail, /liste est vide/);
-  const pause = etatDepuisSession({ id: 's', debut: '2026-11-07T10:00:00Z', fin: null, categorie: 'Droit', pause_depuis: '2026-11-07T10:20:00Z' }, { debloquerEnPause: true });
-  assert.equal(phraseEtat(pause, sites, t).titre, 'Pause sur « Droit »');
-  assert.match(phraseEtat(pause, sites, t).detail, /se rebloquent/);
+test('le chronomètre s’écrit « 44:12 » puis « 1:44:12 »', () => {
+  assert.equal(formatChronoCourt(0), '00:00');
+  assert.equal(formatChronoCourt(5), '00:05');
+  assert.equal(formatChronoCourt(44 * 60 + 12), '44:12');
+  assert.equal(formatChronoCourt(3599), '59:59');
+  assert.equal(formatChronoCourt(3600), '1:00:00');
+  assert.equal(formatChronoCourt(3600 + 44 * 60 + 12), '1:44:12');
+  assert.equal(formatChronoCourt(10 * 3600 + 5), '10:00:05');
+  assert.equal(formatChronoCourt(59.9), '00:59', 'les fractions de seconde ne comptent pas');
+  assert.equal(formatChronoCourt(-5), '00:00');
+  assert.equal(formatChronoCourt(Number.NaN), '00:00');
+});
+
+test('la fenêtre de l’extension dit où l’on en est : sites libres, bloqués, en pause', () => {
+  const ligne = { id: 's', debut: '2026-11-07T10:00:00Z', fin: null, categorie: 'Droit', pause_depuis: null };
+  assert.deepEqual(situation(null), { cle: 'libre', puce: 'Sites libres' });
+  assert.deepEqual(situation(etatDepuisSession(null)), { cle: 'libre', puce: 'Sites libres' }, 'chrono arrêté : tout est libre');
+  assert.deepEqual(situation(etatDepuisSession(ligne)), { cle: 'bloque', puce: 'Sites bloqués' });
+  const pause = { ...ligne, pause_depuis: '2026-11-07T10:20:00Z' };
+  assert.deepEqual(situation(etatDepuisSession(pause)), { cle: 'pause', puce: 'En pause · sites bloqués' }, 'par défaut, la pause ne libère rien');
+  assert.deepEqual(situation(etatDepuisSession(pause, { debloquerEnPause: true })), { cle: 'pause-libre', puce: 'En pause · sites libres' });
 });
 
 test('les sites ajoutés à la main se demandent à Chrome ; ceux de départ sont déjà autorisés', () => {
