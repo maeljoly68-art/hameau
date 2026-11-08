@@ -210,6 +210,8 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 .batiment.cliquable { cursor: pointer; }
 .batiment.cliquable:hover { filter: brightness(1.08); }
 @keyframes pulse { 50% { fill-opacity: .7; } }
+.fleche-amelioration { animation: fleche-flotte 1.8s ease-in-out infinite; filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .45)); }
+@keyframes fleche-flotte { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 .pousse { animation: pousse .6s cubic-bezier(.3, 1.6, .5, 1) both; transform-box: fill-box; transform-origin: 50% 100%; }
 @keyframes pousse { from { transform: scale(.2); opacity: 0; } }
 /* Les ailes pivotent sur leur moyeu, l'origine (0, 0) de leur groupe.

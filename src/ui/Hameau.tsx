@@ -9,7 +9,7 @@ import { meilleureSerie, minutesAujourdhui, serie } from '../core/stats.ts';
 import { nouveauxSucces, succes as calculerSucces } from '../core/succes.ts';
 import { cleJour, formatChrono, formatDuree } from '../core/temps.ts';
 import type { Construction, Session } from '../core/types.ts';
-import { accord, batiment, casesDeplacement, coutAmelioration, habitants, NIVEAU_MAX, niveauRequisAmelioration, refusAmelioration, refusConstruction, tailleTerrain, type Batiment } from '../core/village.ts';
+import { accord, ameliorables as batimentsAmeliorables, batiment, casesDeplacement, coutAmelioration, habitants, NIVEAU_MAX, niveauRequisAmelioration, refusAmelioration, refusConstruction, tailleTerrain, type Batiment } from '../core/village.ts';
 import type { Depot } from '../data/depot.ts';
 import { lireLocal } from '../data/local.ts';
 import { marquerRelu, noterChapitres, validerExamen, validerLectureEtVitesse } from '../data/cours.ts';
@@ -248,6 +248,7 @@ function FicheBatiment({ construction: c, niveauVillage, solde, saison, surAmeli
 }
 
 const AUCUNE_SESSION: Session[] = [];
+const AUCUN_BATIMENT: ReadonlySet<string> = new Set<string>();
 
 export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: string | null; surDeconnexion: () => void }) {
   const pointsEnApprenant = usePointsApprentissage(depot.synchronise ? depot.userId : null);
@@ -441,6 +442,9 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
   }, [aConstruire, aDeplacer, derive, donnees]);
   // Pendant un déplacement, le bâtiment soulevé disparaît de sa case (et revient si l'on annule).
   const constructionsVisibles = useMemo(() => (donnees && aDeplacer ? donnees.constructions.filter((c) => c.id !== aDeplacer.id) : donnees?.constructions), [donnees, aDeplacer]);
+
+  // Les bâtiments qu'on peut améliorer maintenant : une petite flèche les signale dans la scène.
+  const ameliorables = useMemo(() => (donnees && derive ? batimentsAmeliorables(donnees.constructions, { niveau: derive.niveau.niveau, solde: derive.solde }) : AUCUN_BATIMENT), [donnees, derive]);
 
   const demarrer = useCallback((categorie: string, objectif: number | null) => void agir(() => depot.demarrer(categorie, objectif)), [agir, depot]);
 
@@ -669,6 +673,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                   posables={posables}
                   fantome={aConstruire?.id ?? aDeplacer?.batiment}
                   recent={recentId}
+                  ameliorables={ameliorables}
                   surCase={aDeplacer ? deplacerVers : poser}
                   surConstruction={setSelection}
                   pied={

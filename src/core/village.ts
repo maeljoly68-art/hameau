@@ -89,6 +89,16 @@ export function refusAmelioration(c: Construction, etat: { niveau: number; solde
   return null;
 }
 
+/**
+ * Les bâtiments qu'on peut améliorer MAINTENANT (assez de points, village assez grand, pas au niveau maximal) :
+ * ceux que la scène signale d'une petite flèche.
+ */
+export function ameliorables(constructions: readonly Construction[], etat: { niveau: number; solde: number }): Set<string> {
+  const ids = new Set<string>();
+  for (const c of constructions) if (refusAmelioration(c, etat) === null) ids.add(c.id);
+  return ids;
+}
+
 export function batiment(id: string): Batiment | undefined {
   return CATALOGUE.find((b) => b.id === id);
 }

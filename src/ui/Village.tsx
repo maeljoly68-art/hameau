@@ -6,6 +6,7 @@ import { APPARENCE_DEFAUT, type Apparence, type Construction } from '../core/typ
 import { aleatoire, graine, longueurTour, tracerTour } from '../core/promenade.ts';
 import { FEU, population, tailleTerrain } from '../core/village.ts';
 import { DX, DY, Dessin, Feu, LumiereContexte, SaisonContexte, ecran, lumierePour, pts, type Lumiere } from './village/dessins.tsx';
+import { hautDuBatiment } from './village/hauteurs.ts';
 import { Compagnon, Personnage } from './village/personnage.tsx';
 
 /** Couleurs du sol et des collines EN PLEIN JOUR : la lumière du moment les teinte ensuite. */
@@ -254,6 +255,19 @@ const ALLURE_MAX = 14;
 
 const TENUES = ['#d1553d', '#3d6fd1', '#7a4fc4', '#2f9e7a', '#d19a3d', '#c43d7a'];
 
+/** La petite flèche d'un bâtiment améliorable : elle flotte au-dessus du toit, et un toucher ouvre la fiche (le clic remonte au bâtiment). */
+function FlecheAmelioration({ haut }: { haut: number }) {
+  return (
+    <g transform={`translate(0 ${haut - 14})`} className="fleche-amelioration-pose">
+      <g className="fleche-amelioration">
+        <title>Tu peux l’améliorer</title>
+        <circle r={8.5} fill="#2fae6a" stroke="#fff" strokeWidth={1.6} />
+        <path d="M0 -4.4 L4.8 0.9 H1.9 V4.6 H-1.9 V0.9 H-4.8 Z" fill="#fff" />
+      </g>
+    </g>
+  );
+}
+
 export interface PropsVillage {
   niveau: number;
   constructions: Construction[];
@@ -270,6 +284,8 @@ export interface PropsVillage {
   fantome?: string;
   /** Dernier bâtiment construit ou amélioré, qui « pousse » à son apparition. */
   recent?: string | null;
+  /** Les bâtiments qu'on peut améliorer maintenant (identifiants) : chacun porte une petite flèche. */
+  ameliorables?: ReadonlySet<string>;
   surCase?: (x: number, y: number) => void;
   surConstruction?: (c: Construction) => void;
   surPersonnage?: () => void;
@@ -280,7 +296,7 @@ export interface PropsVillage {
  * redessiner des centaines de polygones à chaque fois faisait chauffer les
  * téléphones pour rien. Le ciel, lui, change à la minute.
  */
-export const Village = memo(function Village({ niveau, constructions, actif, ciel, saison, apparence = APPARENCE_DEFAUT, fete, posables, fantome, recent, surCase, surConstruction, surPersonnage }: PropsVillage) {
+export const Village = memo(function Village({ niveau, constructions, actif, ciel, saison, apparence = APPARENCE_DEFAUT, fete, posables, fantome, recent, ameliorables, surCase, surConstruction, surPersonnage }: PropsVillage) {
   const [survol, setSurvol] = useState<string | null>(null);
   const a = ciel.ambiance;
   const l = useMemo(() => lumierePour(a, ciel.soleil.x), [a, ciel.soleil.x]);
@@ -413,6 +429,7 @@ export const Village = memo(function Village({ niveau, constructions, actif, cie
               return (
                 <g
                   key={c ? c.id : 'feu'}
+                  data-batiment={c ? c.batiment : 'feu'}
                   transform={`translate(${sx} ${sy})`}
                   className={cliquable ? 'batiment cliquable' : 'batiment'}
                   onClick={cliquable ? () => surConstruction(c) : undefined}
@@ -448,6 +465,7 @@ export const Village = memo(function Village({ niveau, constructions, actif, cie
                       </Feu>
                     )}
                   </g>
+                  {c && !choix && ameliorables?.has(c.id) && <FlecheAmelioration haut={hautDuBatiment(c.batiment, c.niveau)} />}
                 </g>
               );
             })}

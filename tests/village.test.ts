@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CATALOGUE, FEU, casesDeplacement, refusConstruction, refusDeplacement, solde, tailleTerrain } from '../src/core/village.ts';
+import { HAUT_BATIMENT, hautDuBatiment } from '../src/ui/village/hauteurs.ts';
 import { construction, session } from './aide.ts';
 
 test('le solde = points gagnés − coûts PAYÉS, pas les prix du catalogue', () => {
@@ -49,7 +50,7 @@ test('population : seuls les toits logent des habitants', () => {
   assert.equal(population([construction('cabane', 0, 0, 40), construction('maison', 1, 0, 90)]), 4);
 });
 
-import { coutAmelioration, habitants, niveauRequisAmelioration, niveauValide, refusAmelioration, batiment, NIVEAU_MAX } from '../src/core/village.ts';
+import { ameliorables, coutAmelioration, habitants, niveauRequisAmelioration, niveauValide, refusAmelioration, batiment, NIVEAU_MAX } from '../src/core/village.ts';
 
 test('améliorer : un prix par palier, aucun au-delà du niveau 3', () => {
   const maison = batiment('maison')!;
@@ -150,4 +151,27 @@ test('les cases proposées pour un déplacement : exactement les libres, ni la s
 test('« déplacé » s’accorde avec le nom du bâtiment', () => {
   assert.equal(accord(CATALOGUE.find((b) => b.id === 'cabane'), 'déplacé'), 'déplacée');
   assert.equal(accord(CATALOGUE.find((b) => b.id === 'arbre'), 'déplacé'), 'déplacé');
+});
+
+test('la flèche d’amélioration : seulement les bâtiments qu’on peut améliorer MAINTENANT', () => {
+  const cabane = construction('cabane', 0, 0, 40); // 32 points au niveau 2, village niveau 2
+  const maison = construction('maison', 1, 0, 90); // 72 points, village niveau 4
+  const moulin = construction('moulin', 2, 0, 520, 3); // niveau maximal
+  const licorne = construction('licorne', 3, 0, 1); // inconnue
+  const toutes = [cabane, maison, moulin, licorne];
+  assert.deepEqual([...ameliorables(toutes, { niveau: 4, solde: 100 })].sort(), [cabane.id, maison.id].sort(), 'assez de points et de village : cabane et maison, pas le moulin (max) ni l’inconnue');
+  assert.deepEqual([...ameliorables(toutes, { niveau: 4, solde: 50 })], [cabane.id], 'pas assez de points pour la maison');
+  assert.deepEqual([...ameliorables(toutes, { niveau: 3, solde: 999 })], [cabane.id], 'village trop petit pour la maison');
+  assert.deepEqual([...ameliorables(toutes, { niveau: 4, solde: 31 })], [], 'un point de moins que le prix : rien');
+  assert.deepEqual([...ameliorables(toutes, { niveau: 4, solde: 32 })], [cabane.id], 'juste le prix : c’est possible');
+  assert.deepEqual([...ameliorables([], { niveau: 99, solde: 9999 })], []);
+});
+
+test('la flèche se pose au-dessus du toit : chaque bâtiment du catalogue a sa hauteur, une flèche ne descend jamais sous le sol', () => {
+  for (const b of CATALOGUE) assert.ok(HAUT_BATIMENT[b.id], `${b.id} n’a pas de hauteur : sa flèche se poserait au hasard`);
+  for (const [id, [n1, n2]] of Object.entries(HAUT_BATIMENT)) assert.ok(n1 > 0 && n2 > 0 && n2 >= n1, `${id} : hauteurs positives, le niveau 2 n’est pas plus bas que le 1`);
+  assert.equal(hautDuBatiment('tour', 1), -80, 'négatif : au-dessus de la base');
+  assert.equal(hautDuBatiment('potager', 1), -15);
+  assert.equal(hautDuBatiment('potager', 2), -34, 'le niveau 2 du potager est plus haut (l’épouvantail)');
+  assert.equal(hautDuBatiment('licorne', 1), -40, 'un bâtiment inconnu : hauteur moyenne');
 });
