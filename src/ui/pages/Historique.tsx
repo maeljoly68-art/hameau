@@ -1,6 +1,7 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { pointsSession } from '../../core/points.ts';
 import { dureeSession, pauseValide } from '../../core/session.ts';
+import { libelleSites, type SiteTemps } from '../../core/sites.ts';
 import { correspond } from '../../core/suggestions.ts';
 import { cleJour, formatDuree } from '../../core/temps.ts';
 import type { Session } from '../../core/types.ts';
@@ -12,12 +13,15 @@ const PAR_PAGE = 60;
 
 export default function Historique({
   sessions,
+  sites,
   categories,
   surModifier,
   surSupprimer,
   surAjouter,
 }: {
   sessions: Session[];
+  /** Les sites où l'on a travaillé pendant chaque session (clé : son identifiant), vus par l'extension Chrome. */
+  sites: ReadonlyMap<string, SiteTemps[]>;
   categories: string[];
   surModifier: (id: string, champs: Partial<Session>) => void;
   surSupprimer: (id: string) => void;
@@ -139,6 +143,7 @@ export default function Historique({
                           {s.objectif !== null && <span className={atteint ? 'etiquette reussie' : 'etiquette'}>{atteint ? '✓ ' : ''}objectif {s.objectif} min</span>}
                           {pauseMin >= 1 && <span className="etiquette">pause {formatDuree(pauseMin)}</span>}
                         </span>
+                        <LigneSites sites={sites.get(s.id)} />
                       </span>
                       <span className="ligne-duree">
                         {minutes !== null ? formatDuree(minutes) : '—'}
@@ -158,6 +163,20 @@ export default function Historique({
         </button>
       )}
     </section>
+  );
+}
+
+/** « Sites : claude.ai 38 min · docs.exemple.org 12 min » — rien si l'extension n'a rien vu. Les titres de pages, s'ils sont gardés, s'affichent au survol. */
+function LigneSites({ sites }: { sites: SiteTemps[] | undefined }) {
+  if (!sites || sites.length === 0) return null;
+  const titres = sites
+    .filter((x) => x.titres.length > 0)
+    .map((x) => `${x.site} : ${x.titres.map((t) => t.titre).join(' · ')}`)
+    .join('\n');
+  return (
+    <span className="ligne-sites" title={titres || undefined}>
+      Sites : {libelleSites(sites)}
+    </span>
   );
 }
 

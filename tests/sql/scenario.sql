@@ -803,6 +803,40 @@ insert into public.pratiques (cours_id, jour, minutes, sorte) values (:'cid', '2
 do $$ begin if (select count(*) from public.pratiques where sorte = 'revision') <> 1 then raise exception 'ÉCHEC : minutes de révision libre non enregistrées'; end if; end $$;
 do $$ begin insert into public.pratiques (cours_id, jour, minutes, sorte) values (current_setting('test.cid')::uuid, '2026-11-09', 5, 'autre'); raise exception 'ÉCHEC : sorte inconnue acceptée'; exception when check_violation then null; end $$;
 
+-- Migration 16 : sites sur lesquels on a travaillé pendant une session (écrits par l'extension, lus par Hameau).
+insert into public.sessions (debut, fin, categorie) values ('2026-11-08 08:00:00+00', '2026-11-08 09:00:00+00', 'Droit') returning id as sid \gset
+select set_config('test.sid', :'sid', false) \gset
+insert into public.sessions_sites (session_id, appareil, site, titre, secondes) values (:'sid', 'chrome-a', 'claude.ai', '', 1800), (:'sid', 'chrome-a', 'docs.google.com', '', 600), (:'sid', 'chrome-b', 'claude.ai', '', 300);
+do $$ begin
+  if (select count(*) from public.sessions_sites) <> 3 then raise exception 'ÉCHEC : sites de la session non enregistrés'; end if;
+  if (select sum(secondes) from public.sessions_sites where site = 'claude.ai') <> 2100 then raise exception 'ÉCHEC : deux appareils sur le même site doivent s''additionner à la lecture'; end if;
+  if (select user_id from public.sessions_sites limit 1) <> current_setting('test.uid')::uuid then raise exception 'ÉCHEC : le compte des sites'; end if;
+end $$;
+-- Un envoi renouvelé réécrit le total, il ne s'ajoute pas (clé : session, appareil, site, titre).
+insert into public.sessions_sites (session_id, appareil, site, titre, secondes) values (:'sid', 'chrome-a', 'claude.ai', '', 2400)
+  on conflict (session_id, appareil, site, titre) do update set secondes = excluded.secondes, maj_le = now();
+do $$ begin
+  if (select count(*) from public.sessions_sites) <> 3 then raise exception 'ÉCHEC : un envoi renouvelé a créé une ligne de plus'; end if;
+  if (select secondes from public.sessions_sites where appareil = 'chrome-a' and site = 'claude.ai') <> 2400 then raise exception 'ÉCHEC : le total n''a pas été réécrit'; end if;
+end $$;
+-- Un titre distingue deux pages du même site.
+insert into public.sessions_sites (session_id, appareil, site, titre, secondes) values (:'sid', 'chrome-a', 'claude.ai', 'Droit des sociétés', 900), (:'sid', 'chrome-a', 'claude.ai', 'Finance', 400);
+do $$ begin if (select count(*) from public.sessions_sites where site = 'claude.ai' and appareil = 'chrome-a') <> 3 then raise exception 'ÉCHEC : titres distincts'; end if; end $$;
+-- Bornes.
+do $$ begin insert into public.sessions_sites (session_id, appareil, site, secondes) values (current_setting('test.sid')::uuid, 'x', 'a.fr', -1); raise exception 'ÉCHEC : secondes négatives acceptées'; exception when check_violation then null; end $$;
+do $$ begin insert into public.sessions_sites (session_id, appareil, site, secondes) values (current_setting('test.sid')::uuid, 'x', 'a.fr', 86401); raise exception 'ÉCHEC : plus de 24 h sur un site acceptées'; exception when check_violation then null; end $$;
+do $$ begin insert into public.sessions_sites (session_id, appareil, site, secondes) values (current_setting('test.sid')::uuid, 'x', 'ab', 10); raise exception 'ÉCHEC : site trop court accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.sessions_sites (session_id, appareil, site, secondes) values (current_setting('test.sid')::uuid, '', 'a.fr', 10); raise exception 'ÉCHEC : appareil vide accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.sessions_sites (session_id, appareil, site, titre, secondes) values (current_setting('test.sid')::uuid, 'x', 'a.fr', repeat('t', 121), 10); raise exception 'ÉCHEC : titre de 121 caractères accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.sessions_sites (session_id, appareil, site, secondes) values (gen_random_uuid(), 'x', 'a.fr', 10); raise exception 'ÉCHEC : sites d''une session inconnue acceptés'; exception when foreign_key_violation then null; end $$;
+-- Supprimer la session emporte ses sites.
+delete from public.sessions where id = :'sid';
+do $$ begin if (select count(*) from public.sessions_sites) <> 0 then raise exception 'ÉCHEC : sites orphelins après suppression de la session'; end if; end $$;
+-- Les sites d'une session d'un compte restent à lui : l'autre compte ne les voit pas et ne peut s'y rattacher.
+insert into public.sessions (debut, fin, categorie) values ('2026-11-08 10:00:00+00', '2026-11-08 11:00:00+00', 'Droit') returning id as sid2 \gset
+select set_config('test.sid2', :'sid2', false) \gset
+insert into public.sessions_sites (session_id, appareil, site, secondes) values (:'sid2', 'chrome-a', 'claude.ai', 60);
+
 -- La date de modification se met à jour toute seule.
 select maj_le as avant from public.chapitres where id = :'hid' \gset
 select set_config('test.avant', :'avant', false) \gset
@@ -836,6 +870,19 @@ do $$ begin
   if found then raise exception 'ÉCHEC : pratique d''autrui modifiée'; end if;
   delete from public.pratiques;
   if found then raise exception 'ÉCHEC : pratique d''autrui supprimée'; end if;
+end $$;
+do $$ begin
+  if (select count(*) from public.sessions_sites) <> 0 then raise exception 'ÉCHEC : RLS des sites de session'; end if;
+end $$;
+do $$ begin
+  insert into public.sessions_sites (session_id, appareil, site, secondes) values (current_setting('test.sid2')::uuid, 'intrus', 'claude.ai', 10);
+  raise exception 'ÉCHEC : sites rattachés à la session d''un autre compte';
+exception when foreign_key_violation then null; end $$;
+do $$ begin
+  update public.sessions_sites set secondes = 1;
+  if found then raise exception 'ÉCHEC : sites d''autrui modifiés'; end if;
+  delete from public.sessions_sites;
+  if found then raise exception 'ÉCHEC : sites d''autrui supprimés'; end if;
 end $$;
 do $$ begin
   insert into public.chapitres (cours_id, titre) values (current_setting('test.cid')::uuid, 'Intrus');
@@ -917,6 +964,7 @@ do $$ begin
      + (select count(*) from public.erreurs where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.cartes where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.pratiques where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.sessions_sites where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.abonnements_push where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.notifications_reglage where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.reglages_cours where user_id = '11111111-1111-1111-1111-111111111111') <> 0 then

@@ -33,6 +33,7 @@ import type { LancerChapitre } from './pages/Cours.tsx';
 import { ongletDansAdresse, ongletValide, sansOnglet, type Onglet } from '../core/onglets.ts';
 import { useHameau, useMaintenant } from './useHameau.ts';
 import { usePointsApprentissage } from './usePointsApprentissage.ts';
+import { useSites } from './useSites.ts';
 import { CadreVillage } from './Village.tsx';
 import { Dessin, SaisonContexte } from './village/dessins.tsx';
 
@@ -246,12 +247,16 @@ function FicheBatiment({ construction: c, niveauVillage, solde, saison, surAmeli
   );
 }
 
+const AUCUNE_SESSION: Session[] = [];
+
 export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: string | null; surDeconnexion: () => void }) {
   const pointsEnApprenant = usePointsApprentissage(depot.synchronise ? depot.userId : null);
   const { donnees, frais, derive, erreur, setErreur, agir } = useHameau(depot, pointsEnApprenant);
   // Une demi-minute suffit pour l'heure du ciel et le total du jour : le
   // chrono, lui, a sa propre horloge à la seconde.
   const maintenant = useMaintenant(30_000);
+  // Les sites sur lesquels l'extension a vu travailler pendant les chronos (rien sans compte ni sans extension).
+  const sites = useSites(depot.synchronise ? depot.userId : null, donnees?.sessions ?? AUCUNE_SESSION, cleJour(new Date(maintenant)));
   // Une invitation reçue par lien ouvre directement l'onglet Amis.
   const [invitation, setInvitation] = useState<string | null>(() => lirePreference<string | null>('hameau.invitation', null));
   // Une invitation ouvre Amis ; un clic sur le rappel du jour ouvre l'onglet qu'il annonce (« ?onglet=cours »).
@@ -805,13 +810,14 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
             {onglet === 'historique' && (
               <Historique
                 sessions={donnees.sessions}
+                sites={sites.parSession}
                 categories={categories}
                 surModifier={(id, champs) => void agir(() => depot.modifierSession(id, champs))}
                 surSupprimer={supprimerSession}
                 surAjouter={(s) => void agir(() => depot.ajouterSession(s))}
               />
             )}
-            {onglet === 'stats' && <Statistiques sessions={donnees.sessions} succes={listeSucces} objectifJour={profil.objectifJour} maintenant={maintenant} />}
+            {onglet === 'stats' && <Statistiques sessions={donnees.sessions} sites={sites.periode} succes={listeSucces} objectifJour={profil.objectifJour} maintenant={maintenant} />}
             {onglet === 'reglages' && (
               <Reglages
                 email={email}

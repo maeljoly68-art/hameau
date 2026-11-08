@@ -40,3 +40,7 @@ select { font: inherit; color: var(--texte); background: var(--carte); border: 1
 @media (max-width: 520px) { .options .deux { grid-template-columns: 1fr; } }
 
 body.popup.plein { width: auto; max-width: 420px; margin: 40px auto; }
+
+.sites-travail { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.sites-travail li { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.sites-travail strong { font-variant-numeric: tabular-nums; }

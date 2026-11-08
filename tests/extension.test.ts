@@ -4,6 +4,21 @@ import { readFileSync } from 'node:fs';
 import { ADRESSE_HAMEAU, CLE_PUBLIQUE, URL_SUPABASE } from '../extension/config.js';
 import { VERSION_EXTENSION, enRetard } from '../src/core/extension.ts';
 import {
+  CLES_MAX,
+  SECONDES_SEGMENT_MAX,
+  SUIVI_DEFAUT,
+  SUIVI_VIDE,
+  apresEnvoi,
+  avancer,
+  cleActivite,
+  cloturer,
+  lignesAEnvoyer,
+  parSite,
+  partiesCle,
+  secondesEntre,
+  siteEnregistre,
+  suiviValide,
+  titreEnregistre,
   CONFIRMATION_DEFAUT,
   DELAIS_S,
   DOMAINES_PROTEGES,
@@ -49,7 +64,7 @@ test('le manifeste déclare les droits utiles et rien de plus large que la base'
   const attendus = [`${URL_SUPABASE}/*`, ...SITES_PAR_DEFAUT.map((s) => `*://*.${s}/*`)];
   assert.deepEqual([...m.host_permissions].sort(), attendus.sort());
   assert.deepEqual(m.optional_host_permissions, ['*://*/*']);
-  for (const p of ['declarativeNetRequest', 'storage', 'alarms', 'tabs', 'webNavigation']) assert.ok(m.permissions.includes(p), p);
+  for (const p of ['declarativeNetRequest', 'storage', 'alarms', 'tabs', 'webNavigation', 'idle']) assert.ok(m.permissions.includes(p), p);
   assert.ok(m.content_scripts.every((c: { matches: string[] }) => c.matches.every((x) => x === `${ADRESSE_HAMEAU}*`)), 'le relais ne tourne que sur Hameau');
   assert.ok(!m.permissions.includes('<all_urls>') && !m.permissions.includes('webRequest'));
 });
@@ -360,4 +375,153 @@ test('une version installée plus ancienne est signalée, jamais une égale, une
   assert.equal(enRetard('?', '1.1.0'), false);
   assert.equal(enRetard('1.1', '1.1.0'), false);
   assert.equal(enRetard('1.0.0'), true, 'par défaut : la version de l’application');
+});
+
+// ── Les sites sur lesquels on travaille ──
+
+test('on retient le NOM du site, jamais l’adresse complète', () => {
+  assert.equal(siteEnregistre('https://www.claude.ai/artifact/W6oYDMPur2SWTTyAhEvUkT?token=secret#x'), 'claude.ai');
+  assert.equal(siteEnregistre('https://docs.google.com/document/d/abc/edit'), 'docs.google.com');
+  assert.equal(siteEnregistre('http://Mail.Google.com:8080/'), 'mail.google.com');
+  assert.equal(siteEnregistre('https://www.bbc.co.uk./news'), 'bbc.co.uk');
+  for (const non of ['chrome://settings', 'chrome-extension://abc/popup.html', 'about:blank', 'file:///c:/x.pdf', 'pas une adresse', '', null, undefined, 'https://localhost:3000/', 'http://127.0.0.1/']) assert.equal(siteEnregistre(non), null, String(non));
+});
+
+test('Hameau, sa base et les sites exclus ne sont jamais retenus', () => {
+  assert.equal(siteEnregistre('https://maeljoly68-art.github.io/hameau/'), null);
+  assert.equal(siteEnregistre('https://nisjysdlyryyrsgwmcaa.supabase.co/rest/v1/x'), null);
+  assert.equal(siteEnregistre('https://www.mabanque.fr/compte', ['mabanque.fr']), null);
+  assert.equal(siteEnregistre('https://secure.mabanque.fr/', ['mabanque.fr']), null, 'sous-domaines compris');
+  assert.equal(siteEnregistre('https://mabanque.fr.evil.com/', ['mabanque.fr']), 'mabanque.fr.evil.com');
+  assert.equal(siteEnregistre('https://claude.ai/', ['mabanque.fr']), 'claude.ai');
+});
+
+test('le titre d’une page est nettoyé et borné', () => {
+  assert.equal(titreEnregistre('  Cours   de \n droit '), 'Cours de droit');
+  assert.equal(titreEnregistre('x'.repeat(500)).length, 120);
+  assert.equal(titreEnregistre(null), '');
+  assert.deepEqual(partiesCle(cleActivite('claude.ai', 'Droit')), { site: 'claude.ai', titre: 'Droit' });
+  assert.deepEqual(partiesCle(cleActivite('claude.ai', '')), { site: 'claude.ai', titre: '' });
+});
+
+test('les réglages du suivi : actif par défaut, titres seulement si on les veut, exclusions filtrées', () => {
+  assert.deepEqual(suiviValide(undefined), SUIVI_DEFAUT);
+  assert.equal(suiviValide({ active: false }).active, false);
+  assert.equal(suiviValide({ active: 'non' }).active, true, 'seul « faux » éteint le suivi');
+  assert.equal(suiviValide({ titres: 'oui' }).titres, false, 'les titres demandent un vrai « vrai »');
+  assert.equal(suiviValide({ titres: true }).titres, true);
+  assert.deepEqual(suiviValide({ exclusions: ['https://www.mabanque.fr/x', 'github.io', 'pas un site'] }).exclusions, ['mabanque.fr']);
+  assert.deepEqual(suiviValide({ exclusions: 'x' }).exclusions, []);
+});
+
+test('un segment compte les secondes écoulées, plafonnées, jamais négatives', () => {
+  assert.equal(secondesEntre(1000, 31_000), 30);
+  assert.equal(secondesEntre(0, 10 * 60_000), SECONDES_SEGMENT_MAX, 'ordinateur en veille : plafonné');
+  assert.equal(secondesEntre(5000, 1000), 0, 'horloge à l’envers');
+  assert.equal(secondesEntre(NaN, 1000), 0);
+});
+
+const t0 = 1_000_000;
+const sur = (site: string, titre = '') => ({ site, titre });
+const ouvert = (extra = {}) => ({ maintenantMs: t0, travaille: true, actif: true, onglet: sur('claude.ai'), ...extra });
+
+test('un site ouvert pendant le chrono accumule son temps, un autre site prend le relais', () => {
+  let s = avancer(SUIVI_VIDE, ouvert());
+  assert.deepEqual(s.courant, { cle: cleActivite('claude.ai', ''), depuis: t0 });
+  s = avancer(s, ouvert({ maintenantMs: t0 + 60_000, onglet: sur('docs.google.com') }));
+  s = avancer(s, ouvert({ maintenantMs: t0 + 90_000, onglet: sur('claude.ai') }));
+  s = avancer(s, ouvert({ maintenantMs: t0 + 110_000, onglet: null }));
+  assert.equal(s.courant, null, 'pas d’onglet à retenir : rien ne court');
+  assert.deepEqual(parSite(s), [{ site: 'claude.ai', secondes: 80 }, { site: 'docs.google.com', secondes: 30 }].sort((a, b) => b.secondes - a.secondes));
+});
+
+test('rien ne s’accumule hors chrono, en pause, fenêtre en arrière-plan ou personne devant', () => {
+  const base = avancer(SUIVI_VIDE, ouvert());
+  for (const empeche of [{ travaille: false }, { actif: false }, { onglet: null }]) {
+    const s = avancer(base, ouvert({ maintenantMs: t0 + 30_000, ...empeche }));
+    assert.equal(s.courant, null, JSON.stringify(empeche));
+    assert.equal(parSite(s)[0].secondes, 30, 'ce qui était déjà écoulé est gardé');
+    const suite = avancer(s, ouvert({ maintenantMs: t0 + 600_000, ...empeche }));
+    assert.equal(parSite(suite)[0].secondes, 30, 'et ensuite rien ne s’ajoute');
+  }
+});
+
+test('plusieurs titres du même site restent distincts, et se regroupent par site', () => {
+  let s = avancer(SUIVI_VIDE, ouvert({ onglet: sur('claude.ai', 'Droit') }));
+  s = avancer(s, ouvert({ maintenantMs: t0 + 40_000, onglet: sur('claude.ai', 'Finance') }));
+  s = avancer(s, ouvert({ maintenantMs: t0 + 100_000, onglet: null }));
+  assert.deepEqual(Object.keys(s.totaux).sort(), [cleActivite('claude.ai', 'Droit'), cleActivite('claude.ai', 'Finance')].sort());
+  assert.deepEqual(parSite(s), [{ site: 'claude.ai', secondes: 100 }]);
+});
+
+test('trop de titres différents : le surplus se range sous le site seul', () => {
+  let s = { ...SUIVI_VIDE, totaux: Object.fromEntries(Array.from({ length: CLES_MAX }, (_, i) => [cleActivite('claude.ai', `page ${i}`), 1])) };
+  s = avancer(s, ouvert({ onglet: sur('claude.ai', 'une de trop') }));
+  assert.equal(s.courant?.cle, cleActivite('claude.ai', ''));
+  s = avancer(s, ouvert({ onglet: sur('claude.ai', 'page 3') }));
+  assert.equal(s.courant?.cle, cleActivite('claude.ai', 'page 3'), 'une clé déjà connue garde son titre');
+});
+
+test('refermer un segment l’ajoute au total de son site, et rien ne court plus', () => {
+  const s = cloturer(avancer(SUIVI_VIDE, ouvert()), t0 + 45_000);
+  assert.equal(s.courant, null);
+  assert.equal(parSite(s)[0].secondes, 45);
+  assert.deepEqual(cloturer(SUIVI_VIDE, t0), { ...SUIVI_VIDE, courant: null });
+});
+
+test('on n’envoie que ce qui a changé, au total cumulé, et jamais en dessous d’une seconde', () => {
+  let s = avancer(SUIVI_VIDE, ouvert({ onglet: sur('claude.ai', 'Droit') }));
+  s = avancer(s, ouvert({ maintenantMs: t0 + 90_400, onglet: sur('docs.google.com') }));
+  s = avancer(s, ouvert({ maintenantMs: t0 + 90_700, onglet: null }));
+  const l1 = lignesAEnvoyer(s, 'chrome-a', '2026-11-08T10:00:00Z');
+  assert.deepEqual(l1, [{ appareil: 'chrome-a', site: 'claude.ai', titre: 'Droit', secondes: 90, maj_le: '2026-11-08T10:00:00Z' }], 'docs.google.com : 0,3 s, rien à envoyer');
+  const s2 = apresEnvoi(s, l1);
+  assert.deepEqual(lignesAEnvoyer(s2, 'chrome-a', 'x'), [], 'rien de neuf, rien d’envoyé');
+  let s3 = avancer(s2, ouvert({ maintenantMs: t0 + 100_000, onglet: sur('claude.ai', 'Droit') }));
+  s3 = avancer(s3, ouvert({ maintenantMs: t0 + 130_000, onglet: null }));
+  const l2 = lignesAEnvoyer(s3, 'chrome-a', 'x');
+  assert.equal(l2.length, 1);
+  assert.equal(l2[0].secondes, 120, 'le total cumulé (90 + 30), pas la différence : un renvoi ne compte pas deux fois');
+});
+
+test('un envoi échoué est renvoyé la fois suivante, et le total est borné à 24 h', () => {
+  const s = { ...SUIVI_VIDE, totaux: { [cleActivite('claude.ai', '')]: 100_000 } };
+  assert.equal(lignesAEnvoyer(s, 'a', 'x')[0].secondes, 86_400);
+  assert.equal(lignesAEnvoyer(s, 'a', 'x').length, 1, 'pas marqué envoyé : on recommence');
+});
+
+test('la fenêtre de l’extension montre les sites de la session, du plus long au plus court', () => {
+  const s = { ...SUIVI_VIDE, totaux: { [cleActivite('a.fr', '')]: 10, [cleActivite('b.fr', 'x')]: 500, [cleActivite('b.fr', 'y')]: 100, [cleActivite('c.fr', '')]: 0.2 } };
+  assert.deepEqual(parSite(s), [{ site: 'b.fr', secondes: 600 }, { site: 'a.fr', secondes: 10 }], 'c.fr : moins d’une seconde, absent');
+  assert.equal(parSite(s, 1).length, 1);
+});
+
+test('suivi : les bornes de la mesure sont celles que la base et la fenêtre attendent', () => {
+  assert.equal(SECONDES_SEGMENT_MAX, 120, 'deux minutes sans nouvelle : au-delà, on ne compte pas');
+  assert.equal(CLES_MAX, 200);
+  assert.equal(secondesEntre(0, 120_000), 120);
+  assert.equal(secondesEntre(0, 121_000), 120, 'plafonné à la seconde près');
+});
+
+test('suivi : au plus 200 couples (site, titre) — le 200e passe, le 201e se range sous le site seul', () => {
+  let s = SUIVI_VIDE;
+  for (let i = 0; i < 200; i++) s = avancer(s, { maintenantMs: i * 1000, travaille: true, actif: true, onglet: { site: 'claude.ai', titre: `page ${i}` } });
+  s = avancer(s, { maintenantMs: 200_000, travaille: true, actif: true, onglet: { site: 'claude.ai', titre: 'la 201e' } });
+  s = avancer(s, { maintenantMs: 205_000, travaille: true, actif: true, onglet: null });
+  const cles = Object.keys(s.totaux);
+  assert.equal(cles.length, 201, '200 pages + la clé du site seul');
+  assert.ok(cles.includes(cleActivite('claude.ai', 'page 199')), 'la 200e est gardée telle quelle');
+  assert.ok(!cles.includes(cleActivite('claude.ai', 'la 201e')) && cles.includes(cleActivite('claude.ai', '')), 'la 201e est rangée sous le site');
+});
+
+test('lignesAEnvoyer : arrondi à la seconde la plus proche, et rien pour un total qui arrondit à zéro', () => {
+  const s = { ...SUIVI_VIDE, totaux: { [cleActivite('a.fr', '')]: 0.4, [cleActivite('b.fr', '')]: 2.6, [cleActivite('c.fr', '')]: 0.5 } };
+  const l = lignesAEnvoyer(s, 'chrome-1', '2026-11-08T10:00:00.000Z');
+  assert.deepEqual(l.map((x) => [x.site, x.secondes]).sort(), [['b.fr', 3], ['c.fr', 1]], '0,4 s ne part pas ; 2,6 s fait 3 ; 0,5 s fait 1');
+});
+
+test('parSite : trois sites par défaut', () => {
+  const s = { ...SUIVI_VIDE, totaux: { [cleActivite('a.fr', '')]: 40, [cleActivite('b.fr', '')]: 30, [cleActivite('c.fr', '')]: 20, [cleActivite('d.fr', '')]: 10 } };
+  assert.deepEqual(parSite(s).map((x) => x.site), ['a.fr', 'b.fr', 'c.fr']);
+  assert.equal(parSite(s, 4).length, 4);
 });

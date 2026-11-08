@@ -26,6 +26,14 @@
         </label>
         <p class="aide petite">Changer de page à l’intérieur d’un même site (docs.google.com → mail.google.com) ne demande rien, ni aller sur Hameau.</p>
 
+        <h2>Sites où je travaille</h2>
+        <label class="case"><input id="suivi" type="checkbox" /> Retenir sur quels sites je travaille pendant le chrono, et le montrer dans Hameau</label>
+        <p class="aide petite">Seul le nom du site est envoyé à ton compte Hameau (par exemple « claude.ai », 38 min), jamais l’adresse complète de la page. Rien n’est retenu hors chrono, pendant une pause, quand la fenêtre n’est pas au premier plan, après cinq minutes d’inactivité, ni en navigation privée.</p>
+        <label class="case"><input id="titres" type="checkbox" /> Garder aussi le titre des pages (par exemple « Chapitre 3 · Cours de finance »)</label>
+        <label>Sites à ne jamais retenir (un par ligne)
+          <textarea id="exclusions" rows="3" spellcheck="false" autocomplete="off" placeholder="mabanque.fr"></textarea>
+        </label>
+
         <h2>Pages bloquées</h2>
         <label>Un site ou une adresse par ligne
           <textarea id="sites" rows="9" spellcheck="false" autocomplete="off" placeholder="youtube.com&#10;youtube.com/shorts&#10;reddit.com/r/memes"></textarea>

@@ -36,3 +36,24 @@ export function passeValide(passes: Record<string, number> | undefined, site: st
 export function ajouterPasse(passes: Record<string, number> | undefined, site: string, dureeMin: number, maintenantMs: number): Record<string, number>;
 export function doitConfirmer(entree: { etat: { enCours: boolean; enPause: boolean } | null; destination: unknown; actuelle: unknown; autorises?: string[]; bloques?: string[]; passes?: Record<string, number>; maintenantMs: number }): boolean;
 export function compter(compteurs: Record<string, { resistes: number; continues: number }> | undefined, jour: string, genre: 'rester' | 'continuer'): Record<string, { resistes: number; continues: number }>;
+
+export interface ReglagesSuivi { active: boolean; titres: boolean; exclusions: string[] }
+export interface Suivi { sessionId: string | null; totaux: Record<string, number>; envoye: Record<string, number>; courant: { cle: string; depuis: number } | null }
+export const SUIVI_DEFAUT: ReglagesSuivi;
+export const SECONDES_SEGMENT_MAX: number;
+export const TITRE_MAX: number;
+export const CLES_MAX: number;
+export const SEUIL_INACTIVITE_S: number;
+export const SECONDES_JOUR: number;
+export const SUIVI_VIDE: Suivi;
+export function suiviValide(brut: unknown): ReglagesSuivi;
+export function siteEnregistre(adresse: unknown, exclusions?: string[]): string | null;
+export function titreEnregistre(titre: unknown): string;
+export function cleActivite(site: string, titre: string): string;
+export function partiesCle(cle: string): { site: string; titre: string };
+export function secondesEntre(depuisMs: number, maintenantMs: number, max?: number): number;
+export function cloturer(suivi: Suivi, maintenantMs: number): Suivi;
+export function avancer(suivi: Suivi, entree: { maintenantMs: number; travaille: boolean; actif: boolean; onglet: { site: string; titre: string } | null }): Suivi;
+export function lignesAEnvoyer(suivi: Suivi, appareil: string, maintenantIso: string): { appareil: string; site: string; titre: string; secondes: number; maj_le: string }[];
+export function apresEnvoi(suivi: Suivi, lignes: { site: string; titre: string; secondes: number }[]): Suivi;
+export function parSite(suivi: Suivi, n?: number): { site: string; secondes: number }[];

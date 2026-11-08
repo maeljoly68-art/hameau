@@ -411,6 +411,10 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 .ligne-texte { min-width: 0; font-size: 14px; display: grid; gap: 5px; }
 .ligne-desc { color: var(--texte-2); }
 .ligne-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.ligne-sites { display: block; margin-top: 2px; font-size: 12px; color: var(--texte-3); overflow-wrap: anywhere; }
+.sites-travailles li { grid-template-columns: minmax(0, 1.3fr) minmax(48px, 1fr) auto; }
+.sites-travailles li > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sites-travailles .jauge > span { background: var(--accent-2); }
 .etiquette { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--piste); color: var(--texte-2); }
 .etiquette.reussie { background: rgba(111, 211, 154, .16); color: var(--vert); }
 .ligne-duree { display: grid; text-align: right; font: 700 15px var(--chiffres); }

@@ -2,7 +2,7 @@
 // session ouverte sur le compte de la personne ; si oui, il redirige les sites de la liste vers la page de blocage ;
 // sinon, il retire les règles. Aucun état ne vit en mémoire : le service s'endort et se réveille quand Chrome le décide.
 import { CLE_PUBLIQUE, URL_SUPABASE } from './config.js';
-import { CONFIRMATION_DEFAUT, SITES_DE_TRAVAIL_DEFAUT, SITES_PAR_DEFAUT, ajouterPasse, compter, confirmationValide, doitConfirmer, etatDepuisSession, garderBlocage, lireSites, reglesBlocage, siteDe, urlBloquee } from './logique.js';
+import { CONFIRMATION_DEFAUT, SEUIL_INACTIVITE_S, SITES_DE_TRAVAIL_DEFAUT, SITES_PAR_DEFAUT, SUIVI_DEFAUT, SUIVI_VIDE, ajouterPasse, apresEnvoi, avancer, cloturer, compter, confirmationValide, doitConfirmer, etatDepuisSession, garderBlocage, lignesAEnvoyer, lireSites, reglesBlocage, siteDe, siteEnregistre, suiviValide, titreEnregistre, urlBloquee } from './logique.js';
 
 const ALARME = 'hameau-verifier';
 /** On renouvelle le jeton un peu avant son expiration plutôt que d'essuyer un refus. */
@@ -12,10 +12,10 @@ const maintenant = () => Date.now();
 const etatVide = { enCours: false, bloque: false, enPause: false, categorie: '', debut: null, sessionId: null, connecte: false, dernierSucces: null };
 
 async function reglages() {
-  const r = await chrome.storage.sync.get({ sites: SITES_PAR_DEFAUT, debloquerEnPause: false, confirmation: CONFIRMATION_DEFAUT, autorises: SITES_DE_TRAVAIL_DEFAUT });
+  const r = await chrome.storage.sync.get({ sites: SITES_PAR_DEFAUT, debloquerEnPause: false, confirmation: CONFIRMATION_DEFAUT, autorises: SITES_DE_TRAVAIL_DEFAUT, suivi: SUIVI_DEFAUT });
   // Les listes sont relues à travers le même filtre que la saisie : une liste abîmée ne peut pas bloquer Hameau.
   const liste = (v) => lireSites(Array.isArray(v) ? v.join('\n') : '').sites;
-  return { sites: liste(r.sites), debloquerEnPause: r.debloquerEnPause === true, confirmation: confirmationValide(r.confirmation), autorises: liste(r.autorises) };
+  return { sites: liste(r.sites), debloquerEnPause: r.debloquerEnPause === true, confirmation: confirmationValide(r.confirmation), autorises: liste(r.autorises), suivi: suiviValide(r.suivi) };
 }
 
 /** Le jour de l'appareil, « AAAA-MM-JJ » : le décompte de la fenêtre se fait par jour. */
@@ -50,7 +50,7 @@ function jetonDepuisReponse(j, email) {
 
 async function seDeconnecter() {
   await appliquer(false, (await reglages()).sites);
-  await chrome.storage.local.remove('compte');
+  await chrome.storage.local.remove(['compte', 'suivi']);
   await chrome.storage.local.set({ etat: etatVide });
   await badge(etatVide, null);
 }
@@ -145,6 +145,89 @@ async function badge(etat, diag) {
 
 let enCours = null;
 
+// ── Les sites sur lesquels on travaille pendant le chrono ──
+// L'onglet visible (de la fenêtre au premier plan, quand quelqu'un est devant) est mesuré tant qu'un chrono tourne, par SITE
+// (jamais l'adresse complète), et le total de la session est envoyé au compte pour que Hameau l'affiche. Tout vit dans
+// `chrome.storage.local` : le service s'endort et se réveille, la mesure ne s'en aperçoit pas.
+
+/** Un identifiant propre à ce navigateur : deux navigateurs sur la même session ne s'écrasent pas. */
+async function appareilId() {
+  const { appareil } = await chrome.storage.local.get('appareil');
+  if (typeof appareil === 'string' && appareil !== '') return appareil;
+  const neuf = `chrome-${crypto.randomUUID().slice(0, 8)}`;
+  await chrome.storage.local.set({ appareil: neuf });
+  return neuf;
+}
+
+/** L'onglet que la personne a sous les yeux, et si quelqu'un est vraiment devant (fenêtre au premier plan, pas d'inactivité). */
+async function lireOnglet(reglagesSuivi) {
+  const fenetre = await chrome.windows.getLastFocused({ populate: true }).catch(() => null);
+  const inactivite = chrome.idle ? await chrome.idle.queryState(SEUIL_INACTIVITE_S).catch(() => 'active') : 'active';
+  const actif = Boolean(fenetre?.focused) && inactivite === 'active';
+  const onglet = fenetre?.tabs?.find((t) => t.active);
+  if (!onglet || onglet.incognito) return { onglet: null, actif };
+  const site = siteEnregistre(onglet.url, reglagesSuivi.exclusions);
+  if (site === null) return { onglet: null, actif };
+  return { onglet: { site, titre: reglagesSuivi.titres ? titreEnregistre(onglet.title) : '' }, actif };
+}
+
+/** Envoie les totaux CUMULÉS (un renvoi réécrit, il ne s'ajoute pas). Rend le suivi, marqué envoyé si c'est parti. */
+async function envoyerSites(compte, sessionId, suivi) {
+  const appareil = await appareilId();
+  const lignes = lignesAEnvoyer(suivi, appareil, new Date().toISOString());
+  if (lignes.length === 0) return suivi;
+  const { tableAbsenteJusqua } = await chrome.storage.local.get('tableAbsenteJusqua');
+  if (Number(tableAbsenteJusqua) > maintenant()) return suivi;
+  let c = compte;
+  if (c.expire_le - Math.floor(maintenant() / 1000) < MARGE_JETON_S) {
+    const n = await renouveler(c);
+    if (n === null || n === 'reseau') return suivi;
+    c = n;
+  }
+  try {
+    const r = await fetch(`${URL_SUPABASE}/rest/v1/sessions_sites?on_conflict=session_id,appareil,site,titre`, {
+      method: 'POST',
+      headers: { ...(await enteteBase(c.access_token)), Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(lignes.map((l) => ({ ...l, session_id: sessionId }))),
+    });
+    if (r.ok) return apresEnvoi(suivi, lignes);
+    // La table n'existe pas (base pas encore mise à jour) : on s'arrête un moment au lieu de réessayer sans fin.
+    if (r.status === 404) await chrome.storage.local.set({ tableAbsenteJusqua: maintenant() + 10 * 60 * 1000 });
+  } catch {
+    // réseau coupé : le total est renvoyé au prochain battement
+  }
+  return suivi;
+}
+
+async function faireSuivi(envoyer) {
+  const [{ etat, compte, suivi: stocke }, r] = await Promise.all([chrome.storage.local.get(['etat', 'compte', 'suivi']), reglages()]);
+  const maintenantMs = maintenant();
+  const sessionId = etat?.enCours && typeof etat.sessionId === 'string' ? etat.sessionId : null;
+  let suivi = stocke ?? SUIVI_VIDE;
+  // La session a changé, ou fini : ce qu'on avait mesuré part avec l'ancienne, puis on repart de zéro.
+  if (suivi.sessionId && suivi.sessionId !== sessionId) {
+    const ancien = cloturer(suivi, maintenantMs);
+    if (compte) await envoyerSites(compte, ancien.sessionId, ancien);
+    suivi = { ...SUIVI_VIDE, sessionId };
+  } else if (!suivi.sessionId && sessionId) suivi = { ...SUIVI_VIDE, sessionId };
+  if (!r.suivi.active || !compte || !sessionId) {
+    await chrome.storage.local.set({ suivi: cloturer(suivi, maintenantMs) });
+    return;
+  }
+  const { onglet, actif } = await lireOnglet(r.suivi);
+  suivi = avancer(suivi, { maintenantMs, travaille: !etat.enPause, actif, onglet });
+  if (envoyer) suivi = await envoyerSites(compte, sessionId, suivi);
+  await chrome.storage.local.set({ suivi });
+}
+
+let suiviEnFile = Promise.resolve();
+
+/** Un instant de plus dans la mesure. Un à la fois (les événements d'onglet arrivent en rafale) ; `envoyer` seulement au battement. */
+export function suivre(envoyer = false) {
+  suiviEnFile = suiviEnFile.then(() => faireSuivi(envoyer)).catch(() => undefined);
+  return suiviEnFile;
+}
+
 /** Une vérification à la fois : l'alarme, Hameau et la fenêtre peuvent la demander ensemble. */
 export function verifier() {
   if (enCours) return enCours;
@@ -175,7 +258,11 @@ async function calculer() {
     await badge(etat, complet);
     return etat;
   };
-  if (!compte) return noter(etatVide, {});
+  if (!compte) {
+    await noter(etatVide, {});
+    await chrome.storage.local.remove('suivi');
+    return etatVide;
+  }
   const s = await sessionOuverte(compte);
   if (!s.ok && s.raison === 'deconnecte') {
     await chrome.storage.local.remove('compte');
@@ -191,6 +278,8 @@ async function calculer() {
   await noter(etat, s.ok ? { session: Boolean(s.ligne) } : { reussi: false, raison: s.raison });
   // Un laissez-passer vaut pour CE chrono : le suivant redemande.
   if (!etat.enCours) await chrome.storage.local.remove('passes');
+  // Le battement est aussi celui du suivi des sites : il avance et envoie au compte (ou clôt la session qui vient de finir).
+  await suivre(true);
   return etat;
 }
 
@@ -244,6 +333,17 @@ async function choisir(choix, adresse) {
   if (choix === 'continuer' && hote === '') return { ok: false };
   await chrome.storage.local.set({ compteurs: compter(stock.compteurs, jourLocal(), choix), ...(passes ? { passes } : {}) });
   return { ok: true };
+}
+
+// Changer d'onglet, de page, de fenêtre, ou s'absenter : autant d'instants où la mesure avance.
+chrome.tabs.onActivated.addListener(() => void suivre());
+chrome.tabs.onUpdated.addListener((_id, info, onglet) => {
+  if (onglet.active && (info.url || info.title)) void suivre();
+});
+chrome.windows.onFocusChanged.addListener(() => void suivre());
+if (chrome.idle) {
+  chrome.idle.setDetectionInterval(SEUIL_INACTIVITE_S);
+  chrome.idle.onStateChanged.addListener(() => void suivre());
 }
 
 chrome.alarms.get(ALARME).then((a) => {

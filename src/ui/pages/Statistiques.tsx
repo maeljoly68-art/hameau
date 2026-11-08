@@ -13,6 +13,7 @@ import {
   parCategorie,
   serie,
 } from '../../core/stats.ts';
+import { dureeSite, SITES_JOURS, type SiteTemps } from '../../core/sites.ts';
 import type { Succes } from '../../core/succes.ts';
 import { formatDuree } from '../../core/temps.ts';
 import type { Session } from '../../core/types.ts';
@@ -22,8 +23,9 @@ import { IconeEtincelle } from '../Icones.tsx';
 /** Sur grand écran, une année entière tient : 20 semaines y laissaient un grand vide. */
 const semainesAffichees = () => (window.matchMedia?.('(min-width: 960px)').matches ? 52 : 20);
 const JOURS_COURTS = ['L', '', 'M', '', 'V', '', 'D'];
+const SITES_MONTRES = 8;
 
-export default function Statistiques({ sessions, succes, objectifJour, maintenant }: { sessions: Session[]; succes: Succes[]; objectifJour: number; maintenant: number }) {
+export default function Statistiques({ sessions, sites, succes, objectifJour, maintenant }: { sessions: Session[]; sites: SiteTemps[]; succes: Succes[]; objectifJour: number; maintenant: number }) {
   const m = new Date(maintenant);
   const semaine = minutesSemaine(sessions, m);
   const precedente = minutesSemainePrecedenteAuMemeJour(sessions, m);
@@ -42,6 +44,9 @@ export default function Statistiques({ sessions, succes, objectifJour, maintenan
   const conc = concentrationParMoment(sessions);
   const plusLongueMoyenne = Math.max(1, ...conc.lignes.map((l) => l.moyenne ?? 0));
   const meilleur = conc.meilleur ? MOMENTS.find((x) => x.id === conc.meilleur)! : null;
+  // Les sites les plus travaillés (vus par l'extension Chrome) : la carte n'existe que s'il y en a.
+  const sitesMontres = sites.slice(0, SITES_MONTRES);
+  const plusLongSite = Math.max(1, ...sitesMontres.map((x) => x.secondes));
 
   return (
     <div className="pile">
@@ -153,6 +158,26 @@ export default function Statistiques({ sessions, succes, objectifJour, maintenan
         </ul>
         {b.plusLongue !== null && <p className="aide">Plus longue session : {formatDuree(b.plusLongue)}.</p>}
       </section>
+
+      {sitesMontres.length > 0 && (
+        <section className="carte">
+          <div className="entete">
+            <h2>Où tu as travaillé ({SITES_JOURS} jours)</h2>
+          </div>
+          <ul className="categories sites-travailles">
+            {sitesMontres.map((x) => (
+              <li key={x.site} title={[x.site, ...x.titres.map((t) => t.titre)].join('\n')}>
+                <span>{x.site}</span>
+                <span className="jauge">
+                  <span style={{ width: `${(x.secondes / plusLongSite) * 100}%` }} />
+                </span>
+                <span className="nombre">{dureeSite(x.secondes)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="aide petite">Mesuré par l’extension Chrome pendant tes chronos : le nom du site seulement, jamais l’adresse de la page.</p>
+        </section>
+      )}
 
       <section className="carte">
         <div className="entete">

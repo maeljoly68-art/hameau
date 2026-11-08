@@ -262,3 +262,113 @@ export function compter(compteurs, jour, genre) {
   const jours = Object.keys(sortie).sort().slice(-7);
   return Object.fromEntries(jours.map((k) => [k, sortie[k]]));
 }
+
+// ── Les sites sur lesquels on travaille pendant le chrono ──
+
+/** Les réglages du suivi : actif par défaut (c'est ce qu'on a demandé), sans les titres des pages, sans exclusion. */
+export const SUIVI_DEFAUT = { active: true, titres: false, exclusions: [] };
+/** Au-delà, un segment sans nouvelle de l'extension (ordinateur en veille) n'est pas du travail : il est plafonné. */
+export const SECONDES_SEGMENT_MAX = 120;
+export const TITRE_MAX = 120;
+/** Au plus ce nombre de couples (site, titre) par session : les titres changent tout le temps (« (3) Messages »). */
+export const CLES_MAX = 200;
+/** Sans touche ni souris pendant ce temps (5 min), on ne travaille plus : lire un cours reste du travail, dormir non. */
+export const SEUIL_INACTIVITE_S = 300;
+export const SECONDES_JOUR = 86400;
+
+export function suiviValide(brut) {
+  const o = brut && typeof brut === 'object' ? brut : {};
+  // Une exclusion vise un site entier : un chemin collé (« mabanque.fr/compte ») devient le site.
+  const exclusions = Array.isArray(o.exclusions) ? [...new Set(lireSites(o.exclusions.join('\n')).sites.map((e) => partiesDe(e).hote))] : [];
+  return { active: o.active !== false, titres: o.titres === true, exclusions };
+}
+
+/**
+ * Le site qu'on retient pour une adresse : le NOM du site (l'hôte, sans « www. »), jamais l'adresse complète (une adresse
+ * peut porter un jeton, un identifiant, une recherche). null si ce n'est pas du web, si c'est Hameau ou sa base (des outils,
+ * pas des sites de travail), ou si la personne a demandé de ne jamais le retenir.
+ */
+export function siteEnregistre(adresse, exclusions = []) {
+  let u;
+  try {
+    u = new URL(String(adresse));
+  } catch {
+    return null;
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  const h = u.hostname.toLowerCase().replace(/^www\./, '').replace(/\.$/, '');
+  if (!FORME_DOMAINE.test(h) || estProtege(h)) return null;
+  if (hoteBloque(h, exclusions.map((e) => partiesDe(e).hote))) return null;
+  return h;
+}
+
+/** Le titre d'une page, nettoyé et borné. */
+export const titreEnregistre = (titre) => String(titre ?? '').replace(/\s+/g, ' ').trim().slice(0, TITRE_MAX).trim();
+
+export const cleActivite = (site, titre) => `${site}\n${titre}`;
+export function partiesCle(cle) {
+  const i = cle.indexOf('\n');
+  return i < 0 ? { site: cle, titre: '' } : { site: cle.slice(0, i), titre: cle.slice(i + 1) };
+}
+
+export const SUIVI_VIDE = { sessionId: null, totaux: {}, envoye: {}, courant: null };
+
+/** Les secondes d'un segment, plafonnées : jamais négatives, jamais plus que ce qu'une absence de nouvelles permet. */
+export function secondesEntre(depuisMs, maintenantMs, max = SECONDES_SEGMENT_MAX) {
+  const s = (maintenantMs - depuisMs) / 1000;
+  return Number.isFinite(s) ? Math.min(max, Math.max(0, s)) : 0;
+}
+
+/** Referme le segment en cours : son temps rejoint le total de son site, et plus rien ne court. */
+export function cloturer(suivi, maintenantMs) {
+  if (!suivi.courant) return { ...suivi, courant: null };
+  const totaux = { ...suivi.totaux };
+  totaux[suivi.courant.cle] = (totaux[suivi.courant.cle] ?? 0) + secondesEntre(suivi.courant.depuis, maintenantMs);
+  return { ...suivi, totaux, courant: null };
+}
+
+/**
+ * Un nouvel instant : le segment en cours est refermé, et un autre s'ouvre si on travaille VRAIMENT — chrono qui tourne
+ * (pas en pause), fenêtre du navigateur au premier plan, personne qui dort devant (`actif`), et un site à retenir.
+ * `onglet` : { site, titre } de l'onglet visible, ou null.
+ */
+export function avancer(suivi, { maintenantMs, travaille, actif, onglet }) {
+  const ferme = cloturer(suivi, maintenantMs);
+  if (!travaille || !actif || !onglet) return ferme;
+  let cle = cleActivite(onglet.site, onglet.titre);
+  // Trop de titres différents : le reste se range sous le site seul.
+  if (!(cle in ferme.totaux) && Object.keys(ferme.totaux).length >= CLES_MAX) cle = cleActivite(onglet.site, '');
+  return { ...ferme, courant: { cle, depuis: maintenantMs } };
+}
+
+const arrondi = (s) => Math.round(s);
+
+/** Les lignes à envoyer : celles dont le total (arrondi à la seconde) a changé depuis le dernier envoi réussi. */
+export function lignesAEnvoyer(suivi, appareil, maintenantIso) {
+  const lignes = [];
+  for (const [cle, s] of Object.entries(suivi.totaux)) {
+    const secondes = Math.min(SECONDES_JOUR, arrondi(s));
+    // Rien d'envoyé encore vaut 0 : un total qui arrondit à zéro n'est donc jamais envoyé non plus.
+    if (secondes === (suivi.envoye[cle] ?? 0)) continue;
+    const { site, titre } = partiesCle(cle);
+    lignes.push({ appareil, site, titre, secondes, maj_le: maintenantIso });
+  }
+  return lignes;
+}
+
+/** Ce qui vient d'être envoyé avec succès est noté : le prochain envoi ne renverra que la différence. */
+export function apresEnvoi(suivi, lignes) {
+  const envoye = { ...suivi.envoye };
+  for (const l of lignes) envoye[cleActivite(l.site, l.titre)] = l.secondes;
+  return { ...suivi, envoye };
+}
+
+/** Le temps de la session par site (titres confondus), du plus long au plus court : ce que la fenêtre de l'extension montre. */
+export function parSite(suivi, n = 3) {
+  const m = new Map();
+  for (const [cle, s] of Object.entries(suivi.totaux)) {
+    const { site } = partiesCle(cle);
+    m.set(site, (m.get(site) ?? 0) + s);
+  }
+  return [...m.entries()].map(([site, secondes]) => ({ site, secondes: arrondi(secondes) })).filter((x) => x.secondes > 0).sort((a, b) => b.secondes - a.secondes || a.site.localeCompare(b.site)).slice(0, n);
+}

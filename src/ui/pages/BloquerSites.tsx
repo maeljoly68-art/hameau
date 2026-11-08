@@ -8,7 +8,7 @@ export function BloquerSites() {
     <section className="carte blocage-sites">
       <h2>Rester concentré pendant le chrono</h2>
       <p className="aide">
-        Une extension Chrome (ordinateur) te demande « tu es sûr ? » quand tu changes de site pendant un chrono, et ferme les sites ou les adresses que tu choisis (YouTube, LinkedIn, Instagram, <code>youtube.com/shorts</code>…) — chrono lancé d’ici, du téléphone ou de l’iPad. Tout se relâche dès que tu l’arrêtes.
+        Une extension Chrome (ordinateur) te demande « tu es sûr ? » quand tu changes de site pendant un chrono, et ferme les sites ou les adresses que tu choisis (YouTube, LinkedIn, Instagram, <code>youtube.com/shorts</code>…) — chrono lancé d’ici, du téléphone ou de l’iPad. Tout se relâche dès que tu l’arrêtes. Elle retient aussi <strong>sur quels sites tu travailles</strong> (le nom du site, jamais l’adresse de la page) et Hameau te le montre dans l’Historique et les Statistiques.
       </p>
       <p className={ext.etat === 'presente' && !enRetard(ext.version) && ext.connecte !== false ? 'aide extension-ok' : 'aide'} role="status">
         {ext.etat === 'presente'
@@ -24,7 +24,7 @@ export function BloquerSites() {
       )}
       {ext.etat === 'presente' && enRetard(ext.version) && (
         <p className="alerte douce">
-          La version {VERSION_EXTENSION} est disponible (la confirmation avant de changer de page, et les adresses précises). Télécharge-la, remplace le dossier « hameau-bloqueur », puis clique sur ⟳ (recharger) sur la carte de l’extension dans <code>chrome://extensions</code>.
+          La version {VERSION_EXTENSION} est disponible (elle retient les sites sur lesquels tu travailles, pour l’Historique et les Statistiques). Télécharge-la, remplace le dossier « hameau-bloqueur », puis clique sur ⟳ (recharger) sur la carte de l’extension dans <code>chrome://extensions</code>.
         </p>
       )}
       <a className="bouton" href={`${import.meta.env.BASE_URL}hameau-bloqueur.zip`} download="hameau-bloqueur.zip">
@@ -41,7 +41,7 @@ export function BloquerSites() {
             Clique <strong>Charger l’extension non empaquetée</strong> et choisis le dossier « hameau-bloqueur ». Garde-le : Chrome le relit à chaque démarrage.
           </li>
           <li>Épingle l’extension (icône puzzle), clique dessus et connecte-toi avec le compte de Hameau.</li>
-          <li>Pour régler : clic droit sur l’icône → Options. Tu y choisis la question « tu es sûr ? » (délai avant de pouvoir continuer, sites de travail où l’on ne demande jamais rien comme claude.ai) et les pages bloquées : un site entier (<code>youtube.com</code>) ou une adresse (<code>youtube.com/shorts</code>). YouTube, LinkedIn et Instagram sont déjà dans la liste ; Chrome te demandera l’accès aux sites que tu ajoutes.</li>
+          <li>Pour régler : clic droit sur l’icône → Options. Tu y choisis la question « tu es sûr ? » (délai avant de pouvoir continuer, sites de travail où l’on ne demande jamais rien comme claude.ai), les sites à ne jamais retenir dans « Sites où je travaille » (et si le titre des pages est gardé), et les pages bloquées : un site entier (<code>youtube.com</code>) ou une adresse (<code>youtube.com/shorts</code>). YouTube, LinkedIn et Instagram sont déjà dans la liste ; Chrome te demandera l’accès aux sites que tu ajoutes.</li>
         </ol>
         <p className="aide petite">
           Hameau et sa base ne se bloquent jamais, pour que tu puisses toujours arrêter ton chrono. L’extension t’aide à tenir ta parole : elle ne t’empêche pas de la désactiver dans Chrome. Sur iPhone et iPad, Safari ne sait pas faire ça ; utilise le mode « Concentration » d’iOS.
