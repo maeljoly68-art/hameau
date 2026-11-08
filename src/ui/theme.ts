@@ -23,7 +23,7 @@ export function appliquerTheme(t: Theme, memoriser = false): void {
   document.documentElement.dataset.theme = t;
   // Sans ça, la barre d'état d'Android et d'iOS garde la couleur sombre
   // au-dessus d'une page claire.
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', effectif(t) === 'clair' ? '#f4efe6' : '#0d1224');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', effectif(t) === 'clair' ? '#f5f0e4' : '#091712');
   if (memoriser) {
     try {
       localStorage.setItem(CLE, t);

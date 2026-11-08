@@ -6,6 +6,7 @@ import { APPARENCE_DEFAUT, type Construction } from '../core/types.ts';
 import { adresseApp, client } from '../data/config.ts';
 import { nomAppareil } from '../data/depot.ts';
 import { useMaintenant } from './useHameau.ts';
+import { IconeCours, IconeFlamme, IconeVillage } from './Icones.tsx';
 import { Village } from './Village.tsx';
 
 // Un petit hameau de vitrine, pour montrer d'emblée ce qu'on va faire pousser.
@@ -30,7 +31,7 @@ const VITRINE_PERSO = { ...APPARENCE_DEFAUT, chapeau: 'paille', compagnon: 'chat
 const ATTENTE_RENVOI_S = 60;
 
 /** La scène de vitrine et le titre, communs à tous les écrans d'avant la connexion. */
-export function CadreConnexion({ accroche, children }: { accroche: string; children: ReactNode }) {
+export function CadreConnexion({ accroche, children, atouts = false }: { accroche: string; children: ReactNode; atouts?: boolean }) {
   const [ciel] = useState(() => cielPour(new Date()));
   const [saison] = useState(() => saisonPour(new Date()));
   return (
@@ -43,7 +44,47 @@ export function CadreConnexion({ accroche, children }: { accroche: string; child
         <p className="accroche">{accroche}</p>
         {children}
       </div>
+      {atouts && <Atouts />}
     </main>
+  );
+}
+
+/** Ce que l'appli fait, en trois lignes, et ce qu'elle fait de tes données : la vitrine d'avant la connexion. */
+function Atouts() {
+  return (
+    <>
+      <section className="connexion-atouts" aria-labelledby="titre-atouts">
+        <h2 id="titre-atouts">Pourquoi Hameau</h2>
+        <ul>
+          <li>
+            <span className="atout-icone" aria-hidden>
+              <IconeVillage />
+            </span>
+            <h3>Un village qui pousse avec ton travail</h3>
+            <p>Chaque session de concentration te rapporte des points : tu construis, tu améliores, et le hameau suit les saisons et l’heure du jour.</p>
+          </li>
+          <li>
+            <span className="atout-icone" aria-hidden>
+              <IconeCours />
+            </span>
+            <h3>Des révisions qui s’espacent toutes seules</h3>
+            <p>Tes cours, page par page : un calendrier te dit chaque jour quoi lire, quoi apprendre par cœur et quoi revoir, jusqu’au partiel.</p>
+          </li>
+          <li>
+            <span className="atout-icone" aria-hidden>
+              <IconeFlamme />
+            </span>
+            <h3>Un chrono qui te garde concentré</h3>
+            <p>Sessions, pauses, mode focus, série de jours. Sur ordinateur, une extension Chrome ferme les sites qui te distraient pendant le chrono.</p>
+          </li>
+        </ul>
+      </section>
+      <footer className="connexion-pied">
+        <p>
+          <strong>Vie privée.</strong> Ton compte ne sert qu’à retrouver ton hameau sur tous tes appareils. Pas de publicité, aucun suivi par des tiers. Les données sont stockées chez Supabase, le site est hébergé sur GitHub Pages. Sans compte, tout reste sur cet appareil.
+        </p>
+      </footer>
+    </>
   );
 }
 
@@ -145,7 +186,7 @@ export function Connexion({ surSansCompte, lienPerime = false }: { surSansCompte
   };
 
   return (
-    <CadreConnexion accroche="Chaque minute de concentration fait grandir ton village.">
+    <CadreConnexion accroche="Chaque minute de concentration fait grandir ton village." atouts>
       {mode === 'oubli' ? (
         lienEnvoye ? (
           <LienEnvoye key={envois} email={lienEnvoye} message={message} occupe={occupe} surRenvoyer={() => void demanderLien()} surRetour={retour} />

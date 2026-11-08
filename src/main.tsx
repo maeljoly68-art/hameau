@@ -4,6 +4,8 @@ import { codeDansLien } from './core/classement.ts';
 import { urlSupabase } from './data/config.ts';
 import { App } from './ui/App.tsx';
 import { appliquerTheme, lireTheme, suivreSysteme } from './ui/theme.ts';
+import '@fontsource-variable/fraunces/wght.css';
+import '@fontsource-variable/instrument-sans/wght.css';
 import './style.css';
 
 appliquerTheme(lireTheme());

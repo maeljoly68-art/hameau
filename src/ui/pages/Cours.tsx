@@ -208,9 +208,9 @@ function Calendrier({ plan, libres, donnees, aujourdhui, edt }: { plan: Plan; li
           </button>
         </div>
       </div>
-      <div className="ag-grille" role="grid" aria-label={titreMois}>
+      <div className="ag-grille" role="group" aria-label={titreMois}>
         {JOURS_COURTS.map((j) => (
-          <span key={j} className="ag-entete" role="columnheader">
+          <span key={j} className="ag-entete" aria-hidden="true">
             {j}
           </span>
         ))}

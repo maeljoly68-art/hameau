@@ -31,7 +31,7 @@ function EnCe({ membre, maintenant }: { membre: Membre; maintenant: number }) {
 function Barres({ valeurs, max }: { valeurs: number[]; max: number }) {
   if (valeurs.length <= 1 || max <= 0) return null;
   return (
-    <span className={valeurs.length > 7 ? 'barres serrees' : 'barres'} aria-hidden>
+    <span className={valeurs.length > 7 ? 'barres-amis serrees' : 'barres-amis'} aria-hidden>
       {valeurs.map((v, i) => (
         <span key={i} style={{ height: `${Math.max(v > 0 ? 12 : 4, (v / max) * 100)}%` }} className={v > 0 ? 'pleine' : undefined} />
       ))}

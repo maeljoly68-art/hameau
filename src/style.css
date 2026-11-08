@@ -1,92 +1,106 @@
-/* Hameau — une veillée au coin du feu : nuit d'encre, braise d'ambre, herbe tendre. */
+/* Hameau — « Almanach » : un carnet de veillée. Nuit de forêt et braise d'ambre ; parchemin et encre brune le jour.
+   Deux familles : Fraunces (titres, nombres-clés) et Instrument Sans (texte), auto-hébergées. */
 :root {
-  --fond: #0d1224;
-  --fond-2: #141b33;
-  --carte: #18203c;
-  --carte-2: #1e2748;
-  --bord: rgba(255, 255, 255, 0.07);
-  --bord-fort: rgba(255, 255, 255, 0.14);
-  --piste: rgba(255, 255, 255, 0.08);
-  --texte: #f3efe6;
-  --texte-2: #a4abc8;
-  --texte-3: #6f779a;
-  --accent: #ffb547;
-  --accent-2: #ff8a3d;
-  --accent-texte: #2b1800;
-  --vert: #6fd39a;
-  --vert-texte: #002914;
-  --rouge: #ff7070;
-  --rayon: 20px;
-  --rayon-petit: 12px;
-  --ombre: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px rgba(0, 0, 0, 0.28);
-  --nav: rgba(13, 18, 36, 0.88);
-  --nav-large: rgba(13, 18, 36, 0.6);
-  --alerte-texte: #ffd6d6;
-  --douce-texte: #ffe6c2;
+  --affichage: 'Fraunces Variable', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --police: 'Instrument Sans Variable', system-ui, -apple-system, 'Segoe UI Variable Text', 'Segoe UI', Roboto, sans-serif;
+  --chiffres: ui-rounded, 'SF Pro Rounded', 'Segoe UI Variable Display', var(--police);
+  --rayon: 22px;
+  --rayon-petit: 14px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* Nuit de forêt : les surfaces tirent vers le vert, le texte vers la crème, la braise reste d'ambre. */
+  --fond: oklch(19% 0.022 168);
+  --fond-2: oklch(23% 0.024 168);
+  --carte: oklch(26% 0.026 168);
+  --carte-2: oklch(31% 0.028 168);
+  --bord: oklch(100% 0 0 / 0.08);
+  --bord-fort: oklch(100% 0 0 / 0.17);
+  --piste: oklch(100% 0 0 / 0.1);
+  --texte: oklch(95.5% 0.014 85);
+  --texte-2: oklch(79% 0.02 110);
+  --texte-3: oklch(69% 0.02 130);
+  --accent: oklch(81% 0.155 74);
+  --accent-2: oklch(72% 0.175 52);
+  --accent-texte: oklch(25% 0.055 60);
+  --vert: oklch(81% 0.15 156);
+  --vert-texte: oklch(24% 0.06 156);
+  --rouge: oklch(73% 0.17 25);
+  --ombre: 0 1px 0 oklch(100% 0 0 / 0.05) inset, 0 1px 2px oklch(0% 0 0 / 0.22), 0 16px 36px oklch(0% 0 0 / 0.24);
+  --nav: oklch(21% 0.024 168 / 0.84);
+  --nav-large: oklch(21% 0.024 168 / 0.6);
+  --pastille-fond: oklch(19% 0.022 168 / 0.62);
+  --alerte-texte: oklch(89% 0.06 25);
+  --douce-texte: oklch(92% 0.07 85);
   --teinte-l: 62%;
-  --demarrer-debut: #7fe0a8;
-  --chiffres: ui-rounded, 'SF Pro Rounded', 'Segoe UI Variable Display', system-ui, sans-serif;
+  --demarrer-debut: oklch(86% 0.14 158);
+  --lueur-1: oklch(80% 0.15 75 / 0.07);
+  --lueur-2: oklch(80% 0.15 156 / 0.05);
   color-scheme: dark;
-  font-family: system-ui, -apple-system, 'Segoe UI Variable Text', 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--police);
   color: var(--texte);
   background: var(--fond);
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ───────── Thème clair ─────────
-   Papier chaud plutôt que blanc pur : on garde l'ambiance de veillée, en
-   plein jour. Les couleurs d'accent sont foncées pour rester lisibles sur
-   fond clair. */
 :root[data-theme='clair'] {
-  --fond: #f4efe6;
-  --fond-2: #ebe4d7;
-  --carte: #fffdf8;
-  --carte-2: #f5eee2;
-  --bord: rgba(70, 50, 20, 0.1);
-  --bord-fort: rgba(70, 50, 20, 0.2);
-  --piste: rgba(70, 50, 20, 0.1);
-  --texte: #2a2419;
-  --texte-2: #665c4c;
-  --texte-3: #94897a;
-  --accent: #e8901c;
-  --accent-2: #e0661f;
-  --vert: #2f9e64;
-  --vert-texte: #ffffff;
-  --rouge: #d94a4a;
-  --ombre: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 10px 28px rgba(80, 60, 30, 0.1);
-  --nav: rgba(250, 246, 239, 0.9);
-  --nav-large: rgba(250, 246, 239, 0.7);
-  --alerte-texte: #8a1f1f;
-  --douce-texte: #7a4a06;
+  /* Parchemin : papier chaud, encre brune, braise brûlée assez foncée pour se lire sur le papier. */
+  --fond: oklch(95.5% 0.017 86);
+  --fond-2: oklch(92.2% 0.022 84);
+  --carte: oklch(98.8% 0.008 88);
+  --carte-2: oklch(95.8% 0.016 86);
+  --bord: oklch(30% 0.04 70 / 0.11);
+  --bord-fort: oklch(30% 0.04 70 / 0.24);
+  --piste: oklch(30% 0.04 70 / 0.1);
+  --texte: oklch(25% 0.03 65);
+  --texte-2: oklch(43% 0.03 68);
+  --texte-3: oklch(50% 0.03 72);
+  --accent: oklch(51% 0.16 50);
+  --accent-2: oklch(52% 0.17 38);
+  --accent-texte: oklch(99% 0.01 90);
+  --vert: oklch(48% 0.12 155);
+  --vert-texte: oklch(99% 0.01 100);
+  --rouge: oklch(50% 0.18 25);
+  --ombre: 0 1px 0 oklch(100% 0 0 / 0.8) inset, 0 1px 2px oklch(40% 0.05 70 / 0.1), 0 14px 30px oklch(40% 0.05 70 / 0.1);
+  --nav: oklch(97.5% 0.012 88 / 0.88);
+  --nav-large: oklch(97.5% 0.012 88 / 0.7);
+  --pastille-fond: oklch(98.8% 0.008 88 / 0.78);
+  --alerte-texte: oklch(36% 0.13 25);
+  --douce-texte: oklch(38% 0.08 60);
   --teinte-l: 44%;
-  --demarrer-debut: #45b97c;
+  --demarrer-debut: oklch(55% 0.13 156);
+  --lueur-1: oklch(70% 0.14 70 / 0.12);
+  --lueur-2: oklch(70% 0.1 156 / 0.08);
   color-scheme: light;
 }
 @media (prefers-color-scheme: light) {
   :root[data-theme='auto'] {
-    --fond: #f4efe6;
-    --fond-2: #ebe4d7;
-    --carte: #fffdf8;
-    --carte-2: #f5eee2;
-    --bord: rgba(70, 50, 20, 0.1);
-    --bord-fort: rgba(70, 50, 20, 0.2);
-    --piste: rgba(70, 50, 20, 0.1);
-    --texte: #2a2419;
-    --texte-2: #665c4c;
-    --texte-3: #94897a;
-    --accent: #e8901c;
-    --accent-2: #e0661f;
-    --vert: #2f9e64;
-    --vert-texte: #ffffff;
-    --rouge: #d94a4a;
-    --ombre: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 10px 28px rgba(80, 60, 30, 0.1);
-    --nav: rgba(250, 246, 239, 0.9);
-    --nav-large: rgba(250, 246, 239, 0.7);
-    --alerte-texte: #8a1f1f;
-    --douce-texte: #7a4a06;
+    /* Parchemin : papier chaud, encre brune, braise brûlée assez foncée pour se lire sur le papier. */
+    --fond: oklch(95.5% 0.017 86);
+    --fond-2: oklch(92.2% 0.022 84);
+    --carte: oklch(98.8% 0.008 88);
+    --carte-2: oklch(95.8% 0.016 86);
+    --bord: oklch(30% 0.04 70 / 0.11);
+    --bord-fort: oklch(30% 0.04 70 / 0.24);
+    --piste: oklch(30% 0.04 70 / 0.1);
+    --texte: oklch(25% 0.03 65);
+    --texte-2: oklch(43% 0.03 68);
+    --texte-3: oklch(50% 0.03 72);
+    --accent: oklch(51% 0.16 50);
+    --accent-2: oklch(52% 0.17 38);
+    --accent-texte: oklch(99% 0.01 90);
+    --vert: oklch(48% 0.12 155);
+    --vert-texte: oklch(99% 0.01 100);
+    --rouge: oklch(50% 0.18 25);
+    --ombre: 0 1px 0 oklch(100% 0 0 / 0.8) inset, 0 1px 2px oklch(40% 0.05 70 / 0.1), 0 14px 30px oklch(40% 0.05 70 / 0.1);
+    --nav: oklch(97.5% 0.012 88 / 0.88);
+    --nav-large: oklch(97.5% 0.012 88 / 0.7);
+    --pastille-fond: oklch(98.8% 0.008 88 / 0.78);
+    --alerte-texte: oklch(36% 0.13 25);
+    --douce-texte: oklch(38% 0.08 60);
     --teinte-l: 44%;
-    --demarrer-debut: #45b97c;
+    --demarrer-debut: oklch(55% 0.13 156);
+    --lueur-1: oklch(70% 0.14 70 / 0.12);
+    --lueur-2: oklch(70% 0.1 156 / 0.08);
     color-scheme: light;
   }
 }
@@ -97,33 +111,38 @@ html, body { margin: 0; min-height: 100%; background: var(--fond); }
 body {
   overscroll-behavior-y: none;
   background:
-    radial-gradient(1200px 600px at 20% -10%, rgba(255, 181, 71, 0.07), transparent 60%),
-    radial-gradient(900px 500px at 110% 10%, rgba(111, 211, 154, 0.05), transparent 60%),
+    radial-gradient(1200px 600px at 20% -10%, var(--lueur-1), transparent 60%),
+    radial-gradient(900px 500px at 110% 10%, var(--lueur-2), transparent 60%),
     var(--fond);
   background-attachment: fixed;
 }
 button { font: inherit; color: inherit; cursor: pointer; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-input, textarea {
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, select:focus-visible { border-radius: inherit; }
+.evitement { position: absolute; left: 12px; top: 12px; z-index: 100; padding: 10px 16px; background: var(--texte); color: var(--fond); border-radius: 12px; font-weight: 650; text-decoration: none; transform: translateY(-220%); }
+.evitement:focus-visible { transform: none; }
+input, textarea, select {
   font: inherit; color: var(--texte); background: var(--fond-2);
-  border: 1px solid var(--bord-fort); border-radius: var(--rayon-petit); padding: 11px 13px; width: 100%;
+  border: 1px solid var(--bord-fort); border-radius: var(--rayon-petit); padding: 12px 14px; width: 100%;
   /* 16 px minimum : en dessous, Safari iOS zoome sur le champ et ne dézoome pas. */
   font-size: 16px;
   transition: border-color .15s;
 }
-input:focus, textarea:focus { border-color: var(--accent); outline: none; }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 textarea { resize: vertical; }
 label { display: grid; gap: 8px; font-size: 14px; color: var(--texte-2); }
 label small { opacity: .8; }
-h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
-h2 { font-size: 17px; font-weight: 650; }
-p { margin: 0; line-height: 1.5; }
+h1, h2, h3 { margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h1, h2 { font-family: var(--affichage); font-weight: 580; letter-spacing: -0.02em; }
+h2 { font-size: 20px; line-height: 1.2; }
+h3 { font-weight: 650; }
+p { margin: 0; line-height: 1.55; text-wrap: pretty; }
 code { background: var(--fond-2); padding: 2px 6px; border-radius: 6px; font-size: 13px; word-break: break-all; }
 kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; border: 1px solid var(--bord-fort); border-bottom-width: 2px; color: var(--texte-2); }
 .discret { color: var(--texte-3); }
 .aide { color: var(--texte-2); font-size: 14px; }
 .vide { color: var(--texte-2); text-align: center; padding: 24px 8px; }
-.sur-titre { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--texte-3); font-weight: 600; }
+.sur-titre { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--texte-3); font-weight: 650; }
 
 .chargement { display: grid; place-items: center; min-height: 100vh; color: var(--texte-2); font-family: var(--chiffres); }
 
@@ -139,15 +158,15 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 
 .barre-haut { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 0 14px; }
 .titre-hameau { display: grid; gap: 6px; min-width: 0; flex: 1; }
-.titre-hameau h1 { font-size: 22px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.titre-hameau h1 { font-size: 28px; line-height: 1.1; font-weight: 600; letter-spacing: -0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .niveau { display: flex; align-items: center; gap: 10px; }
 .niveau-num { font: 700 13px var(--chiffres); color: var(--accent); white-space: nowrap; }
-.progression { flex: 1; max-width: 200px; height: 6px; background: var(--piste); border-radius: 99px; overflow: hidden; }
+.progression { flex: 1; max-width: 200px; height: 7px; background: var(--piste); border-radius: 99px; overflow: hidden; box-shadow: inset 0 1px 1px oklch(0% 0 0 / .18); }
 .progression span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); border-radius: 99px; transition: width .8s cubic-bezier(.2, .8, .2, 1); }
 .compteurs { display: flex; gap: 8px; }
 .compteur {
   display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 99px;
-  background: var(--carte); border: 1px solid var(--bord); font: 700 15px var(--chiffres); color: var(--accent); white-space: nowrap;
+  background: var(--carte); border: 1px solid var(--bord-fort); font: 700 15px var(--chiffres); color: var(--accent); white-space: nowrap; box-shadow: var(--ombre);
 }
 /* Pas « .flamme » : ce nom anime déjà le feu du village, et le compteur se retrouvait rétréci à 55 %. */
 .compteur.serie-vive { color: var(--accent-2); }
@@ -156,12 +175,16 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 .navigation {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
   display: grid; grid-template-columns: repeat(7, 1fr);
-  background: var(--nav); backdrop-filter: blur(16px) saturate(1.3); -webkit-backdrop-filter: blur(16px) saturate(1.3);
-  border-top: 1px solid var(--bord); padding-bottom: env(safe-area-inset-bottom);
+  background: var(--nav); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border-top: 1px solid var(--bord-fort); border-radius: 22px 22px 0 0; padding: 4px 4px env(safe-area-inset-bottom);
+  box-shadow: 0 -10px 30px oklch(0% 0 0 / .16);
 }
 .marque { display: none; }
-.onglet { background: none; border: 0; padding: 10px 4px 8px; display: grid; gap: 3px; justify-items: center; font-size: 11px; font-weight: 600; color: var(--texte-3); transition: color .15s; }
-.onglet.actif { color: var(--accent); }
+.onglet { background: none; border: 0; padding: 6px 2px 7px; display: grid; gap: 2px; justify-items: center; font-size: 11px; font-weight: 600; color: var(--texte-3); transition: color .15s; }
+.onglet svg { box-sizing: content-box; padding: 4px 14px; border-radius: 99px; transition: background-color .2s var(--ease); }
+.onglet:hover { color: var(--texte); }
+.onglet.actif { color: var(--accent); font-weight: 700; }
+.onglet.actif svg { background: color-mix(in oklch, var(--accent) 20%, transparent); }
 /* Six onglets sur un petit téléphone : « Historique » doit tenir sans être coupé. */
 @media (max-width: 440px) { .onglet { font-size: 10px; letter-spacing: -.02em; padding-inline: 1px; } }
 
@@ -169,16 +192,17 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
   .app { display: grid; grid-template-columns: 232px 1fr; }
   .navigation {
     position: sticky; top: 0; height: 100vh; grid-template-columns: none; align-content: start; gap: 4px;
-    padding: 24px 14px; border-top: 0; border-right: 1px solid var(--bord); background: var(--nav-large);
+    padding: 24px 14px; border-top: 0; border-radius: 0; box-shadow: none; border-right: 1px solid var(--bord); background: var(--nav-large);
   }
-  .marque { display: flex; align-items: center; gap: 10px; padding: 4px 12px 22px; font-weight: 750; font-size: 18px; }
+  .marque { display: flex; align-items: center; gap: 10px; padding: 4px 12px 22px; font: 600 22px var(--affichage); letter-spacing: -0.02em; }
   .marque-logo { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--accent-texte); }
-  .onglet { grid-auto-flow: column; justify-content: start; gap: 12px; padding: 11px 14px; border-radius: 12px; font-size: 15px; color: var(--texte-2); }
+  .onglet { grid-auto-flow: column; justify-content: start; gap: 12px; padding: 11px 14px; border-radius: 14px; font-size: 15px; color: var(--texte-2); }
+  .onglet svg { padding: 0; border-radius: 0; background: none !important; }
   .onglet:hover { background: var(--carte); color: var(--texte); }
-  .onglet.actif { background: var(--carte-2); color: var(--accent); }
+  .onglet.actif { background: color-mix(in oklch, var(--accent) 16%, var(--carte)); color: var(--accent); }
   .colonne { padding: 22px 32px 40px; width: 100%; }
   .barre-haut { padding-bottom: 20px; }
-  .titre-hameau h1 { font-size: 26px; }
+  .titre-hameau h1 { font-size: 34px; }
 }
 
 /* ───────── Village ───────── */
@@ -201,7 +225,7 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 
 .pastille {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 99px; font: 700 13px var(--chiffres);
-  background: rgba(13, 18, 36, 0.62); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: var(--texte); border: 1px solid var(--bord-fort);
+  background: var(--pastille-fond); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: var(--texte); border: 1px solid var(--bord-fort);
 }
 .carte .pastille { background: var(--fond-2); color: var(--accent); }
 
@@ -263,30 +287,31 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 
 /* ───────── Cartes et commandes ───────── */
 
-.carte { background: var(--carte); border: 1px solid var(--bord); border-radius: var(--rayon); padding: 18px; display: grid; gap: 14px; box-shadow: var(--ombre); }
+.carte { background: linear-gradient(180deg, color-mix(in oklch, var(--carte) 94%, white), var(--carte) 38%); border: 1px solid var(--bord); border-radius: var(--rayon); padding: 20px; display: grid; gap: 16px; box-shadow: var(--ombre); }
 .carte ol, .carte ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; line-height: 1.5; }
 .carte details { border-top: 1px solid var(--bord); padding-top: 12px; }
-.carte summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
+.carte summary { cursor: pointer; font-weight: 650; padding: 4px 0; }
 .carte details > *:not(summary) { margin-top: 10px; }
 .entete { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 .bouton {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  border: 0; background: var(--accent); color: var(--accent-texte); border-radius: var(--rayon-petit); padding: 11px 18px; font-weight: 650;
-  transition: transform .12s, filter .15s, background .15s;
+  border: 0; background: linear-gradient(180deg, color-mix(in oklch, var(--accent) 88%, white), var(--accent)); color: var(--accent-texte); border-radius: var(--rayon-petit); padding: 12px 20px; font-weight: 650; min-height: 44px;
+  box-shadow: 0 1px 0 oklch(100% 0 0 / .3) inset, 0 6px 16px color-mix(in oklch, var(--accent) 28%, transparent);
+  transition: transform .12s, filter .15s, background .15s, box-shadow .2s;
 }
 .bouton:hover:not(:disabled) { filter: brightness(1.06); }
 .bouton:active:not(:disabled) { transform: scale(.97); }
 .bouton:disabled { opacity: .45; cursor: not-allowed; }
 .bouton.gros { font-size: 17px; padding: 15px 26px; border-radius: 16px; }
-.bouton.petit { padding: 7px 12px; font-size: 14px; border-radius: 10px; }
+.bouton.petit { padding: 8px 13px; font-size: 14px; border-radius: 12px; min-height: 36px; }
 .bouton.icone { padding: 0; width: 52px; height: 52px; border-radius: 16px; }
-.bouton.discret { background: var(--fond-2); color: var(--texte); border: 1px solid var(--bord-fort); }
+.bouton.discret { background: var(--fond-2); color: var(--texte); border: 1px solid var(--bord-fort); box-shadow: none; }
 .bouton.discret:hover { background: var(--carte-2); }
 .bouton.discret.actif { border-color: var(--accent); color: var(--accent); }
-.bouton.danger { background: var(--rouge); color: #2a0000; }
-.bouton.demarrer { background: linear-gradient(135deg, var(--demarrer-debut), var(--vert)); color: var(--vert-texte); box-shadow: 0 8px 24px rgba(111, 211, 154, 0.25); }
-.bouton.arreter { background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 8px 24px rgba(255, 138, 61, 0.25); }
+.bouton.danger { background: var(--rouge); color: var(--fond); box-shadow: none; }
+.bouton.demarrer { background: linear-gradient(135deg, var(--demarrer-debut), var(--vert)); color: var(--vert-texte); box-shadow: 0 1px 0 oklch(100% 0 0 / .3) inset, 0 10px 26px color-mix(in oklch, var(--vert) 32%, transparent); }
+.bouton.arreter { background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 1px 0 oklch(100% 0 0 / .3) inset, 0 10px 26px color-mix(in oklch, var(--accent-2) 30%, transparent); }
 .lien { background: none; border: 0; color: var(--texte-2); text-decoration: underline; text-underline-offset: 3px; padding: 8px; display: inline-flex; gap: 8px; align-items: center; justify-content: center; }
 .lien:hover { color: var(--texte); }
 
@@ -300,11 +325,11 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 .bandeau { background: var(--fond-2); border: 1px dashed var(--accent); border-radius: var(--rayon-petit); padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 15px; }
 
 .puces { display: flex; flex-wrap: wrap; gap: 8px; }
-.puce { border: 1px solid var(--bord-fort); background: transparent; border-radius: 99px; padding: 7px 13px; font-size: 14px; color: var(--texte-2); transition: all .15s; }
+.puce { border: 1px solid var(--bord-fort); background: transparent; border-radius: 99px; padding: 8px 15px; font-size: 14px; color: var(--texte-2); transition: all .15s; min-height: 36px; }
 .puce:hover { color: var(--texte); border-color: var(--texte-3); }
 .puce.choisie { background: var(--accent); color: var(--accent-texte); border-color: var(--accent); font-weight: 600; }
 
-.jauge { display: block; height: 6px; background: var(--piste); border-radius: 99px; overflow: hidden; }
+.jauge { display: block; height: 7px; background: var(--piste); border-radius: 99px; overflow: hidden; box-shadow: inset 0 1px 1px oklch(0% 0 0 / .15); }
 .jauge > span { display: block; height: 100%; background: var(--vert); border-radius: 99px; }
 
 /* ───────── Chrono ───────── */
@@ -452,11 +477,11 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 /* ───────── Mode focus ───────── */
 
 .mode-focus {
-  --texte: #f3efe6; --texte-2: #a4abc8; --texte-3: #6f779a; --piste: rgba(255, 255, 255, 0.08); --fond-2: #141b33; --carte-2: #1e2748; --bord-fort: rgba(255, 255, 255, 0.14);
-  --accent: #ffb547; --accent-2: #ff8a3d; --vert: #6fd39a; --vert-texte: #002914;
+  --texte: oklch(95.5% 0.014 85); --texte-2: oklch(79% 0.02 110); --texte-3: oklch(69% 0.02 130); --piste: oklch(100% 0 0 / 0.1); --fond-2: oklch(23% 0.024 168); --carte-2: oklch(31% 0.028 168); --bord-fort: oklch(100% 0 0 / 0.17);
+  --accent: oklch(81% 0.155 74); --accent-2: oklch(72% 0.175 52); --accent-texte: oklch(25% 0.055 60); --vert: oklch(81% 0.15 156); --vert-texte: oklch(24% 0.06 156);
   color: var(--texte);
   position: fixed; inset: 0; z-index: 40; display: grid; place-content: center; justify-items: center; gap: 22px; padding: 24px;
-  background: radial-gradient(700px 500px at 50% 110%, rgba(255, 138, 61, .22), transparent 70%), radial-gradient(500px 400px at 50% 45%, rgba(255, 181, 71, .06), transparent 70%), #080c1a;
+  background: radial-gradient(700px 500px at 50% 110%, rgba(255, 138, 61, .22), transparent 70%), radial-gradient(500px 400px at 50% 45%, rgba(255, 181, 71, .06), transparent 70%), oklch(14% 0.02 168);
   animation: apparait .4s ease-out;
 }
 .focus-braises { position: absolute; inset: auto 0 0 0; height: 40vh; pointer-events: none; background-image: radial-gradient(2px 2px at 20% 80%, #ffb547aa, transparent), radial-gradient(2px 2px at 70% 60%, #ff8a3daa, transparent), radial-gradient(1.5px 1.5px at 45% 90%, #ffd34daa, transparent), radial-gradient(1.5px 1.5px at 85% 85%, #ffb547aa, transparent); animation: braises 6s ease-in-out infinite; }
@@ -472,8 +497,8 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 .connexion-scene { max-width: 560px; width: 100%; margin: 0 auto; padding: calc(env(safe-area-inset-top) + 16px) 16px 0; }
 .connexion-scene .village { border-radius: 24px; box-shadow: var(--ombre); }
 .connexion-corps { max-width: 420px; width: 100%; margin: 0 auto; padding: 20px 16px 40px; display: grid; gap: 14px; text-align: center; }
-.connexion h1 { font-size: 40px; font-weight: 800; letter-spacing: -0.03em; }
-.connexion .accroche { color: var(--texte-2); }
+.connexion h1 { font-size: clamp(44px, 12vw, 64px); line-height: 1; font-weight: 600; letter-spacing: -0.04em; }
+.connexion .accroche { color: var(--texte-2); font-size: 18px; line-height: 1.45; text-wrap: balance; }
 .connexion form, .connexion .carte { text-align: left; }
 /* Sous un champ, petit et à droite : « mot de passe oublié », « afficher ». */
 .lien-a-droite { justify-self: end; padding: 0; margin-top: -4px; font-size: 14px; }
@@ -481,7 +506,20 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
   .connexion { grid-template-columns: 1.2fr 1fr; align-items: center; align-content: center; max-width: 1100px; margin: 0 auto; gap: 40px; padding: 24px; }
   .connexion-scene, .connexion-corps { padding: 0; max-width: none; }
   .connexion-corps { text-align: left; }
+  .connexion-atouts, .connexion-pied { grid-column: 1 / -1; }
 }
+
+.connexion-atouts { width: 100%; max-width: 1100px; margin: 0 auto; padding: 12px 16px 8px; display: grid; gap: 18px; }
+.connexion-atouts > h2 { text-align: center; font-size: 28px; }
+.connexion-atouts ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.connexion-atouts li { display: grid; gap: 8px; align-content: start; background: var(--carte); border: 1px solid var(--bord); border-radius: var(--rayon); padding: 20px; box-shadow: var(--ombre); }
+.connexion-atouts h3 { font: 600 19px/1.25 var(--affichage); letter-spacing: -0.015em; }
+.connexion-atouts p { color: var(--texte-2); font-size: 15px; }
+.atout-icone { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: color-mix(in oklch, var(--accent) 18%, transparent); color: var(--accent); }
+.atout-icone svg { width: 24px; height: 24px; }
+.connexion-pied { width: 100%; max-width: 760px; margin: 0 auto; padding: 8px 16px calc(env(safe-area-inset-bottom) + 40px); color: var(--texte-2); font-size: 14px; text-align: center; }
+.connexion-pied strong { color: var(--texte); }
+@media (min-width: 720px) { .connexion-atouts ul { grid-template-columns: repeat(3, 1fr); } }
 
 /* ───────── Mini-chrono (fenêtre Picture-in-Picture) ───────── */
 
@@ -649,11 +687,13 @@ a.bouton { text-decoration: none; }
 .en-direct.pause { color: var(--texte-3); }
 .point-direct { width: 7px; height: 7px; border-radius: 99px; background: var(--vert); box-shadow: 0 0 0 0 rgba(111, 211, 154, .6); animation: direct 1.8s ease-out infinite; }
 @keyframes direct { 70% { box-shadow: 0 0 0 7px rgba(111, 211, 154, 0); } 100% { box-shadow: 0 0 0 0 rgba(111, 211, 154, 0); } }
-.barres { display: flex; align-items: flex-end; gap: 2px; height: 26px; width: 66px; }
-.barres > span { flex: 1; min-height: 2px; border-radius: 2px; background: var(--piste); }
-.barres > span.pleine { background: var(--vert); opacity: .85; }
-.barres.serrees { gap: 1px; width: 78px; }
-@media (max-width: 420px) { .barres { display: none; } .liste-classement li { grid-template-columns: 22px 36px minmax(0, 1fr) auto; } .liste-classement li:has(> .bouton) { grid-template-columns: 22px 36px minmax(0, 1fr) auto auto; } .avatar { width: 36px; height: 48px; } }
+/* « barres-amis » et non « barres » : ce nom désignait aussi le graphique des 14 derniers jours (Stats), qui se retrouvait
+   réduit à 26 px de haut, et caché sur téléphone. */
+.barres-amis { display: flex; align-items: flex-end; gap: 2px; height: 26px; width: 66px; }
+.barres-amis > span { flex: 1; min-height: 2px; border-radius: 2px; background: var(--piste); }
+.barres-amis > span.pleine { background: var(--vert); opacity: .85; }
+.barres-amis.serrees { gap: 1px; width: 78px; }
+@media (max-width: 420px) { .barres-amis { display: none; } .liste-classement li { grid-template-columns: 22px 36px minmax(0, 1fr) auto; } .liste-classement li:has(> .bouton) { grid-template-columns: 22px 36px minmax(0, 1fr) auto auto; } .avatar { width: 36px; height: 48px; } }
 .code-ami { display: flex; align-items: center; gap: 10px; background: var(--fond-2); border: 1px dashed var(--bord-fort); border-radius: 14px; padding: 10px 12px; }
 .code-ami .code { flex: 1; font: 800 24px var(--chiffres); letter-spacing: .12em; color: var(--accent); }
 .ligne-formulaire { display: flex; gap: 8px; }
@@ -663,14 +703,14 @@ a.bouton { text-decoration: none; }
 /* ───────── Cours ───────── */
 
 .page.cours, .page.cours-detail { display: grid; gap: 16px; }
-.prochain-partiel { border-left: 4px solid var(--teinte, var(--accent)); gap: 4px; }
+.prochain-partiel { box-shadow: inset 4px 0 0 var(--teinte, var(--accent)), var(--ombre); gap: 4px; }
 .prochain-partiel strong { font-size: 18px; }
 .partiel-ligne { display: grid; gap: 1px; }
 .alertes-cours { display: grid; gap: 8px; }
 .alertes-cours .alerte { cursor: pointer; }
 
 .seances { list-style: none; padding: 0 !important; display: grid; gap: 10px !important; }
-.seances li { display: grid; gap: 10px; background: var(--fond-2); border: 1px solid var(--bord); border-left: 4px solid var(--teinte, var(--accent)); border-radius: 14px; padding: 12px 14px; }
+.seances li { display: grid; gap: 10px; background: var(--fond-2); border: 1px solid var(--bord); box-shadow: inset 4px 0 0 var(--teinte, var(--accent)); border-radius: 14px; padding: 12px 14px; }
 .seances.compactes li { padding: 8px 12px; }
 .seance-corps { display: grid; gap: 2px; min-width: 0; }
 .seance-cours { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--texte-2); }
@@ -718,7 +758,7 @@ a.bouton { text-decoration: none; }
 .retour { justify-self: start; padding: 4px 0; }
 
 .liste-cours { display: grid; gap: 10px; }
-.carte-cours { display: grid; gap: 8px; text-align: left; padding: 14px; background: var(--fond-2); border: 1px solid var(--bord); border-left: 4px solid var(--teinte, var(--accent)); border-radius: 16px; color: inherit; font: inherit; transition: transform .12s, border-color .15s; }
+.carte-cours { display: grid; gap: 8px; text-align: left; padding: 14px; background: var(--fond-2); border: 1px solid var(--bord); box-shadow: inset 4px 0 0 var(--teinte, var(--accent)); border-radius: 16px; color: inherit; font: inherit; transition: transform .12s, border-color .15s; }
 .carte-cours:hover { transform: translateY(-1px); border-color: var(--bord-fort); }
 .carte-cours-tete { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .badge-partiel { flex: none; border-radius: 99px; padding: 3px 10px; font-size: 12.5px; font-weight: 700; background: var(--carte-2); color: var(--texte-2); font-variant-numeric: tabular-nums; }
@@ -743,7 +783,7 @@ a.bouton { text-decoration: none; }
 .ag-minutes { font-size: 9.5px; color: var(--texte-3); line-height: 1; min-height: 10px; white-space: nowrap; }
 .ag-detail { display: grid; gap: 8px; border-top: 1px solid var(--bord); padding-top: 12px; }
 .ag-detail h3 { margin: 0; font-size: 15px; text-transform: capitalize; }
-.ag-partiel { margin: 0; padding: 8px 12px; border-radius: 12px; background: var(--fond-2); border-left: 4px solid var(--teinte, var(--accent)); }
+.ag-partiel { margin: 0; padding: 8px 12px; border-radius: 12px; background: var(--fond-2); box-shadow: inset 4px 0 0 var(--teinte, var(--accent)); }
 div.ag-partiel { display: grid; gap: 8px; justify-items: start; }
 div.ag-partiel p { margin: 0; }
 
@@ -752,7 +792,7 @@ div.ag-partiel p { margin: 0; }
 .cours-du-jour .sous-titre { margin: 0; }
 .creneaux { list-style: none; padding: 0 !important; display: grid; gap: 6px !important; }
 .creneau { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 10px; background: var(--fond-2); border: 1px solid var(--bord); border-left: 3px solid var(--bord-fort); border-radius: 12px; font-size: 14px; }
-.creneau.lie { border-left: 4px solid var(--teinte, var(--accent)); }
+.creneau.lie { box-shadow: inset 4px 0 0 var(--teinte, var(--accent)); }
 .creneau-heure { font: 600 12.5px var(--chiffres); color: var(--texte-2); white-space: nowrap; }
 .creneau-corps { display: grid; gap: 1px; min-width: 0; }
 .creneau-corps strong { font-weight: 600; overflow-wrap: anywhere; }
@@ -797,7 +837,7 @@ div.ag-partiel p { margin: 0; }
 
 /* Rappel du jour, pages fragiles, score, examen blanc, bilan */
 .rappel-du-jour { display: grid; gap: 8px; background: var(--fond-2); border: 1px dashed var(--bord-fort); border-radius: 14px; padding: 12px 14px; }
-.rappel-page { display: grid; gap: 10px; background: var(--carte); border: 1px solid var(--bord); border-left: 4px solid var(--teinte, var(--accent)); border-radius: 12px; padding: 10px 12px; }
+.rappel-page { display: grid; gap: 10px; background: var(--carte); border: 1px solid var(--bord); box-shadow: inset 4px 0 0 var(--teinte, var(--accent)); border-radius: 12px; padding: 10px 12px; }
 .rappel-saisie { display: grid; gap: 8px; justify-items: start; }
 .rappel-saisie textarea { width: 100%; }
 .case-papier { display: inline-flex; align-items: center; gap: 8px; font-size: .88rem; color: var(--texte-2); cursor: pointer; }
@@ -859,8 +899,8 @@ div.ag-partiel p { margin: 0; }
 /* ───────── Pratique quotidienne ─────────
    L'artefact d'erreurs d'un cours (TOEIC, bientôt TAGE MAGE) à ouvrir chaque jour : une carte qu'on reconnaît d'un coup
    d'œil (liseré de la couleur du cours, anneau, série) et qui ne ressemble ni à une séance ni à un cours. */
-.pratique { border-left: 5px solid var(--teinte, var(--accent)); background: linear-gradient(135deg, color-mix(in srgb, var(--teinte, var(--accent)) 16%, var(--carte)), var(--carte) 60%); gap: 12px; }
-.pratique.fait { background: var(--carte); border-left-color: var(--vert); }
+.pratique { box-shadow: inset 5px 0 0 var(--teinte, var(--accent)), var(--ombre); background: linear-gradient(135deg, color-mix(in srgb, var(--teinte, var(--accent)) 16%, var(--carte)), var(--carte) 60%); gap: 12px; }
+.pratique.fait { background: var(--carte); box-shadow: inset 5px 0 0 var(--vert), var(--ombre); }
 .pratique-tete { display: flex; align-items: center; gap: 14px; }
 .pratique-titre { display: grid; gap: 2px; min-width: 0; }
 .pratique-titre strong { font-size: 18px; }
@@ -915,7 +955,7 @@ div.ag-partiel p { margin: 0; }
 .sem-bilan, .sem-avance { display: grid; gap: 8px; }
 .sem-bilan .sous-titre { margin: 0; }
 .sem-objectifs { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: 8px !important; }
-.sem-objectifs > li { display: grid; gap: 6px; background: var(--fond-2); border: 1px solid var(--bord); border-left: 4px solid var(--teinte, var(--accent)); border-radius: 14px; padding: 10px 12px; }
+.sem-objectifs > li { display: grid; gap: 6px; background: var(--fond-2); border: 1px solid var(--bord); box-shadow: inset 4px 0 0 var(--teinte, var(--accent)); border-radius: 14px; padding: 10px 12px; }
 .sem-objectif-tete { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .sem-objectifs ul { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: 3px !important; font-size: 14px; }
 .sem-jours { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: 12px !important; }

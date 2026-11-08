@@ -205,7 +205,7 @@ function FicheBatiment({ construction: c, niveauVillage, solde, saison, surAmeli
     <div className="fiche-batiment">
       <div className="entete">
         <h2>{b?.nom ?? c.batiment}</h2>
-        <span className="etoiles" aria-label={`Niveau ${c.niveau} sur ${NIVEAU_MAX}`}>
+        <span className="etoiles" role="img" aria-label={`Niveau ${c.niveau} sur ${NIVEAU_MAX}`}>
           {Array.from({ length: NIVEAU_MAX }, (_, i) => (
             <IconeEtoile key={i} pleine={i < c.niveau} />
           ))}
@@ -626,6 +626,9 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       </nav>
 
       <div className="colonne">
+        <a className="evitement" href="#contenu">
+          Aller au contenu
+        </a>
         <header className="barre-haut">
           <div className="titre-hameau">
             <h1>{profil.nomHameau}</h1>
@@ -654,7 +657,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
 
         {depot.synchronise && depot.userId && <Rappels userId={depot.userId} jour={cleJour(new Date(maintenant))} />}
 
-        <main className="contenu">
+        <main className="contenu" id="contenu" tabIndex={-1}>
           {onglet === 'village' && (
             <div className="grille-village">
               <div className="col-scene">
@@ -899,12 +902,12 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       )}
 
       {choisie && (
-        <div className="voile" role="dialog" aria-modal="true" onClick={() => setSelection(null)}>
+        <div className="voile" role="dialog" aria-modal="true" aria-label={`Fiche : ${batiment(choisie.batiment)?.nom ?? choisie.batiment}`} onClick={() => setSelection(null)}>
           <div className="fenetre" onClick={(e) => e.stopPropagation()}>
             <FicheBatiment construction={choisie} niveauVillage={niveau.niveau} solde={solde} saison={saison} surAmeliorer={ameliorer} />
             <div className="actions">
               <button
-                className="bouton"
+                className="bouton discret"
                 onClick={() => {
                   setSelection(null);
                   setBoutique(false);
@@ -924,7 +927,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
               >
                 Démolir (+{choisie.cout})
               </button>
-              <button className="bouton" onClick={() => setSelection(null)}>
+              <button className="bouton discret" onClick={() => setSelection(null)}>
                 Garder
               </button>
             </div>
