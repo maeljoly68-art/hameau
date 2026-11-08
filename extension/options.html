@@ -3,25 +3,43 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hameau · sites bloqués</title>
+    <title>Hameau · réglages de la concentration</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body class="options">
     <main>
-      <h1>Sites bloqués pendant le chrono</h1>
-      <p class="aide">Tant qu’un chrono Hameau tourne (sur n’importe quel appareil, avec le même compte), ces sites sont remplacés par une page qui te le rappelle. Ils se débloquent d’eux-mêmes quand le chrono s’arrête.</p>
+      <h1>Rester concentré pendant le chrono</h1>
+      <p class="aide">Tout ceci ne s’applique que tant qu’un chrono Hameau tourne (lancé de n’importe quel appareil, avec le même compte). Dès qu’il s’arrête, plus rien n’est demandé ni bloqué.</p>
       <form id="formulaire">
-        <label>Un site par ligne
-          <textarea id="sites" rows="10" spellcheck="false" autocomplete="off"></textarea>
+        <h2>Me demander avant de changer de page</h2>
+        <label class="case"><input id="confirmation" type="checkbox" /> Quand je vais sur un autre site, demander « tu es sûr ? »</label>
+        <div class="deux">
+          <label>« Continuer quand même » s’ouvre après
+            <select id="delai"></select>
+          </label>
+          <label>Ensuite, ne plus me demander pour ce site pendant
+            <select id="passe"></select>
+          </label>
+        </div>
+        <label>Sites de travail : jamais de question (un par ligne)
+          <textarea id="autorises" rows="4" spellcheck="false" autocomplete="off" placeholder="claude.ai"></textarea>
         </label>
-        <label class="case"><input id="pause" type="checkbox" /> Débloquer pendant les pauses du chrono</label>
+        <p class="aide petite">Changer de page à l’intérieur d’un même site (docs.google.com → mail.google.com) ne demande rien, ni aller sur Hameau.</p>
+
+        <h2>Pages bloquées</h2>
+        <label>Un site ou une adresse par ligne
+          <textarea id="sites" rows="9" spellcheck="false" autocomplete="off" placeholder="youtube.com&#10;youtube.com/shorts&#10;reddit.com/r/memes"></textarea>
+        </label>
+        <p class="aide petite">« youtube.com » bloque tout le site (et ses sous-domaines) ; « youtube.com/shorts » seulement les adresses qui commencent ainsi. Tu peux coller une adresse copiée du navigateur. Ces pages sont fermées tant que le chrono tourne, sans bouton pour passer.</p>
+        <label class="case"><input id="pause" type="checkbox" /> Tout relâcher pendant les pauses du chrono (blocage et questions)</label>
+
         <div class="actions">
           <button class="bouton">Enregistrer</button>
           <button id="defaut" type="button" class="bouton discret">Remettre YouTube, LinkedIn, Instagram</button>
         </div>
         <p id="message" class="aide" role="status"></p>
       </form>
-      <p class="aide petite">Un site bloqué l’est avec ses sous-domaines (m.youtube.com, www.linkedin.com…). Hameau et sa base ne se bloquent jamais, pour que tu puisses toujours arrêter ton chrono. Cette extension t’aide à tenir ta parole : elle ne t’empêche pas de la désactiver dans Chrome.</p>
+      <p class="aide petite">Hameau et sa base ne se bloquent jamais et ne demandent jamais rien, pour que tu puisses toujours arrêter ton chrono. Cette extension t’aide à tenir ta parole : elle ne t’empêche pas de la désactiver dans Chrome.</p>
     </main>
     <script type="module" src="options.js"></script>
   </body>

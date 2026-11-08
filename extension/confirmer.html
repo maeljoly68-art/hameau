@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tu es en plein chrono · Hameau</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="bloque confirmer">
+    <main>
+      <img src="icones/icone-128.png" alt="" width="96" height="96" />
+      <h1>Tu es en plein chrono</h1>
+      <p id="sur" class="aide"></p>
+      <p id="chrono" class="temps" aria-live="off"></p>
+      <p class="question">Tu veux vraiment aller sur <strong id="site"></strong> ?</p>
+      <div class="actions">
+        <button id="rester" class="bouton grand" autofocus>Rester concentré</button>
+        <button id="continuer" class="bouton discret" disabled>Continuer quand même</button>
+      </div>
+      <p id="note" class="aide petite"></p>
+    </main>
+    <script type="module" src="confirmer.js"></script>
+  </body>
+</html>

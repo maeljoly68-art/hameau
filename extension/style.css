@@ -29,3 +29,12 @@ body.bloque { min-height: 100vh; display: grid; place-items: center; text-align:
 .bloque .gros { font-size: 20px; font-weight: 700; color: var(--accent); margin: 4px 0; }
 .bloque .temps { font-size: 44px; font-weight: 800; font-variant-numeric: tabular-nums; margin: 8px 0 0; }
 .bloque .actions { justify-content: center; margin-top: 20px; }
+
+.confirmer .question { font-size: 18px; margin: 18px 0 6px; }
+.confirmer .question strong { color: var(--accent); }
+.bouton.grand { font-size: 17px; padding: 14px 22px; }
+
+.options h2 { font-size: 16px; margin: 26px 0 6px; }
+.options .deux { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+select { font: inherit; color: var(--texte); background: var(--carte); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 10px; padding: 8px 10px; }
+@media (max-width: 520px) { .options .deux { grid-template-columns: 1fr; } }

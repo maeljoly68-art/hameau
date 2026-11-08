@@ -30,8 +30,32 @@ export function estProtege(domaine) {
   return DOMAINES_PROTEGES.some((p) => domaine === p || domaine.endsWith(`.${p}`) || p.endsWith(`.${domaine}`));
 }
 
+const CHEMIN_VALIDE = /^\/[a-z0-9._~%!$&'()*+,;=:@/-]*$/;
+
 /**
- * Une liste saisie (une entrée par ligne, ou séparées par des virgules ou des espaces) → les domaines retenus, sans
+ * Une entrée de la liste : « youtube.com » (tout le site) ou « youtube.com/shorts » (une partie seulement). Tolère une
+ * adresse complète copiée du navigateur : protocole, www, requête et fragment s'en vont. null si ça n'a pas la forme
+ * d'un site, ou d'un chemin.
+ */
+export function entreeDe(saisie) {
+  const brut = String(saisie ?? '').trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, '');
+  const i = brut.search(/[/?#]/);
+  const hote = domaineDe(i < 0 ? brut : brut.slice(0, i));
+  if (hote === null) return null;
+  if (i < 0 || brut[i] !== '/') return hote;
+  const chemin = `/${brut.slice(i + 1).split(/[?#]/)[0].replace(/\/+$/, '')}`;
+  if (chemin === '/') return hote;
+  return CHEMIN_VALIDE.test(chemin) ? `${hote}${chemin}` : null;
+}
+
+/** Une entrée → son hôte et son chemin (vide : tout le site). */
+export function partiesDe(entree) {
+  const i = String(entree).indexOf('/');
+  return i < 0 ? { hote: String(entree), chemin: '' } : { hote: String(entree).slice(0, i), chemin: String(entree).slice(i) };
+}
+
+/**
+ * Une liste saisie (une entrée par ligne, ou séparées par des virgules ou des espaces) → les entrées retenues, sans
  * doublon, et ce qu'on a écarté avec la raison.
  */
 export function lireSites(texte) {
@@ -39,12 +63,12 @@ export function lireSites(texte) {
   const ecartes = [];
   for (const brut of String(texte ?? '').split(/[\s,;]+/)) {
     if (brut.trim() === '') continue;
-    const d = domaineDe(brut);
-    if (d === null) ecartes.push({ saisie: brut, raison: 'pas un site' });
-    else if (estProtege(d)) ecartes.push({ saisie: brut, raison: 'Hameau et sa base ne se bloquent jamais' });
-    else if (!sites.includes(d)) {
+    const e = entreeDe(brut);
+    if (e === null) ecartes.push({ saisie: brut, raison: 'pas un site' });
+    else if (estProtege(partiesDe(e).hote)) ecartes.push({ saisie: brut, raison: 'Hameau et sa base ne se bloquent jamais' });
+    else if (!sites.includes(e)) {
       if (sites.length >= SITES_MAX) ecartes.push({ saisie: brut, raison: `${SITES_MAX} sites au plus` });
-      else sites.push(d);
+      else sites.push(e);
     }
   }
   return { sites, ecartes };
@@ -77,20 +101,43 @@ export function garderBlocage(precedent, maintenantMs) {
   return Number.isFinite(ok) && maintenantMs - ok <= FRAICHEUR_MAX_MS;
 }
 
-/** Les règles de redirection (une par site) vers la page de blocage, qui retient l'adresse demandée. */
+const echapper = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Les règles de redirection (une par entrée) vers la page de blocage, qui retient l'adresse demandée. Un site entier :
+ * le domaine et ses sous-domaines. Un chemin (« youtube.com/shorts ») : seulement les adresses qui commencent ainsi.
+ */
 export function reglesBlocage(sites, racineExtension) {
-  return sites.map((site, i) => ({
-    id: i + 1,
-    priority: 1,
-    action: { type: 'redirect', redirect: { regexSubstitution: `${racineExtension}bloque.html?u=\\0` } },
-    condition: { regexFilter: '^https?://.*', requestDomains: [site], resourceTypes: ['main_frame'] },
-  }));
+  return sites.map((entree, i) => {
+    const { hote, chemin } = partiesDe(entree);
+    const redirection = (substitution) => ({ type: 'redirect', redirect: { regexSubstitution: `${racineExtension}bloque.html?u=${substitution}` } });
+    if (chemin === '') return { id: i + 1, priority: 1, action: redirection('\\0'), condition: { regexFilter: '^https?://.*', requestDomains: [hote], resourceTypes: ['main_frame'] } };
+    // Un chemin ne s'exprime pas avec requestDomains : une expression sur l'adresse entière, capturée pour la renvoyer telle quelle.
+    return { id: i + 1, priority: 1, action: redirection('\\1'), condition: { regexFilter: `^(https?://([^/]+\\.)?${echapper(hote)}(?::\\d+)?${echapper(chemin)}(?:[/?#].*)?)$`, resourceTypes: ['main_frame'] } };
+  });
 }
 
 /** Cet hôte tombe-t-il sous l'un des sites bloqués (le site lui-même ou un sous-domaine) ? */
 export function hoteBloque(hote, sites) {
   const h = String(hote ?? '').toLowerCase();
   return sites.some((s) => h === s || h.endsWith(`.${s}`));
+}
+
+/** Cette adresse tombe-t-elle sous l'une des entrées (le site, ou le chemin demandé) ? */
+export function urlBloquee(adresse, sites) {
+  let u;
+  try {
+    u = new URL(String(adresse));
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  const chemin = u.pathname.toLowerCase();
+  return sites.some((entree) => {
+    const p = partiesDe(entree);
+    if (!hoteBloque(u.hostname, [p.hote])) return false;
+    return p.chemin === '' || chemin === p.chemin || chemin.startsWith(`${p.chemin}/`);
+  });
 }
 
 /** L'adresse demandée avant le blocage, retrouvée dans celle de la page de blocage ; null si ce n'est pas du web. */
@@ -126,5 +173,92 @@ export function phraseEtat(etat, sites, maintenantMs) {
  * défaut sont déclarés dans le manifeste ; ceux qu'on ajoute se demandent à la personne, à l'enregistrement.
  */
 export function originesAAutoriser(sites) {
-  return sites.filter((s) => !SITES_PAR_DEFAUT.includes(s)).map((s) => `*://*.${s}/*`);
+  const hotes = sites.map((s) => partiesDe(s).hote).filter((h) => !SITES_PAR_DEFAUT.includes(h));
+  return [...new Set(hotes)].map((h) => `*://*.${h}/*`);
+}
+
+// ── Confirmer avant de changer de page ──
+
+/** Les réglages de la confirmation, tels qu'ils sont tant que la personne n'a rien changé. */
+export const CONFIRMATION_DEFAUT = { active: true, delaiS: 5, passeMin: 10 };
+/** Des sites où l'on travaille vraiment (les artefacts de cours) : jamais de question dessus. */
+export const SITES_DE_TRAVAIL_DEFAUT = ['claude.ai'];
+export const DELAIS_S = [0, 3, 5, 10, 20];
+export const PASSES_MIN = [5, 10, 30, 60, 240];
+
+/** Les réglages lus du stockage, ramenés à des valeurs permises : une valeur abîmée ne casse pas la confirmation. */
+export function confirmationValide(brut) {
+  const o = brut && typeof brut === 'object' ? brut : {};
+  return {
+    active: o.active !== false,
+    delaiS: DELAIS_S.includes(o.delaiS) ? o.delaiS : CONFIRMATION_DEFAUT.delaiS,
+    passeMin: PASSES_MIN.includes(o.passeMin) ? o.passeMin : CONFIRMATION_DEFAUT.passeMin,
+  };
+}
+
+const SECOND_NIVEAU = new Set(['co', 'com', 'org', 'net', 'gov', 'edu', 'ac', 'or', 'ne', 'go']);
+
+/**
+ * Le « site » d'un hôte, à peu près (sans liste des suffixes publics) : docs.google.com et mail.google.com sont le même
+ * site ; bbc.co.uk garde trois étiquettes. Changer de sous-domaine n'est pas changer de page au sens du chrono.
+ */
+export function siteDe(hote) {
+  const h = String(hote ?? '').toLowerCase().replace(/\.$/, '');
+  if (!h.includes('.') || /^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return h;
+  const e = h.split('.');
+  const n = e[e.length - 1].length === 2 && SECOND_NIVEAU.has(e[e.length - 2]) ? 3 : 2;
+  return e.slice(-n).join('.');
+}
+
+/** Un laissez-passer valable pour ce site à cet instant ? (`passes` : site → instant d'expiration, en ms.) */
+export function passeValide(passes, site, maintenantMs) {
+  return Number(passes?.[site]) > maintenantMs;
+}
+
+/** Les laissez-passer avec celui-ci en plus (et sans ceux qui ont expiré : la liste ne grossit pas sans fin). */
+export function ajouterPasse(passes, site, dureeMin, maintenantMs) {
+  const sortie = {};
+  for (const [s, fin] of Object.entries(passes ?? {})) if (Number(fin) > maintenantMs) sortie[s] = fin;
+  // Un laissez-passer plus long déjà donné pour ce site n'est jamais raccourci.
+  sortie[site] = Math.max(Number(sortie[site]) || 0, maintenantMs + dureeMin * 60000);
+  return sortie;
+}
+
+/**
+ * Faut-il demander « tu es sûr ? » avant cette navigation ? Oui quand un chrono tourne (pas en pause) et qu'on va sur un
+ * AUTRE site que celui où l'on est, sauf :
+ *  - une page qui n'est pas du web, ou Hameau et sa base (on doit toujours pouvoir y arrêter son chrono) ;
+ *  - un site de travail (liste de la personne), ou un site pour lequel elle vient de dire « continuer » (laissez-passer) ;
+ *  - une page bloquée : c'est la page de blocage, plus ferme, qui répond.
+ */
+export function doitConfirmer({ etat, destination, actuelle, autorises = [], bloques = [], passes = {}, maintenantMs }) {
+  if (!etat || !etat.enCours || etat.enPause) return false;
+  let d;
+  try {
+    d = new URL(String(destination));
+  } catch {
+    return false;
+  }
+  if (d.protocol !== 'http:' && d.protocol !== 'https:') return false;
+  if (estProtege(d.hostname)) return false;
+  if (urlBloquee(d.href, bloques)) return false;
+  if (hoteBloque(d.hostname, autorises.map((a) => partiesDe(a).hote))) return false;
+  if (passeValide(passes, siteDe(d.hostname), maintenantMs)) return false;
+  try {
+    // Une page d'origine qui n'est pas du web (onglet vide, page interne) n'a pas d'hôte qui puisse ressembler au site demandé.
+    if (siteDe(new URL(String(actuelle)).hostname) === siteDe(d.hostname)) return false;
+  } catch {
+    // Pas de page d'origine (nouvel onglet, onglet vide) : on vient de nulle part, donc d'un autre site.
+  }
+  return true;
+}
+
+/** Le décompte du jour (jours « AAAA-MM-JJ » de l'appareil) : combien de fois on est resté concentré, combien de fois on a continué. */
+export function compter(compteurs, jour, genre) {
+  const sortie = { ...(compteurs ?? {}) };
+  const j = sortie[jour] ?? { resistes: 0, continues: 0 };
+  sortie[jour] = { resistes: j.resistes + (genre === 'rester' ? 1 : 0), continues: j.continues + (genre === 'continuer' ? 1 : 0) };
+  // Une semaine de mémoire suffit à la fenêtre de l'extension.
+  const jours = Object.keys(sortie).sort().slice(-7);
+  return Object.fromEntries(jours.map((k) => [k, sortie[k]]));
 }

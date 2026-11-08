@@ -2,7 +2,7 @@
 // session ouverte sur le compte de la personne ; si oui, il redirige les sites de la liste vers la page de blocage ;
 // sinon, il retire les règles. Aucun état ne vit en mémoire : le service s'endort et se réveille quand Chrome le décide.
 import { CLE_PUBLIQUE, URL_SUPABASE } from './config.js';
-import { SITES_PAR_DEFAUT, etatDepuisSession, garderBlocage, hoteBloque, lireSites, reglesBlocage } from './logique.js';
+import { CONFIRMATION_DEFAUT, SITES_DE_TRAVAIL_DEFAUT, SITES_PAR_DEFAUT, ajouterPasse, compter, confirmationValide, doitConfirmer, etatDepuisSession, garderBlocage, lireSites, reglesBlocage, siteDe, urlBloquee } from './logique.js';
 
 const ALARME = 'hameau-verifier';
 /** On renouvelle le jeton un peu avant son expiration plutôt que d'essuyer un refus. */
@@ -12,9 +12,16 @@ const maintenant = () => Date.now();
 const etatVide = { enCours: false, bloque: false, enPause: false, categorie: '', debut: null, sessionId: null, connecte: false, dernierSucces: null };
 
 async function reglages() {
-  const r = await chrome.storage.sync.get({ sites: SITES_PAR_DEFAUT, debloquerEnPause: false });
-  // La liste est relue à travers le même filtre que la saisie : une liste abîmée ne peut pas bloquer Hameau.
-  return { sites: lireSites(Array.isArray(r.sites) ? r.sites.join('\n') : '').sites, debloquerEnPause: r.debloquerEnPause === true };
+  const r = await chrome.storage.sync.get({ sites: SITES_PAR_DEFAUT, debloquerEnPause: false, confirmation: CONFIRMATION_DEFAUT, autorises: SITES_DE_TRAVAIL_DEFAUT });
+  // Les listes sont relues à travers le même filtre que la saisie : une liste abîmée ne peut pas bloquer Hameau.
+  const liste = (v) => lireSites(Array.isArray(v) ? v.join('\n') : '').sites;
+  return { sites: liste(r.sites), debloquerEnPause: r.debloquerEnPause === true, confirmation: confirmationValide(r.confirmation), autorises: liste(r.autorises) };
+}
+
+/** Le jour de l'appareil, « AAAA-MM-JJ » : le décompte de la fenêtre se fait par jour. */
+function jourLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 async function enteteBase(jeton) {
@@ -93,21 +100,15 @@ async function sessionOuverte(compte) {
 async function appliquer(bloque, sites) {
   const existantes = await chrome.declarativeNetRequest.getDynamicRules();
   const voulues = bloque ? reglesBlocage(sites, chrome.runtime.getURL('')) : [];
-  const memes = existantes.length === voulues.length && existantes.every((e, i) => JSON.stringify(e.condition.requestDomains) === JSON.stringify(voulues[i].condition.requestDomains));
+  // Chrome peut ajouter des valeurs par défaut aux règles qu'il rend : on compare ce qui les distingue, pas tout l'objet.
+  const signature = (r) => `${(r.condition.requestDomains ?? []).join(',')}|${r.condition.regexFilter}|${r.action.redirect.regexSubstitution}`;
+  const memes = existantes.length === voulues.length && existantes.every((e, i) => signature(e) === signature(voulues[i]));
   if (!memes) await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: existantes.map((r) => r.id), addRules: voulues });
   if (!bloque || sites.length === 0) return;
   const page = chrome.runtime.getURL('bloque.html');
   for (const onglet of await chrome.tabs.query({})) {
     if (!onglet.url || onglet.url.startsWith(page)) continue;
-    let hote = '';
-    try {
-      const u = new URL(onglet.url);
-      if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
-      hote = u.hostname;
-    } catch {
-      continue;
-    }
-    if (hoteBloque(hote, sites)) await chrome.tabs.update(onglet.id, { url: `${page}?u=${onglet.url}` }).catch(() => undefined);
+    if (urlBloquee(onglet.url, sites)) await chrome.tabs.update(onglet.id, { url: `${page}?u=${onglet.url}` }).catch(() => undefined);
   }
 }
 
@@ -142,11 +143,55 @@ export function verifier() {
     // la règle y était encore, elle la renverrait ici en boucle.
     await appliquer(etat.bloque, r.sites);
     await chrome.storage.local.set({ etat });
+    // Un laissez-passer vaut pour CE chrono : le suivant redemande.
+    if (!etat.enCours) await chrome.storage.local.remove('passes');
     return etat;
   })().finally(() => {
     enCours = null;
   });
   return enCours;
+}
+
+/**
+ * Un chrono tourne et la page va changer : « tu es sûr ? ». La page d'origine est celle de l'onglet (ou de l'onglet qui l'a
+ * ouvert, pour un lien en nouvel onglet) : aller d'un onglet vide vers un site, c'est quitter son travail.
+ */
+async function surNavigation(tabId, destination) {
+  // Tout se lit en même temps : chaque milliseconde compte pour que la question arrive avant que le site ne s'affiche.
+  const [{ etat, passes }, r, onglet] = await Promise.all([chrome.storage.local.get(['etat', 'passes']), reglages(), chrome.tabs.get(tabId).catch(() => null)]);
+  if (!etat?.enCours || !r.confirmation.active || !onglet) return;
+  let actuelle = onglet.url || '';
+  if (actuelle === '' && onglet.openerTabId != null) actuelle = (await chrome.tabs.get(onglet.openerTabId).catch(() => null))?.url || '';
+  if (!doitConfirmer({ etat, destination, actuelle, autorises: r.autorises, bloques: r.sites, passes: passes ?? {}, maintenantMs: maintenant() })) return;
+  await chrome.tabs.update(tabId, { url: `${chrome.runtime.getURL('confirmer.html')}?de=${encodeURIComponent(actuelle)}&u=${destination}` }).catch(() => undefined);
+}
+
+chrome.webNavigation.onBeforeNavigate.addListener((d) => {
+  if (d.frameId === 0) void surNavigation(d.tabId, d.url);
+});
+
+/** Une minute pour revenir à la page d'où l'on venait sans que le retour lui-même redemande « tu es sûr ? ». */
+const RETOUR_MIN = 1;
+
+/**
+ * « Rester concentré » ou « Continuer quand même » : on le compte. Continuer donne un laissez-passer pour le site demandé ;
+ * rester en donne un, très court, pour la page d'origine (`adresse`) : y retourner depuis la page de confirmation est un
+ * changement de page comme un autre, et la question reviendrait sinon aussitôt.
+ */
+async function choisir(choix, adresse) {
+  const r = await reglages();
+  const stock = await chrome.storage.local.get(['compteurs', 'passes']);
+  let hote = '';
+  try {
+    const u = new URL(adresse);
+    if (u.protocol === 'http:' || u.protocol === 'https:') hote = u.hostname;
+  } catch {
+    // pas d'adresse : rien à autoriser
+  }
+  const passes = hote === '' ? stock.passes : ajouterPasse(stock.passes, siteDe(hote), choix === 'continuer' ? r.confirmation.passeMin : RETOUR_MIN, maintenant());
+  if (choix === 'continuer' && hote === '') return { ok: false };
+  await chrome.storage.local.set({ compteurs: compter(stock.compteurs, jourLocal(), choix), ...(passes ? { passes } : {}) });
+  return { ok: true };
 }
 
 chrome.alarms.get(ALARME).then((a) => {
@@ -167,6 +212,7 @@ chrome.runtime.onMessage.addListener((message, expediteur, repondre) => {
   if (expediteur.id !== chrome.runtime.id) return false;
   if (message?.type === 'verifier') void verifier().then(repondre);
   else if (message?.type === 'connexion') void seConnecter(String(message.email ?? '').trim(), String(message.motDePasse ?? '')).then(async (r) => repondre(r.ok ? { ...r, etat: await verifier() } : r));
+  else if (message?.type === 'choix' && (message.choix === 'rester' || message.choix === 'continuer')) void choisir(message.choix, String(message.destination ?? '')).then(repondre);
   else if (message?.type === 'deconnexion') void seDeconnecter().then(() => repondre({ ok: true }));
   else return false;
   return true;

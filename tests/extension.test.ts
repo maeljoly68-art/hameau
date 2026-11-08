@@ -2,8 +2,22 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ADRESSE_HAMEAU, CLE_PUBLIQUE, URL_SUPABASE } from '../extension/config.js';
+import { VERSION_EXTENSION, enRetard } from '../src/core/extension.ts';
 import {
+  CONFIRMATION_DEFAUT,
+  DELAIS_S,
   DOMAINES_PROTEGES,
+  PASSES_MIN,
+  SITES_DE_TRAVAIL_DEFAUT,
+  ajouterPasse,
+  compter,
+  confirmationValide,
+  doitConfirmer,
+  entreeDe,
+  partiesDe,
+  passeValide,
+  siteDe,
+  urlBloquee,
   FRAICHEUR_MAX_MS,
   SITES_MAX,
   SITES_PAR_DEFAUT,
@@ -35,7 +49,7 @@ test('le manifeste déclare les droits utiles et rien de plus large que la base'
   const attendus = [`${URL_SUPABASE}/*`, ...SITES_PAR_DEFAUT.map((s) => `*://*.${s}/*`)];
   assert.deepEqual([...m.host_permissions].sort(), attendus.sort());
   assert.deepEqual(m.optional_host_permissions, ['*://*/*']);
-  for (const p of ['declarativeNetRequest', 'storage', 'alarms', 'tabs']) assert.ok(m.permissions.includes(p), p);
+  for (const p of ['declarativeNetRequest', 'storage', 'alarms', 'tabs', 'webNavigation']) assert.ok(m.permissions.includes(p), p);
   assert.ok(m.content_scripts.every((c: { matches: string[] }) => c.matches.every((x) => x === `${ADRESSE_HAMEAU}*`)), 'le relais ne tourne que sur Hameau');
   assert.ok(!m.permissions.includes('<all_urls>') && !m.permissions.includes('webRequest'));
 });
@@ -58,7 +72,7 @@ test('Hameau et sa base ne se bloquent jamais, ni leurs parents', () => {
 
 test('une liste saisie : domaines nettoyés, sans doublon, avec les refus expliqués', () => {
   const r = lireSites('youtube.com\nhttps://www.linkedin.com/feed, instagram.com  YOUTUBE.com\ngithub.io\npas un site\n\ntiktok.com');
-  assert.deepEqual(r.sites, ['youtube.com', 'linkedin.com', 'instagram.com', 'tiktok.com']);
+  assert.deepEqual(r.sites, ['youtube.com', 'linkedin.com/feed', 'instagram.com', 'tiktok.com'], 'une adresse avec chemin devient une entrée « site/chemin »');
   assert.deepEqual(r.ecartes.map((e) => e.saisie), ['github.io', 'pas', 'un', 'site']);
   assert.match(r.ecartes[0].raison, /ne se bloquent jamais/);
   assert.deepEqual(lireSites('').sites, []);
@@ -173,4 +187,177 @@ test('les sites ajoutés à la main se demandent à Chrome ; ceux de départ son
   assert.deepEqual(originesAAutoriser(['youtube.com', 'tiktok.com', 'm.reddit.com']), ['*://*.tiktok.com/*', '*://*.m.reddit.com/*']);
   assert.deepEqual(originesAAutoriser(SITES_PAR_DEFAUT), []);
   assert.deepEqual(originesAAutoriser([]), []);
+});
+
+// ── Une entrée : un site entier, ou une partie de site ──
+
+test('une entrée est un site, ou un site et un chemin ; le reste d’une adresse collée s’en va', () => {
+  assert.equal(entreeDe('youtube.com'), 'youtube.com');
+  assert.equal(entreeDe('https://www.YouTube.com/Shorts/abc?x=1#t'), 'youtube.com/shorts/abc');
+  assert.equal(entreeDe('youtube.com/shorts/'), 'youtube.com/shorts');
+  assert.equal(entreeDe('reddit.com/r/Memes'), 'reddit.com/r/memes');
+  assert.equal(entreeDe('youtube.com/'), 'youtube.com');
+  assert.equal(entreeDe('youtube.com?x=1'), 'youtube.com');
+  for (const mauvais of ['youtube.com/a b', 'youtube.com/<script>', '/shorts', 'shorts', '', null]) assert.equal(entreeDe(mauvais), null, String(mauvais));
+  assert.deepEqual(partiesDe('youtube.com'), { hote: 'youtube.com', chemin: '' });
+  assert.deepEqual(partiesDe('youtube.com/shorts/abc'), { hote: 'youtube.com', chemin: '/shorts/abc' });
+});
+
+test('une liste mêle sites et chemins ; Hameau reste protégé même avec un chemin', () => {
+  const r = lireSites('youtube.com/shorts\nyoutube.com\ngithub.io/hameau\nreddit.com/r/memes tiktok.com');
+  assert.deepEqual(r.sites, ['youtube.com/shorts', 'youtube.com', 'reddit.com/r/memes', 'tiktok.com']);
+  assert.deepEqual(r.ecartes.map((e) => e.saisie), ['github.io/hameau']);
+  assert.deepEqual(lireSites('youtube.com/shorts youtube.com/SHORTS/').sites, ['youtube.com/shorts'], 'même entrée une seule fois');
+});
+
+test('une adresse est bloquée si elle est sur le site, ou sous le chemin demandé, pas à côté', () => {
+  assert.ok(urlBloquee('https://www.youtube.com/watch?v=1', ['youtube.com']));
+  assert.ok(urlBloquee('https://m.youtube.com/', ['youtube.com']));
+  assert.ok(urlBloquee('https://www.youtube.com/shorts/abc', ['youtube.com/shorts']));
+  assert.ok(urlBloquee('https://www.youtube.com/shorts', ['youtube.com/shorts']));
+  assert.ok(urlBloquee('https://www.youtube.com/SHORTS/abc?x=1', ['youtube.com/shorts']), 'majuscules ignorées');
+  assert.ok(!urlBloquee('https://www.youtube.com/watch?v=1', ['youtube.com/shorts']), 'le reste du site reste libre');
+  assert.ok(!urlBloquee('https://www.youtube.com/shortsfoo', ['youtube.com/shorts']), 'pas un chemin qui lui ressemble');
+  assert.ok(!urlBloquee('https://notyoutube.com/shorts/a', ['youtube.com/shorts']));
+  assert.ok(!urlBloquee('chrome://settings', ['youtube.com']));
+  for (const autre of ['chrome://youtube.com/x', 'ftp://youtube.com/x', 'file://youtube.com/x', 'chrome-extension://youtube.com/x']) assert.ok(!urlBloquee(autre, ['youtube.com']), `${autre} : ce n’est pas du web`);
+  assert.ok(!urlBloquee('pas une adresse', ['youtube.com']));
+  assert.ok(!urlBloquee('https://youtube.com/', []));
+});
+
+test('un chemin se bloque par une expression sur l’adresse entière, un site par son domaine', () => {
+  const r = reglesBlocage(['youtube.com', 'youtube.com/shorts', 'reddit.com/r/a.b'], 'chrome-extension://abc/');
+  assert.deepEqual(r.map((x) => x.id), [1, 2, 3]);
+  assert.deepEqual(r[0].condition.requestDomains, ['youtube.com']);
+  assert.equal(r[1].condition.requestDomains, undefined, 'un chemin n’utilise pas requestDomains');
+  assert.equal(r[1].action.redirect.regexSubstitution, 'chrome-extension://abc/bloque.html?u=\\1', 'l’adresse entière est capturée et renvoyée');
+  const re = new RegExp(r[1].condition.regexFilter);
+  assert.ok(re.test('https://www.youtube.com/shorts/abc?x=1#y'));
+  assert.ok(re.test('http://youtube.com/shorts'));
+  assert.ok(re.test('http://youtube.com:8080/shorts/a'), 'avec un port');
+  assert.ok(!re.test('http://youtube.com:8080/watch'), 'un port ne change pas le chemin');
+  assert.ok(!re.test('https://www.youtube.com/watch?v=1'));
+  assert.ok(!re.test('https://www.youtube.com/shortsfoo'));
+  assert.ok(!re.test('https://evilyoutube.com/shorts/a'), 'pas un autre site qui finit pareil');
+  assert.ok(new RegExp(r[2].condition.regexFilter).test('https://reddit.com/r/a.b/top'), 'le point du chemin est un point');
+  assert.ok(!new RegExp(r[2].condition.regexFilter).test('https://reddit.com/r/axb'), 'et pas « n’importe quel caractère »');
+});
+
+test('l’accès se demande pour l’hôte, une fois, même avec des chemins', () => {
+  assert.deepEqual(originesAAutoriser(['reddit.com/r/memes', 'reddit.com/r/all', 'youtube.com/shorts']), ['*://*.reddit.com/*']);
+});
+
+// ── Le site, les laissez-passer, la décision ──
+
+test('le site : sous-domaines confondus, suffixes à deux niveaux respectés, adresses IP laissées telles quelles', () => {
+  assert.equal(siteDe('docs.google.com'), 'google.com');
+  assert.equal(siteDe('mail.google.com'), 'google.com');
+  assert.equal(siteDe('google.com'), 'google.com');
+  assert.equal(siteDe('www.bbc.co.uk'), 'bbc.co.uk');
+  assert.equal(siteDe('bbc.co.uk'), 'bbc.co.uk');
+  assert.equal(siteDe('a.b.exemple.fr'), 'exemple.fr');
+  assert.equal(siteDe('127.0.0.1'), '127.0.0.1');
+  assert.equal(siteDe('localhost'), 'localhost');
+  assert.equal(siteDe('EXEMPLE.FR.'), 'exemple.fr');
+  assert.equal(siteDe(undefined), '');
+});
+
+test('les réglages de la confirmation sont ramenés à des valeurs permises', () => {
+  assert.deepEqual(confirmationValide(undefined), CONFIRMATION_DEFAUT);
+  assert.deepEqual(confirmationValide({ active: false, delaiS: 10, passeMin: 30 }), { active: false, delaiS: 10, passeMin: 30 });
+  assert.deepEqual(confirmationValide({ delaiS: 7, passeMin: 999 }), CONFIRMATION_DEFAUT, 'valeurs hors liste : celles par défaut');
+  assert.equal(confirmationValide({ active: 'non' }).active, true, 'seul « faux » éteint la confirmation');
+  assert.ok(DELAIS_S.includes(CONFIRMATION_DEFAUT.delaiS) && PASSES_MIN.includes(CONFIRMATION_DEFAUT.passeMin));
+  assert.deepEqual(SITES_DE_TRAVAIL_DEFAUT, ['claude.ai']);
+});
+
+test('un laissez-passer vaut jusqu’à son expiration, pour ce site seulement', () => {
+  const t = 1_000_000;
+  const p = ajouterPasse({}, 'youtube.com', 10, t);
+  assert.equal(p['youtube.com'], t + 600_000);
+  assert.ok(passeValide(p, 'youtube.com', t + 599_999));
+  assert.ok(!passeValide(p, 'youtube.com', t + 600_000), 'à l’instant exact, c’est fini');
+  assert.ok(!passeValide(p, 'instagram.com', t));
+  assert.ok(!passeValide(undefined, 'youtube.com', t));
+  const suite = ajouterPasse(p, 'reddit.com', 5, t + 700_000);
+  assert.deepEqual(Object.keys(suite), ['reddit.com'], 'le passage expiré est oublié');
+  const long = ajouterPasse({ 'youtube.com': t + 3_600_000 }, 'youtube.com', 1, t);
+  assert.equal(long['youtube.com'], t + 3_600_000, 'un laissez-passer plus court ne raccourcit jamais celui qui existe');
+  assert.equal(ajouterPasse({ 'youtube.com': t + 60_000 }, 'youtube.com', 10, t)['youtube.com'], t + 600_000, 'un plus long prolonge');
+});
+
+const en = { enCours: true, enPause: false };
+const base = { etat: en, destination: 'https://youtube.com/watch?v=1', actuelle: 'https://claude.ai/artifact/x', autorises: SITES_DE_TRAVAIL_DEFAUT, bloques: [], passes: {}, maintenantMs: 1_000_000 };
+
+test('chrono en cours, autre site : on demande', () => {
+  assert.equal(doitConfirmer(base), true);
+});
+
+test('pas de chrono, ou chrono en pause : jamais de question', () => {
+  assert.equal(doitConfirmer({ ...base, etat: { enCours: false, enPause: false } }), false);
+  assert.equal(doitConfirmer({ ...base, etat: null }), false);
+  assert.equal(doitConfirmer({ ...base, etat: { enCours: true, enPause: true } }), false, 'la pause est une pause');
+});
+
+test('le même site, sous-domaines compris, ne demande rien', () => {
+  assert.equal(doitConfirmer({ ...base, actuelle: 'https://www.youtube.com/', destination: 'https://m.youtube.com/watch' }), false);
+  assert.equal(doitConfirmer({ ...base, actuelle: 'https://docs.google.com/a', destination: 'https://mail.google.com/' }), false);
+  assert.equal(doitConfirmer({ ...base, actuelle: 'https://youtube.com/', destination: 'https://instagram.com/' }), true);
+});
+
+test('Hameau, sa base et les pages qui ne sont pas du web ne demandent rien', () => {
+  for (const d of ['https://maeljoly68-art.github.io/hameau/', 'https://nisjysdlyryyrsgwmcaa.supabase.co/x', 'chrome://settings', 'chrome-extension://abc/popup.html', 'about:blank', 'file:///x.pdf', 'pas une adresse']) assert.equal(doitConfirmer({ ...base, destination: d }), false, d);
+});
+
+test('un site de travail ne demande rien, ni ses sous-domaines', () => {
+  assert.equal(doitConfirmer({ ...base, autorises: ['youtube.com'] }), false);
+  assert.equal(doitConfirmer({ ...base, destination: 'https://www.youtube.com/', autorises: ['youtube.com'] }), false);
+  assert.equal(doitConfirmer({ ...base, destination: 'https://notyoutube.com/', autorises: ['youtube.com'] }), true);
+  assert.equal(doitConfirmer({ ...base, autorises: [] }), true);
+});
+
+test('un laissez-passer encore valable évite la question, une fois expiré elle revient', () => {
+  assert.equal(doitConfirmer({ ...base, passes: { 'youtube.com': 1_000_001 } }), false);
+  assert.equal(doitConfirmer({ ...base, passes: { 'youtube.com': 1_000_000 } }), true);
+  assert.equal(doitConfirmer({ ...base, destination: 'https://m.youtube.com/', passes: { 'youtube.com': 2_000_000 } }), false, 'le laissez-passer vaut pour le site entier');
+  assert.equal(doitConfirmer({ ...base, passes: { 'instagram.com': 2_000_000 } }), true, 'pas pour un autre site');
+});
+
+test('une page bloquée n’est pas demandée : la page de blocage, plus ferme, répond', () => {
+  assert.equal(doitConfirmer({ ...base, bloques: ['youtube.com'] }), false);
+  assert.equal(doitConfirmer({ ...base, destination: 'https://youtube.com/shorts/a', bloques: ['youtube.com/shorts'] }), false);
+  assert.equal(doitConfirmer({ ...base, destination: 'https://youtube.com/watch', bloques: ['youtube.com/shorts'] }), true, 'le reste du site se demande');
+});
+
+test('d’où l’on vient : onglet vide ou page interne = un autre site, adresse illisible aussi', () => {
+  for (const a of ['', undefined, 'chrome://newtab/', 'about:blank', 'chrome-extension://abc/confirmer.html']) assert.equal(doitConfirmer({ ...base, actuelle: a }), true, String(a));
+});
+
+test('le décompte du jour compte les deux issues, et garde une semaine', () => {
+  let c = compter(undefined, '2026-11-08', 'rester');
+  c = compter(c, '2026-11-08', 'rester');
+  c = compter(c, '2026-11-08', 'continuer');
+  assert.deepEqual(c['2026-11-08'], { resistes: 2, continues: 1 });
+  for (let i = 1; i <= 8; i++) c = compter(c, `2026-11-${String(8 + i).padStart(2, '0')}`, 'rester');
+  assert.equal(Object.keys(c).length, 7);
+  assert.equal(c['2026-11-08'], undefined, 'le plus ancien est oublié');
+  assert.deepEqual(compter({ a: { resistes: 1, continues: 0 } }, 'b', 'autre' as never), { a: { resistes: 1, continues: 0 }, b: { resistes: 0, continues: 0 } }, 'un genre inconnu ne compte rien');
+});
+
+test('la version annoncée par l’application est celle du manifeste', () => {
+  const m = JSON.parse(readFileSync(new URL('../extension/manifest.json', import.meta.url), 'utf8'));
+  assert.equal(m.version, VERSION_EXTENSION, 'penser à changer les deux ensemble');
+});
+
+test('une version installée plus ancienne est signalée, jamais une égale, une plus récente ou une illisible', () => {
+  assert.equal(enRetard('1.0.0', '1.1.0'), true);
+  assert.equal(enRetard('1.0.9', '1.1.0'), true);
+  assert.equal(enRetard('0.9.9', '1.0.0'), true);
+  assert.equal(enRetard('1.1.0', '1.1.0'), false);
+  assert.equal(enRetard('1.2.0', '1.1.0'), false);
+  assert.equal(enRetard('2.0.0', '1.9.9'), false);
+  assert.equal(enRetard('1.10.0', '1.9.0'), false, 'comparaison par nombres, pas par texte');
+  assert.equal(enRetard('?', '1.1.0'), false);
+  assert.equal(enRetard('1.1', '1.1.0'), false);
+  assert.equal(enRetard('1.0.0'), true, 'par défaut : la version de l’application');
 });

@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Hameau · bloqueur de distractions",
-  "version": "1.0.0",
-  "description": "Bloque YouTube, LinkedIn, Instagram… tant qu'un chrono Hameau tourne, et les débloque dès qu'il s'arrête.",
+  "name": "Hameau · concentration",
+  "version": "1.1.0",
+  "description": "Pendant un chrono Hameau : te demande « tu es sûr ? » avant de changer de page, et bloque les sites ou les adresses que tu choisis (YouTube, LinkedIn, Instagram…). Tout se relâche à l'arrêt du chrono.",
   "minimum_chrome_version": "120",
   "permissions": [
     "declarativeNetRequest",
     "storage",
     "alarms",
-    "tabs"
+    "tabs",
+    "webNavigation"
   ],
   "host_permissions": [
     "https://nisjysdlyryyrsgwmcaa.supabase.co/*",
