@@ -273,7 +273,7 @@ export default function Reglages({
             <li>Icône « Installer » dans la barre d’adresse.</li>
             <li>Épingle Hameau à la barre des tâches : le chrono s’affiche dans le titre de la fenêtre.</li>
             <li>
-              Le bouton <strong>fenêtre</strong>, sous le village, ouvre une petite fenêtre toujours au premier plan. <kbd>Espace</kbd> lance ou termine une session, <kbd>F</kbd> passe en mode focus.
+              Le bouton <strong>fenêtre</strong>, sous la ville, ouvre une petite fenêtre toujours au premier plan. <kbd>Espace</kbd> lance ou termine une session, <kbd>F</kbd> passe en mode focus.
             </li>
           </ol>
         </details>

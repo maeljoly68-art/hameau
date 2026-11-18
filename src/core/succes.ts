@@ -70,6 +70,17 @@ export function succes(sessions: readonly Session[], constructions: readonly Con
   ];
 }
 
+/**
+ * Les succès de l'ancien village à construire. On ne construit plus (la ville grandit seule avec les heures) :
+ * un succès déjà obtenu reste acquis, mais un succès qu'on ne peut plus obtenir n'a rien à faire dans la liste.
+ */
+export const SUCCES_DU_VILLAGE: ReadonlySet<string> = new Set(['batisseur', 'urbaniste', 'renovateur', 'chef-oeuvre']);
+
+/** Les succès qu'on montre : tous, sauf ceux du village à construire qui n'ont pas été obtenus. */
+export function succesEnJeu(liste: readonly Succes[]): Succes[] {
+  return liste.filter((s) => s.obtenu || !SUCCES_DU_VILLAGE.has(s.id));
+}
+
 /** Succès obtenus dans `apres` qui ne l'étaient pas dans `avant`. */
 export function nouveauxSucces(avant: readonly Succes[], apres: readonly Succes[]): Succes[] {
   const deja = new Set(avant.filter((s) => s.obtenu).map((s) => s.id));

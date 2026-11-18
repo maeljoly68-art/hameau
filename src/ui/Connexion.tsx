@@ -1,27 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import { cielPour } from '../core/ciel.ts';
 import { traduireErreurAuth } from '../core/recuperation.ts';
-import { saisonPour } from '../core/saison.ts';
-import { APPARENCE_DEFAUT, type Construction } from '../core/types.ts';
 import { adresseApp, client } from '../data/config.ts';
 import { nomAppareil } from '../data/depot.ts';
 import { useMaintenant } from './useHameau.ts';
 import { IconeCours, IconeFlamme, IconeVillage } from './Icones.tsx';
-import { Village } from './Village.tsx';
-
-// Un petit hameau de vitrine, pour montrer d'emblée ce qu'on va faire pousser.
-const VITRINE: Construction[] = [
-  { id: 'v1', batiment: 'maison', x: 0, y: 1, cout: 0, niveau: 2, construitLe: '' },
-  { id: 'v2', batiment: 'arbre', x: 1, y: 0, cout: 0, niveau: 3, construitLe: '' },
-  { id: 'v3', batiment: 'moulin', x: 4, y: 1, cout: 0, niveau: 2, construitLe: '' },
-  { id: 'v4', batiment: 'fleurs', x: 3, y: 2, cout: 0, niveau: 2, construitLe: '' },
-  { id: 'v5', batiment: 'cabane', x: 2, y: 4, cout: 0, niveau: 1, construitLe: '' },
-  { id: 'v6', batiment: 'arbre', x: 0, y: 4, cout: 0, niveau: 1, construitLe: '' },
-  { id: 'v7', batiment: 'puits', x: 3, y: 4, cout: 0, niveau: 2, construitLe: '' },
-];
-
-/** Le gardien de la vitrine, déjà un peu équipé : de quoi donner envie. */
-const VITRINE_PERSO = { ...APPARENCE_DEFAUT, chapeau: 'paille', compagnon: 'chat', accessoire: 'livre' };
 
 /**
  * Supabase fait attendre 60 s entre deux e-mails à la même personne : le
@@ -32,12 +14,11 @@ const ATTENTE_RENVOI_S = 60;
 
 /** La scène de vitrine et le titre, communs à tous les écrans d'avant la connexion. */
 export function CadreConnexion({ accroche, children, atouts = false }: { accroche: string; children: ReactNode; atouts?: boolean }) {
-  const [ciel] = useState(() => cielPour(new Date()));
-  const [saison] = useState(() => saisonPour(new Date()));
   return (
     <main className="connexion">
       <div className="connexion-scene">
-        <Village niveau={1} constructions={VITRINE} actif ciel={ciel} saison={saison} apparence={VITRINE_PERSO} />
+        {/* Une image et non la scène 3D : la page de connexion reste légère, three ne se charge qu'une fois entré. */}
+        <img className="ville-vitrine" src={`${import.meta.env.BASE_URL}ville.jpg`} width={1000} height={700} alt="Une petite ville en 3D : maisons, immeubles, une place, un parc et des rues animées" />
       </div>
       <div className="connexion-corps">
         <h1>Hameau</h1>
@@ -60,8 +41,8 @@ function Atouts() {
             <span className="atout-icone" aria-hidden>
               <IconeVillage />
             </span>
-            <h3>Un village qui pousse avec ton travail</h3>
-            <p>Chaque session de concentration te rapporte des points : tu construis, tu améliores, et le hameau suit les saisons et l’heure du jour.</p>
+            <h3>Une ville qui grandit avec ton travail</h3>
+            <p>Chaque heure de concentration la fait pousser : d’une cabane et d’un feu de camp jusqu’aux tours et au port, à l’heure du jour.</p>
           </li>
           <li>
             <span className="atout-icone" aria-hidden>
@@ -186,7 +167,7 @@ export function Connexion({ surSansCompte, lienPerime = false }: { surSansCompte
   };
 
   return (
-    <CadreConnexion accroche="Chaque minute de concentration fait grandir ton village." atouts>
+    <CadreConnexion accroche="Chaque heure de concentration fait grandir ta ville." atouts>
       {mode === 'oubli' ? (
         lienEnvoye ? (
           <LienEnvoye key={envois} email={lienEnvoye} message={message} occupe={occupe} surRenvoyer={() => void demanderLien()} surRetour={retour} />

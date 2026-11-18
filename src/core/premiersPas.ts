@@ -1,6 +1,17 @@
 // Premiers pas : tout est déduit des données, rien n'est stocké — une étape
 // cochée à la main pourrait l'être sans avoir été faite.
+import { dureeSession } from './session.ts';
 import { PROFIL_DEFAUT, type Construction, type Profil, type Session } from './types.ts';
+
+/** Les minutes des sessions terminées, pauses déduites ; une durée inconnue ne compte pas. */
+function minutesCloses(sessions: readonly Session[]): number {
+  let m = 0;
+  for (const s of sessions) {
+    const d = s.fin ? dureeSession(s) : null;
+    if (d !== null && d > 0) m += d;
+  }
+  return m;
+}
 
 export interface Etape {
   id: string;
@@ -15,7 +26,8 @@ export function premiersPas(
 ): Etape[] {
   const etapes: Etape[] = [
     { id: 'session', titre: 'Termine une première session', detail: 'Lance le chrono, travaille, puis note ce que tu as fait.', fait: d.sessions.some((s) => s.fin !== null) },
-    { id: 'construction', titre: 'Pose ton premier bâtiment', detail: 'Tes points te permettent de construire : le marteau, sous le village.', fait: d.constructions.length > 0 },
+    // La ville grandit seule : la première nouveauté (des arbres) tombe à une heure de travail cumulée.
+    { id: 'ville', titre: 'Fais pousser ta ville', detail: 'Une heure de travail cumulée, et les premiers arbres apparaissent.', fait: minutesCloses(d.sessions) >= 60 },
     { id: 'nom', titre: 'Baptise ton hameau', detail: 'Réglages → Ton hameau. Tu peux aussi y régler ton objectif du jour.', fait: d.profil.nomHameau !== PROFIL_DEFAUT.nomHameau },
     { id: 'installation', titre: 'Installe l’app sur cet appareil', detail: 'Elle s’ouvrira en plein écran, comme une vraie app : Réglages → Installer.', fait: contexte.installee },
   ];

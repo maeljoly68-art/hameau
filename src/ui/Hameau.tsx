@@ -1,15 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { nouveauxCosmetiques, type Progression } from '../core/apparence.ts';
-import { cielPour } from '../core/ciel.ts';
-import { pointsSession } from '../core/points.ts';
 import { premiersPas } from '../core/premiersPas.ts';
-import { saisonPour } from '../core/saison.ts';
 import { clore, dureeSession, ecouleEffectif, enPause } from '../core/session.ts';
-import { meilleureSerie, minutesAujourdhui, serie } from '../core/stats.ts';
-import { nouveauxSucces, succes as calculerSucces } from '../core/succes.ts';
+import { minutesAujourdhui, serie } from '../core/stats.ts';
+import { nouveauxSucces, succes as calculerSucces, succesEnJeu } from '../core/succes.ts';
 import { cleJour, formatChrono, formatDuree } from '../core/temps.ts';
-import type { Construction, Session } from '../core/types.ts';
-import { accord, ameliorables as batimentsAmeliorables, batiment, casesDeplacement, coutAmelioration, habitants, NIVEAU_MAX, niveauRequisAmelioration, refusAmelioration, refusConstruction, tailleTerrain, type Batiment } from '../core/village.ts';
+import type { Session } from '../core/types.ts';
+import { heuresDe, jourDeFete, nouveautes, progressionVille } from '../core/ville.ts';
 import type { Depot } from '../data/depot.ts';
 import { lireLocal } from '../data/local.ts';
 import { marquerRelu, noterChapitres, validerExamen, validerLectureEtVitesse } from '../data/cours.ts';
@@ -19,14 +15,12 @@ import { NOTES, type Note } from '../core/revision.ts';
 import { lienSillage, marquerTache, synchroniser, type LienSillage } from '../data/sillage.ts';
 import type { TacheSillage } from '../core/sillage.ts';
 import { useAlerteObjectif } from './alertes.ts';
-import { Boutique } from './Boutique.tsx';
 import { Rappels } from './Rappels.tsx';
 import { Anneau, CATEGORIES_PROPOSEES, Chrono, ecrirePreference, etatChrono, lirePreference } from './Chrono.tsx';
 import { DialogueFin } from './DialogueFin.tsx';
 import { FinApprentissage } from './FinApprentissage.tsx';
 import { FinExamen } from './FinExamen.tsx';
-import { GardeRobe } from './GardeRobe.tsx';
-import { IconeAmis, IconeCintre, IconeCours, IconeCoche, IconeEtincelle, IconeEtoile, IconeFenetre, IconeFlamme, IconeHistorique, IconeMarteau, IconeReglages, IconeStats, IconeTaches, IconeVillage } from './Icones.tsx';
+import { IconeAmis, IconeCours, IconeCoche, IconeEtincelle, IconeFenetre, IconeFlamme, IconeHistorique, IconeReglages, IconeStats, IconeTaches, IconeVillage } from './Icones.tsx';
 import { miniChronoDisponible, useMiniChrono } from './MiniChrono.tsx';
 import { ModeFocus } from './ModeFocus.tsx';
 import type { LancerChapitre } from './pages/Cours.tsx';
@@ -34,11 +28,10 @@ import { ongletDansAdresse, ongletValide, sansOnglet, type Onglet } from '../cor
 import { useHameau, useMaintenant } from './useHameau.ts';
 import { usePointsApprentissage } from './usePointsApprentissage.ts';
 import { useSites } from './useSites.ts';
-import { CadreVillage } from './Village.tsx';
-import { Dessin, SaisonContexte } from './village/dessins.tsx';
+import { Ville } from './Ville.tsx';
 
 // Les onglets secondaires ne sont chargés qu'à la première visite : l'écran
-// d'ouverture n'a besoin que du village et du chrono.
+// d'ouverture n'a besoin que de la ville et du chrono.
 /** La séance de travail en cours qui vient d'un bloc du calendrier (gardée sur l'appareil jusqu'à la fin de la session). */
 interface ChapitreEnCours {
   session: string;
@@ -91,7 +84,7 @@ const OngletCours = lazy(chargerOngletCours);
 
 
 const ONGLETS: { id: Onglet; nom: string; Icone: () => React.ReactElement }[] = [
-  { id: 'village', nom: 'Village', Icone: IconeVillage },
+  { id: 'village', nom: 'Ville', Icone: IconeVillage },
   { id: 'cours', nom: 'Cours', Icone: IconeCours },
   { id: 'taches', nom: 'Tâches', Icone: IconeTaches },
   { id: 'amis', nom: 'Amis', Icone: IconeAmis },
@@ -193,62 +186,8 @@ function PremiersPas({ etapes, surMasquer }: { etapes: ReturnType<typeof premier
   );
 }
 
-const RAISONS_AMELIORATION = { niveau: 'Le village doit grandir', solde: 'Pas encore assez de points', max: 'Niveau maximal', inconnu: 'Bâtiment inconnu' } as const;
-
-/** Fiche d'un bâtiment : son niveau, ce que change le suivant, et de quoi l'améliorer. */
-function FicheBatiment({ construction: c, niveauVillage, solde, saison, surAmeliorer }: { construction: Construction; niveauVillage: number; solde: number; saison: ReturnType<typeof saisonPour>; surAmeliorer: (c: Construction) => void }) {
-  const b = batiment(c.batiment);
-  const cout = b ? coutAmelioration(b, c.niveau) : null;
-  const refus = refusAmelioration(c, { niveau: niveauVillage, solde });
-  const gain = habitants(c.batiment, c.niveau + 1) - habitants(c.batiment, c.niveau);
-  return (
-    <div className="fiche-batiment">
-      <div className="entete">
-        <h2>{b?.nom ?? c.batiment}</h2>
-        <span className="etoiles" role="img" aria-label={`Niveau ${c.niveau} sur ${NIVEAU_MAX}`}>
-          {Array.from({ length: NIVEAU_MAX }, (_, i) => (
-            <IconeEtoile key={i} pleine={i < c.niveau} />
-          ))}
-        </span>
-      </div>
-      <p className="aide">{b?.description}</p>
-      <SaisonContexte.Provider value={saison}>
-        <div className="evolution">
-          <svg viewBox="-40 -92 80 102" aria-hidden>
-            <ellipse cx={0} cy={4} rx={30} ry={11} fill="rgba(0,0,0,.18)" />
-            <Dessin id={c.batiment} actif={false} niveau={c.niveau} />
-          </svg>
-          {b && cout !== null && (
-            <>
-              <span className="fleche" aria-hidden>→</span>
-              <svg viewBox="-40 -92 80 102" aria-hidden>
-                <ellipse cx={0} cy={4} rx={30} ry={11} fill="rgba(0,0,0,.18)" />
-                <Dessin id={c.batiment} actif={false} niveau={c.niveau + 1} />
-              </svg>
-            </>
-          )}
-        </div>
-      </SaisonContexte.Provider>
-      {b && cout !== null ? (
-        <div className="amelioration">
-          <p>
-            <strong>Niveau {c.niveau + 1} :</strong> {b.ameliorations[c.niveau - 1]}
-            {gain > 0 && ` · +${gain} habitant`}.
-          </p>
-          <button className="bouton" disabled={refus !== null} onClick={() => surAmeliorer(c)}>
-            Améliorer · <IconeEtincelle taille={13} /> {cout}
-          </button>
-          {refus === 'niveau' && <p className="aide petite">Possible au niveau {niveauRequisAmelioration(b, c.niveau + 1)} du village.</p>}
-        </div>
-      ) : (
-        <p className="aide">{RAISONS_AMELIORATION.max} : ce bâtiment ne peut plus grandir.</p>
-      )}
-    </div>
-  );
-}
 
 const AUCUNE_SESSION: Session[] = [];
-const AUCUN_BATIMENT: ReadonlySet<string> = new Set<string>();
 
 export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: string | null; surDeconnexion: () => void }) {
   const pointsEnApprenant = usePointsApprentissage(depot.synchronise ? depot.userId : null);
@@ -275,20 +214,8 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
     navigator.serviceWorker.addEventListener('message', surMessage);
     return () => navigator.serviceWorker.removeEventListener('message', surMessage);
   }, []);
-  const [gardeRobe, setGardeRobe] = useState(false);
-  // Le ciel suit le soleil à la minute : recalculé seulement quand elle change,
-  // pour que le village (mémoïsé) ne se redessine pas à chaque battement.
-  const minute = Math.floor(maintenant / 60_000);
-  const ciel = useMemo(() => cielPour(new Date(minute * 60_000)), [minute]);
   const [finEnCours, setFinEnCours] = useState(false);
   const [focus, setFocus] = useState(false);
-  const [aConstruire, setAConstruire] = useState<Batiment | null>(null);
-  // Un bâtiment « soulevé » : on choisit sa nouvelle case, sans rien payer.
-  const [aDeplacer, setADeplacer] = useState<Construction | null>(null);
-  const [boutique, setBoutique] = useState(false);
-  const [selection, setSelection] = useState<Construction | null>(null);
-  const [recent, setRecent] = useState<string | null>(null);
-  const [fete, setFete] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [pasMasques, setPasMasques] = useState(() => lirePreference('hameau.premiers-pas-masques', false));
   const [installee] = useState(estInstallee);
@@ -365,52 +292,34 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
   }, [lien, frais, donnees, toast]);
 
   const listeSucces = useMemo(
-    () => (donnees ? calculerSucces(donnees.sessions, donnees.constructions, donnees.profil.objectifJour) : null),
+    () => (donnees ? succesEnJeu(calculerSucces(donnees.sessions, donnees.constructions, donnees.profil.objectifJour)) : null),
     [donnees],
   );
 
-  // Où en est-on, pour la garde-robe : tout se déduit des sessions et des
-  // constructions, comme les succès.
-  const progression = useMemo<Progression | null>(() => {
-    if (!donnees || !derive || !listeSucces) return null;
+  // Les heures de travail closes, pauses déduites : ce qui fait grandir la ville. Sillage reçoit ces mêmes
+  // séances et en tire la même progression, d'où la même ville des deux côtés.
+  const minutesTravail = useMemo(() => {
     let minutes = 0;
-    let sessions = 0;
-    for (const s of donnees.sessions) {
-      const d = dureeSession(s);
-      if (d === null) continue;
-      minutes += d;
-      if (d >= 5) sessions++;
+    for (const s of donnees?.sessions ?? []) {
+      const d = s.fin ? dureeSession(s) : null;
+      if (d !== null && d > 0) minutes += d;
     }
-    return {
-      niveau: derive.niveau.niveau,
-      minutes,
-      sessions,
-      meilleureSerie: meilleureSerie(donnees.sessions),
-      batiments: donnees.constructions.length,
-      succes: new Set(listeSucces.filter((x) => x.obtenu).map((x) => x.id)),
-    };
-  }, [donnees, derive, listeSucces]);
+    return minutes;
+  }, [donnees]);
+  const heuresTravail = heuresDe(minutesTravail);
+  const ville = useMemo(() => progressionVille(heuresTravail), [heuresTravail]);
 
-  // Fête le niveau, les succès et les objets gagnés, une fois, sans rejouer au chargement.
-  const vu = useRef<{ niveau: number; succes: NonNullable<typeof listeSucces>; progression: Progression } | null>(null);
+  // Annonce les succès et ce qui vient d'apparaître dans la ville, une fois, sans rejouer au chargement.
+  const vu = useRef<{ succes: NonNullable<typeof listeSucces>; heures: number } | null>(null);
   useEffect(() => {
-    if (!derive || !listeSucces || !progression || !frais) return;
+    if (!listeSucces || !frais) return;
     const avant = vu.current;
-    vu.current = { niveau: derive.niveau.niveau, succes: listeSucces, progression };
+    vu.current = { succes: listeSucces, heures: heuresTravail };
     if (!avant) return;
-    if (derive.niveau.niveau > avant.niveau) {
-      toast(`Niveau ${derive.niveau.niveau} ! Le hameau s’agrandit.`, { type: 'succes' });
-      setFete(true);
-      window.setTimeout(() => setFete(false), 5000);
-    }
     for (const s of nouveauxSucces(avant.succes, listeSucces)) toast(`Succès : ${s.nom}`, { type: 'succes' });
-    for (const c of nouveauxCosmetiques(avant.progression, progression))
-      toast(`Garde-robe : ${c.nom} gagné`, { type: 'succes', action: { libelle: 'Voir', faire: () => {
-        setOnglet('village');
-        setBoutique(false);
-        setGardeRobe(true);
-      } } });
-  }, [derive, listeSucces, progression, frais, toast]);
+    for (const p of nouveautes(avant.heures, heuresTravail))
+      toast(`Nouveau dans ta ville : ${p.libelle}`, { type: 'succes', action: { libelle: 'Voir', faire: () => setOnglet('village') } });
+  }, [listeSucces, heuresTravail, frais, toast]);
 
   // Le niveau montré aux amis : recopié quand il change. Une fois par niveau
   // et par ouverture, en silence : si la base n'est pas encore à jour, on
@@ -429,22 +338,6 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
     for (const s of donnees?.sessions ?? []) if (s.categorie.trim()) vues.add(s.categorie.trim());
     return [...vues].slice(0, 12);
   }, [donnees]);
-
-  const posables = useMemo(() => {
-    if (aDeplacer && derive && donnees) return casesDeplacement(aDeplacer, { niveau: derive.niveau.niveau, constructions: donnees.constructions });
-    if (!aConstruire || !derive || !donnees) return undefined;
-    const t = tailleTerrain(derive.niveau.niveau);
-    const s = new Set<string>();
-    for (let y = 0; y < t; y++)
-      for (let x = 0; x < t; x++)
-        if (refusConstruction(aConstruire.id, x, y, { niveau: derive.niveau.niveau, solde: derive.solde, constructions: donnees.constructions }) === null) s.add(`${x},${y}`);
-    return s;
-  }, [aConstruire, aDeplacer, derive, donnees]);
-  // Pendant un déplacement, le bâtiment soulevé disparaît de sa case (et revient si l'on annule).
-  const constructionsVisibles = useMemo(() => (donnees && aDeplacer ? donnees.constructions.filter((c) => c.id !== aDeplacer.id) : donnees?.constructions), [donnees, aDeplacer]);
-
-  // Les bâtiments qu'on peut améliorer maintenant : une petite flèche les signale dans la scène.
-  const ameliorables = useMemo(() => (donnees && derive ? batimentsAmeliorables(donnees.constructions, { niveau: derive.niveau.niveau, solde: derive.solde }) : AUCUN_BATIMENT), [donnees, derive]);
 
   const demarrer = useCallback((categorie: string, objectif: number | null) => void agir(() => depot.demarrer(categorie, objectif)), [agir, depot]);
 
@@ -496,38 +389,9 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
   const pause = useCallback(() => enCours && void agir(() => depot.pause(enCours.id)), [agir, depot, enCours]);
   const reprise = useCallback(() => enCours && void agir(() => depot.reprendre(enCours.id)), [agir, depot, enCours]);
 
-  const poser = useCallback(
-    (x: number, y: number) => {
-      if (!aConstruire) return;
-      const b = aConstruire;
-      setAConstruire(null);
-      setBoutique(false);
-      void agir(() => depot.construire({ batiment: b.id, x, y, cout: b.cout })).then(() => {
-        toast(`${b.nom} ${accord(b, 'construit')} !`);
-        // L'animation « pousse » vise le bâtiment le plus récent sur cette case.
-        setRecent(`${x},${y}`);
-      });
-    },
-    [aConstruire, agir, depot, toast],
-  );
-
-  const deplacerVers = useCallback(
-    (x: number, y: number) => {
-      if (!aDeplacer) return;
-      const c = aDeplacer;
-      const b = batiment(c.batiment);
-      setADeplacer(null);
-      void agir(() => depot.deplacer(c.id, x, y)).then(() => {
-        toast(`${b?.nom ?? c.batiment} ${accord(b, 'déplacé')}.`, { action: { libelle: 'Annuler', faire: () => void agir(() => depot.deplacer(c.id, c.x, c.y)) } });
-        setRecent(`${x},${y}`);
-      });
-    },
-    [aDeplacer, agir, depot, toast],
-  );
-
-  // Supprimer et démolir s'annulent pendant quelques secondes, plutôt que de
-  // demander confirmation : une confirmation se valide par réflexe, une
-  // annulation rattrape vraiment l'erreur.
+  // Supprimer s'annule pendant quelques secondes, plutôt que de demander
+  // confirmation : une confirmation se valide par réflexe, une annulation
+  // rattrape vraiment l'erreur.
   const supprimerSession = useCallback(
     (id: string) => {
       const s = donnees?.sessions.find((x) => x.id === id);
@@ -539,36 +403,13 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
     },
     [agir, depot, donnees, toast],
   );
-  const demolir = useCallback(
-    (c: Construction) => {
-      const b = batiment(c.batiment);
-      const nom = b?.nom ?? c.batiment;
-      void agir(() => depot.demolir(c.id)).then(() =>
-        toast(`${nom} ${accord(b, 'démoli')} (+${c.cout}).`, { action: { libelle: 'Annuler', faire: () => void agir(() => depot.construire({ batiment: c.batiment, x: c.x, y: c.y, cout: c.cout, niveau: c.niveau })) } }),
-      );
-    },
-    [agir, depot, toast],
-  );
-  const ameliorer = useCallback(
-    (c: Construction) => {
-      const b = batiment(c.batiment);
-      const cout = b ? coutAmelioration(b, c.niveau) : null;
-      if (!b || cout === null) return;
-      void agir(() => depot.ameliorer(c, cout)).then(() => {
-        toast(`${b.nom} ${accord(b, 'amélioré')} : niveau ${c.niveau + 1} !`, { type: 'succes' });
-        setRecent(`${c.x},${c.y}`);
-      });
-    },
-    [agir, depot, toast],
-  );
-
   // Raccourcis clavier sur ordinateur. Jamais pendant une saisie : taper une
   // espace dans la description ne doit pas lancer une session.
   useEffect(() => {
     const touche = (e: KeyboardEvent) => {
       const cible = e.target as HTMLElement | null;
       if (cible && (cible.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(cible.tagName))) return;
-      if (finEnCours || selection || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (finEnCours || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.code === 'Space') {
         e.preventDefault();
         if (enCours) setFinEnCours(true);
@@ -577,31 +418,24 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
       else if (e.key === 'p' && enCours) {
         if (enPause(enCours)) reprise();
         else pause();
-      } else if (e.key === 'Escape') {
-        setAConstruire(null);
-        setBoutique(false);
       }
     };
     window.addEventListener('keydown', touche);
     return () => window.removeEventListener('keydown', touche);
-  }, [enCours, finEnCours, selection, profil, demarrerRapide, pause, reprise]);
+  }, [enCours, finEnCours, profil, demarrerRapide, pause, reprise]);
 
   if (!donnees || !derive || !profil || !listeSucces) {
     return <div className="chargement">{erreur ? `Erreur : ${erreur}` : 'Chargement du hameau…'}</div>;
   }
 
-  const { niveau, solde } = derive;
   const m = new Date(maintenant);
-  const saison = saisonPour(m);
   const jours = serie(donnees.sessions, m);
   // Le total du jour compte aussi la session en cours (pauses déduites), à la demi-minute près.
   const enCoursAujourdhui = enCours && cleJour(new Date(enCours.debut)) === cleJour(m) ? ecouleEffectif(enCours, maintenant) : 0;
   const aujourdhui = minutesAujourdhui(donnees.sessions, m) + enCoursAujourdhui;
   const prochain = listeSucces.filter((s) => !s.obtenu).sort((a, b) => b.actuel / b.cible - a.actuel / a.cible)[0];
-  const recentId = recent ? (donnees.constructions.find((c) => `${c.x},${c.y}` === recent)?.id ?? null) : null;
-  // Le bâtiment ouvert, tel qu'il est MAINTENANT : après une amélioration, son
-  // niveau et son coût ont changé ; démoli ailleurs, la fiche se ferme.
-  const choisie = selection ? (donnees.constructions.find((c) => c.id === selection.id) ?? null) : null;
+  // Le feu d'artifice des soirs où l'objectif du jour est atteint (une fois débloqué dans la ville).
+  const fete = jourDeFete(ville, aujourdhui, profil.objectifJour);
   const etapes = premiersPas(donnees, { installee, synchronise: depot.synchronise });
   const montrerPas = !pasMasques && etapes.some((e) => !e.fait);
   const actionsSession = { surArreter: () => setFinEnCours(true), surPause: pause, surReprendre: reprise, surFocus: () => setFocus(true) };
@@ -632,16 +466,10 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
         <header className="barre-haut">
           <div className="titre-hameau">
             <h1>{profil.nomHameau}</h1>
-            <div className="niveau">
-              <span className="niveau-num">Niv. {niveau.niveau}</span>
-              <span className="progression" title={`${niveau.dansNiveau} / ${niveau.tailleNiveau} points avant le niveau ${niveau.niveau + 1}`}>
-                <span style={{ width: `${(niveau.dansNiveau / niveau.tailleNiveau) * 100}%` }} />
-              </span>
-            </div>
           </div>
           <div className="compteurs">
-            <span className="compteur" title="Points à dépenser">
-              <IconeEtincelle /> {solde}
+            <span className="compteur" title="Heures de travail au total">
+              <IconeHistorique /> {Math.floor(heuresTravail)} h
             </span>
             <span className={jours > 0 ? 'compteur serie-vive' : 'compteur'} title="Jours d’affilée avec au moins 25 min">
               <IconeFlamme /> {jours}
@@ -661,102 +489,25 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
           {onglet === 'village' && (
             <div className="grille-village">
               <div className="col-scene">
-                <CadreVillage
-                  niveau={niveau.niveau}
-                  constructions={constructionsVisibles ?? donnees.constructions}
-                  actif={enCours !== null && !enPause(enCours)}
-                  ciel={ciel}
-                  saison={saison}
-                  apparence={profil.apparence}
-                  surPersonnage={() => {
-                    setBoutique(false);
-                    setGardeRobe(true);
-                  }}
+                <Ville
+                  progression={ville}
                   fete={fete}
-                  posables={posables}
-                  fantome={aConstruire?.id ?? aDeplacer?.batiment}
-                  recent={recentId}
-                  ameliorables={ameliorables}
-                  surCase={aDeplacer ? deplacerVers : poser}
-                  surConstruction={setSelection}
                   pied={
-                    aConstruire || aDeplacer ? (
-                      <div className="bandeau">
-                        <span>
-                          Touche une case en surbrillance pour {aDeplacer ? 'déplacer' : 'poser'} : <strong>{aConstruire?.nom ?? batiment(aDeplacer!.batiment)?.nom}</strong>
-                          {aDeplacer && ' (gratuit)'}
-                        </span>
-                        <button
-                          className="bouton petit discret"
-                          onClick={() => {
-                            setAConstruire(null);
-                            setADeplacer(null);
-                          }}
-                        >
-                          Annuler
-                        </button>
-                      </div>
-                    ) : (
+                    miniChronoDisponible() ? (
                       <div className="village-actions">
                         <button
-                          className={boutique ? 'bouton discret icone actif' : 'bouton discret icone'}
-                          onClick={() => {
-                            setGardeRobe(false);
-                            setBoutique(!boutique);
-                          }}
-                          aria-expanded={boutique}
-                          aria-label="Construire"
-                          title="Construire"
+                          className={mini.ouverte ? 'bouton discret icone actif' : 'bouton discret icone'}
+                          onClick={() => void (mini.ouverte ? mini.fermer() : mini.ouvrir())}
+                          aria-pressed={mini.ouverte}
+                          aria-label={mini.ouverte ? 'Fermer le mini-chrono' : 'Mini-chrono'}
+                          title={mini.ouverte ? 'Fermer le mini-chrono' : 'Mini-chrono : petite fenêtre toujours au premier plan'}
                         >
-                          <IconeMarteau />
+                          <IconeFenetre />
                         </button>
-                        <button
-                          className={gardeRobe ? 'bouton discret icone actif' : 'bouton discret icone'}
-                          onClick={() => {
-                            setBoutique(false);
-                            setGardeRobe(!gardeRobe);
-                          }}
-                          aria-expanded={gardeRobe}
-                          aria-label="Garde-robe"
-                          title="Garde-robe"
-                        >
-                          <IconeCintre />
-                        </button>
-                        {miniChronoDisponible() && (
-                          <button
-                            className={mini.ouverte ? 'bouton discret icone actif' : 'bouton discret icone'}
-                            onClick={() => void (mini.ouverte ? mini.fermer() : mini.ouvrir())}
-                            aria-pressed={mini.ouverte}
-                            aria-label={mini.ouverte ? 'Fermer le mini-chrono' : 'Mini-chrono'}
-                            title={mini.ouverte ? 'Fermer le mini-chrono' : 'Mini-chrono : petite fenêtre toujours au premier plan'}
-                          >
-                            <IconeFenetre />
-                          </button>
-                        )}
                       </div>
-                    )
+                    ) : undefined
                   }
                 />
-                {gardeRobe && !aConstruire && !aDeplacer && progression && (
-                  <GardeRobe
-                    apparence={profil.apparence}
-                    progression={progression}
-                    nomSucces={(id) => listeSucces.find((x) => x.id === id)?.nom ?? id}
-                    surChoisir={(a) => void agir(() => depot.enregistrerProfil({ ...profil, apparence: a }))}
-                    surFermer={() => setGardeRobe(false)}
-                  />
-                )}
-                {boutique && !aConstruire && !aDeplacer && (
-                  <Boutique
-                    niveau={niveau.niveau}
-                    solde={solde}
-                    saison={saison}
-                    surChoisir={(b) => {
-                      setAConstruire(b);
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }}
-                  />
-                )}
               </div>
               <div className="col-panneau">
                 <Chrono enCours={enCours} categories={categories} surDemarrer={demarrer} {...actionsSession} />
@@ -880,13 +631,11 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
           surValider={(champs, { tacheFaite }) => {
             setFinEnCours(false);
             const tache = tacheDe(enCours);
-            // Le gain affiché est celui que la base retiendra : pauses déduites.
-            const gain = pointsSession(dureeSession(clore(enCours, champs.fin)));
             const chapitre = lirePreference<ChapitreEnCours | AncienChapitreEnCours | null>('hameau.chapitre-en-cours', null);
             // Le temps réel, pauses déduites : c'est lui qui précise ta vitesse (null : la session n'a pas de durée).
             const reelles = dureeSession(clore(enCours, champs.fin));
             void agir(() => depot.terminer(enCours.id, champs)).then(() => {
-              toast(gain > 0 ? `+${gain} points de concentration` : 'Session enregistrée.');
+              toast('Session enregistrée.');
               ecrirePreference('hameau.tache-en-cours', null);
               ecrirePreference('hameau.chapitre-en-cours', null);
               // Le chapitre travaillé : on propose de le noter tout de suite, c'est là que la mémoire est fraîche.
@@ -899,40 +648,6 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
             });
           }}
         />
-      )}
-
-      {choisie && (
-        <div className="voile" role="dialog" aria-modal="true" aria-label={`Fiche : ${batiment(choisie.batiment)?.nom ?? choisie.batiment}`} onClick={() => setSelection(null)}>
-          <div className="fenetre" onClick={(e) => e.stopPropagation()}>
-            <FicheBatiment construction={choisie} niveauVillage={niveau.niveau} solde={solde} saison={saison} surAmeliorer={ameliorer} />
-            <div className="actions">
-              <button
-                className="bouton discret"
-                onClick={() => {
-                  setSelection(null);
-                  setBoutique(false);
-                  setGardeRobe(false);
-                  setAConstruire(null);
-                  setADeplacer(choisie);
-                }}
-              >
-                Déplacer
-              </button>
-              <button
-                className="bouton danger"
-                onClick={() => {
-                  setSelection(null);
-                  demolir(choisie);
-                }}
-              >
-                Démolir (+{choisie.cout})
-              </button>
-              <button className="bouton discret" onClick={() => setSelection(null)}>
-                Garder
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {aNoter && (

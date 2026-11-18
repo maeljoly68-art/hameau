@@ -4,7 +4,7 @@ import { CALIBRAGE_JOURS, CALIBRAGE_MIN, calibrage } from '../../core/confiance.
 import type { DonneesCours } from '../../core/cours.ts';
 import type { Heures } from '../../core/heures.ts';
 import { HEURES_MIN } from '../../core/heures.ts';
-import { ajouterJours, jourCourt } from '../../core/jours.ts';
+import { jourCourt } from '../../core/jours.ts';
 import { numerosDePages } from '../../core/pages.ts';
 import { BILAN_JOURS, bilanSemaine } from '../../core/passages.ts';
 import { pointsApprentissage } from '../../core/pointsApprentissage.ts';
@@ -18,11 +18,6 @@ export function Bilan({ donnees, aujourdhui, fragiles, moments, ouvert }: { donn
   const numeros = useMemo(() => numerosDePages(donnees.chapitres), [donnees.chapitres]);
   const calibre = useMemo(() => calibrage(donnees.passages, aujourdhui), [donnees.passages, aujourdhui]);
   const appris = useMemo(() => pointsApprentissage(donnees.passages, aujourdhui), [donnees.passages, aujourdhui]);
-  const pointsSemaine = useMemo(() => {
-    let t = 0;
-    for (let i = 0; i < BILAN_JOURS; i++) t += appris.parJour.get(ajouterJours(aujourdhui, -i)) ?? 0;
-    return t;
-  }, [appris, aujourdhui]);
   const titreDe = (id: string) => donnees.chapitres.find((c) => c.id === id);
   const coursDe = (id: string) => donnees.cours.find((c) => c.id === id);
   return (
@@ -61,10 +56,11 @@ export function Bilan({ donnees, aujourdhui, fragiles, moments, ouvert }: { donn
         Tes notes : {b.notes['a-revoir']} à revoir · {b.notes.difficile} difficile · {b.notes.bien} bien · {b.notes.facile} facile.
         {b.vitesse && ` Ta vitesse : ${b.vitesse.debut.toFixed(2)} → ${b.vitesse.fin.toFixed(2)} (${libelleVitesse(b.vitesse.fin)}).`}
       </p>
-      <p className="aide petite">
-        Points gagnés en apprenant cette semaine : <strong>{pointsSemaine}</strong>
-        {appris.serie > 0 ? ` · série de ${appris.serie} jour${appris.serie > 1 ? 's' : ''} d’apprentissage` : ''}. Chaque page apprise, chaque rappel réussi, chaque examen blanc rapporte des points au village (plafonnés par jour).
-      </p>
+      {appris.serie > 0 && (
+        <p className="aide petite">
+          Série de {appris.serie} jour{appris.serie > 1 ? 's' : ''} d’apprentissage.
+        </p>
+      )}
       <h3 className="sous-titre">Ta confiance</h3>
       <p className="aide petite bilan-confiance">
         {calibre.verdict === 'insuffisant'

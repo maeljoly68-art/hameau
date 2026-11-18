@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState } from 'react';
-import { pointsSession } from '../core/points.ts';
 import { clore, dureeSession, pauseValide } from '../core/session.ts';
 import { suggestionsDescription } from '../core/suggestions.ts';
 import { formatDuree } from '../core/temps.ts';
@@ -124,9 +123,7 @@ export function DialogueFin({
           minutes !== null && (
             <p className="bilan">
               <span className="bilan-duree">{formatDuree(minutes)}</span>
-              <strong className="bilan-points">+{pointsSession(minutes)} points</strong>
               {pauseMin >= 1 && <small>pauses déduites : {formatDuree(pauseMin)}</small>}
-              {pointsSession(minutes) === 0 && <small>5 minutes minimum pour gagner des points</small>}
               {session.objectif !== null && (
                 <small className={minutes >= session.objectif ? 'reussi' : undefined}>
                   {minutes >= session.objectif ? `Objectif de ${session.objectif} min atteint` : `Objectif de ${session.objectif} min non atteint — pas grave, tout compte`}

@@ -1,5 +1,4 @@
 import { useDeferredValue, useMemo, useState } from 'react';
-import { pointsSession } from '../../core/points.ts';
 import { dureeSession, pauseValide } from '../../core/session.ts';
 import { libelleSites, type SiteTemps } from '../../core/sites.ts';
 import { correspond } from '../../core/suggestions.ts';
@@ -147,7 +146,6 @@ export default function Historique({
                       </span>
                       <span className="ligne-duree">
                         {minutes !== null ? formatDuree(minutes) : '—'}
-                        <small>+{pointsSession(minutes)}</small>
                       </span>
                     </button>
                   )}

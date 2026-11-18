@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { nouveauxSucces, succes } from '../src/core/succes.ts';
 import { construction, session } from './aide.ts';
+import { succesEnJeu } from '../src/core/succes.ts';
 
 const un = (liste: ReturnType<typeof succes>, id: string) => liste.find((s) => s.id === id)!;
 
@@ -62,4 +63,13 @@ test('rénovateur et chef-d’œuvre suivent les niveaux des bâtiments', () => 
   assert.ok(un(succes([], [construction('maison', 0, 0, 162, 2)], 120), 'renovateur').obtenu);
   assert.ok(!un(succes([], [construction('maison', 0, 0, 162, 2)], 120), 'chef-oeuvre').obtenu);
   assert.ok(un(succes([], [construction('maison', 0, 0, 306, 3)], 120), 'chef-oeuvre').obtenu);
+});
+
+test('les succès du village à construire : gardés une fois obtenus, cachés sinon (on ne construit plus)', () => {
+  const sans = succesEnJeu(succes([], [], 120)).map((s) => s.id);
+  for (const id of ['batisseur', 'urbaniste', 'renovateur', 'chef-oeuvre']) assert.ok(!sans.includes(id), id);
+  assert.ok(sans.includes('heure'), 'les autres restent en jeu même non obtenus');
+  const avec = succesEnJeu(succes([], [construction('maison', 0, 0, 162, 2)], 120)).map((s) => s.id);
+  assert.ok(avec.includes('renovateur'), 'un succès déjà gagné ne disparaît pas');
+  assert.ok(!avec.includes('chef-oeuvre'));
 });
