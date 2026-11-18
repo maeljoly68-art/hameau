@@ -39,5 +39,6 @@ export function creerVille(
   etiquettes: Partial<Record<CleQuartier, HTMLElement>>,
   auChoix: (cle: CleQuartier) => void,
   progression?: Progression,
-  reglages?: { cadrage?: number },
+  /** `qualite` force la version légère ou complète ; sans lui, la légère n'est prise que sous un rendu logiciel. */
+  reglages?: { cadrage?: number; qualite?: 'legere' | 'complete' },
 ): Ville | null;

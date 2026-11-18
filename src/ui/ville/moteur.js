@@ -60,6 +60,27 @@ const VILLE_COMPLETE = {
   total: 1,
 };
 
+/*
+  Un rendu logiciel — pas de carte graphique, ou une carte écartée par le
+  navigateur — calcule chaque pixel au processeur (SwiftShader, llvmpipe).
+  RENDERER donne le vrai nom dans les navigateurs récents ; l'extension de
+  débogage n'est interrogée que s'il est masqué, car Firefox la signale comme
+  dépréciée dans la console.
+*/
+function rendusLogiciel(renderer) {
+  try {
+    const gl = renderer.getContext();
+    let nom = String(gl.getParameter(gl.RENDERER) || "");
+    if (/^webkit webgl$/i.test(nom)) {
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      if (ext) nom = String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || "");
+    }
+    return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(nom);
+  } catch {
+    return false;
+  }
+}
+
 export function creerVille(host, pinEls, onPick, progression, reglages) {
   /*
     Ce qui est bâti vient d'un seul objet, calculé hors d'ici (`progression.ts`,
@@ -89,13 +110,20 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   } catch {
     return null;
   }
+  /*
+    Au processeur, matières physiques et ombres font tomber la ville à deux
+    images par seconde : plus rien ne s'y vise. On y dessine la version
+    légère (matières simples, sans ombres ni reflets), qui reste fluide.
+  */
+  const qualite = reglages && reglages.qualite;
+  const legere = qualite === "legere" || (qualite !== "complete" && rendusLogiciel(renderer));
   renderer.outputColorSpace = T.SRGBColorSpace;
   renderer.toneMapping = T.NeutralToneMapping;
   renderer.toneMappingExposure = 1;
   const small =
     Math.min(window.innerWidth, window.innerHeight) < 720 || (navigator.maxTouchPoints || 0) > 1;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.shadowMap.enabled = true;
+  renderer.setPixelRatio(legere ? 1 : Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = !legere;
   renderer.shadowMap.type = T.PCFShadowMap;
   if (small) renderer.shadowMap.autoUpdate = false;
   host.appendChild(renderer.domElement);
@@ -339,7 +367,13 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     l'eau, l'or et la carrosserie reflètent le ciel et prennent un reflet de
     soleil ; le reste reste mat, comme du plâtre ou de la peinture de maquette.
   */
-  const mat = (o) => new T.MeshStandardMaterial({ roughness: 0.88, metalness: 0, ...o });
+  const mat = (o) => {
+    if (!legere) return new T.MeshStandardMaterial({ roughness: 0.88, metalness: 0, ...o });
+    const simple = {};
+    for (const k in o)
+      if (k !== "roughness" && k !== "metalness" && k !== "envMap") simple[k] = o[k];
+    return new T.MeshLambertMaterial(simple);
+  };
   const matStatic = mat({ vertexColors: true });
   const matGround = mat({ vertexColors: true, roughness: 0.96 });
   /* terre battue, puis pavés, puis goudron : la chaussée dit l'âge de la ville */
@@ -383,32 +417,34 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     [matCar, 0.75],
     [matDrop, 1],
   ];
-  const envTex = (() => {
-    const pm = new T.PMREMGenerator(renderer),
-      sc = new T.Scene(),
-      geo = new T.SphereGeometry(10, 48, 24),
-      pos = geo.attributes.position,
-      cols = [],
-      haut = new T.Color(0x86ade4),
-      horizon = new T.Color(0xfbf6ec),
-      sol = new T.Color(0x8d8f86),
-      c = new T.Color();
-    for (let i = 0; i < pos.count; i++) {
-      const y = pos.getY(i) / 10;
-      if (y >= 0) c.copy(horizon).lerp(haut, Math.pow(y, 0.55));
-      else c.copy(horizon).lerp(sol, Math.pow(-y, 0.35));
-      cols.push(c.r, c.g, c.b);
-    }
-    geo.setAttribute("color", new T.Float32BufferAttribute(cols, 3));
-    const m = new T.MeshBasicMaterial({ vertexColors: true, side: T.BackSide });
-    sc.add(new T.Mesh(geo, m));
-    const t = pm.fromScene(sc, 0.04).texture;
-    pm.dispose();
-    geo.dispose();
-    m.dispose();
-    return t;
-  })();
-  for (const [m] of refletants) m.envMap = envTex;
+  const envTex = legere
+    ? null
+    : (() => {
+        const pm = new T.PMREMGenerator(renderer),
+          sc = new T.Scene(),
+          geo = new T.SphereGeometry(10, 48, 24),
+          pos = geo.attributes.position,
+          cols = [],
+          haut = new T.Color(0x86ade4),
+          horizon = new T.Color(0xfbf6ec),
+          sol = new T.Color(0x8d8f86),
+          c = new T.Color();
+        for (let i = 0; i < pos.count; i++) {
+          const y = pos.getY(i) / 10;
+          if (y >= 0) c.copy(horizon).lerp(haut, Math.pow(y, 0.55));
+          else c.copy(horizon).lerp(sol, Math.pow(-y, 0.35));
+          cols.push(c.r, c.g, c.b);
+        }
+        geo.setAttribute("color", new T.Float32BufferAttribute(cols, 3));
+        const m = new T.MeshBasicMaterial({ vertexColors: true, side: T.BackSide });
+        sc.add(new T.Mesh(geo, m));
+        const t = pm.fromScene(sc, 0.04).texture;
+        pm.dispose();
+        geo.dispose();
+        m.dispose();
+        return t;
+      })();
+  if (envTex) for (const [m] of refletants) m.envMap = envTex;
 
   const B = {
     ground: new Batch(),
@@ -2754,7 +2790,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   const hemi = new T.HemisphereLight(0xffffff, 0xe6e2d2, 0.58 * LUM);
   const sun = new T.DirectionalLight(0xffffff, 0.85 * LUM);
   sun.position.set(-30, 75, 60);
-  sun.castShadow = true;
+  sun.castShadow = !legere;
   // Un bord d'ombre fondu : net, il découpait chaque immeuble au cutter.
   sun.shadow.radius = 4;
   sun.shadow.mapSize.set(small ? 1024 : 2048, small ? 1024 : 2048);
@@ -3025,7 +3061,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     grad(SKY, a, bgCol);
     scene.fog.color.copy(bgCol);
     // Le ciel reflété suit le jour : la nuit, le verre ne doit pas briller comme à midi.
-    for (const [m, k] of refletants) m.envMapIntensity = k * (0.18 + 0.82 * day);
+    if (envTex) for (const [m, k] of refletants) m.envMapIntensity = k * (0.18 + 0.82 * day);
     grad(SKY_HAUT, a, hautCol);
     peindreCiel(lit);
     matHalo.opacity = 0.62 * lit;
@@ -3516,36 +3552,67 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     intro = false,
     debut = 0;
   /*
-    Qualité adaptative. Un appareil qui peine (moins de vingt-cinq images par
-    seconde en moyenne) rend d'abord moins de pixels, puis cesse de recalculer
-    les ombres à chaque image : une ville un peu moins fine vaut mieux qu'une
-    ville qui saccade. On ne remonte jamais : une qualité qui oscille se voit
-    davantage qu'une qualité un peu basse.
+    Qualité adaptative. Un appareil qui peine rend la ville par paliers moins
+    coûteux : moins de pixels, puis des ombres figées (recalculées seulement
+    avec le soleil), puis une résolution réduite, puis plus d'ombres du tout.
+    Une ville un peu moins fine vaut mieux qu'une ville qui saccade : à deux
+    images par seconde, on ne peut plus rien viser. On ne remonte jamais : une
+    qualité qui oscille se voit davantage qu'une qualité un peu basse.
+
+    La mesure prend la médiane des images, pas la moyenne : la première image,
+    qui compile les shaders, peut durer une seconde sur un appareil rapide, et
+    ne doit pas le faire passer pour lent.
   */
-  let qTemps = 0,
-    qImages = 0,
-    qFini = false;
-  function adapterQualite(brut) {
-    // l'entrée en scène et les retours d'onglet (une image de plusieurs secondes) faussent la mesure
-    if (qFini || intro || brut > 0.25) return;
-    qTemps += brut;
-    qImages++;
-    if (qTemps < 2) return;
-    const moyenne = qTemps / qImages;
-    qTemps = 0;
-    qImages = 0;
-    if (moyenne < 0.04) return;
-    if (renderer.getPixelRatio() > 1) {
-      renderer.setPixelRatio(Math.max(1, renderer.getPixelRatio() - 0.5));
-      resize();
-    } else if (renderer.shadowMap.autoUpdate) {
+  const paliers = [
+    () => {
+      if (renderer.getPixelRatio() <= 1) return false;
+      renderer.setPixelRatio(1);
+      return true;
+    },
+    () => {
       renderer.shadowMap.autoUpdate = false;
       shadowDirty = true;
       // ce qui bouge ne doit plus porter d'ombre : figée, elle resterait derrière l'objet
       for (const o of [pedBody, pedHead, ballon, ...clouds, ...voiliers, ...cars.map((c) => c.g)])
         o.traverse((x) => (x.castShadow = false));
-      qFini = true;
-    } else qFini = true;
+      return true;
+    },
+    () => {
+      renderer.setPixelRatio(Math.min(renderer.getPixelRatio(), 0.75));
+      return true;
+    },
+    () => {
+      sun.castShadow = false;
+      renderer.setPixelRatio(Math.min(renderer.getPixelRatio(), 0.6));
+      return true;
+    },
+  ];
+  let qNiveau = 0,
+    qPause = 2,
+    qTemps = 0;
+  const qImages = [];
+  function adapterQualite(brut) {
+    if (qNiveau >= paliers.length || document.hidden) return;
+    // les images qui suivent un changement recompilent ou réallouent : on ne les compte pas
+    if (qPause > 0) {
+      qPause--;
+      return;
+    }
+    qImages.push(brut);
+    qTemps += brut;
+    const franchementLent = qImages.length >= 3 && Math.min(...qImages) > 0.15;
+    if (qTemps < 1.5 && !franchementLent) return;
+    const tri = qImages.slice().sort((x, y) => x - y),
+      mediane = tri[tri.length >> 1];
+    qImages.length = 0;
+    qTemps = 0;
+    if (mediane < 0.04) {
+      qNiveau = paliers.length; // assez rapide : on n'y touche plus
+      return;
+    }
+    while (qNiveau < paliers.length && !paliers[qNiveau++]());
+    resize();
+    qPause = 2;
   }
   function frame(now) {
     if (arrete) return;
@@ -3560,7 +3627,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       demi-minute à poser la caméra, et les étiquettes glissaient pendant tout
       ce temps : impossibles à viser.
     */
-    const dtCam = Math.min(0.5, brut);
+    const dtCam = Math.min(1, brut);
     if (intro && now - debut > 1900) intro = false;
     adapterQualite(brut);
     // L'entrée en scène se pose doucement ; ensuite la caméra répond vite.
@@ -3752,7 +3819,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     });
     cielTex.dispose();
     // le ciel reflété n'est attaché à aucun objet de la scène : le parcours ci-dessus ne le voit pas
-    envTex.dispose();
+    if (envTex) envTex.dispose();
     renderer.dispose();
     renderer.forceContextLoss();
     if (el.parentNode) el.parentNode.removeChild(el);
@@ -3775,7 +3842,12 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       playing = !!p;
     },
     /* ce que coûte une image : de quoi vérifier qu'un ajout ne fait pas exploser le rendu */
-    stats: () => ({ ...renderer.info.render, ...renderer.info.memory }),
+    stats: () => ({
+      ...renderer.info.render,
+      ...renderer.info.memory,
+      qualite: qNiveau,
+      legere: legere ? 1 : 0,
+    }),
     /* où sont les véhicules : de quoi vérifier, de l'extérieur, qu'aucun ne traverse un autre */
     diagnostic: () =>
       cars.map((c) => ({
