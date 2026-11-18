@@ -2161,7 +2161,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       [0.28, 0.28],
     ])
       cy(b, I4, x, 0.45, z, 0.015, 0.75, C.dark, G.cyl8);
-    ballon.add(b.mesh(matStatic, true));
+    // sur petit écran, les ombres ne sont recalculées qu'au fil du soleil : une ombre mobile y resterait figée
+    ballon.add(b.mesh(matStatic, !small));
     scene.add(ballon);
   }
 
@@ -2300,7 +2301,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       cy(vb, P, 0, 0.2, -0.1, 0.04, 3.0, C.white, G.cyl8);
       put(vb, G.prism, P, 0.02, 0.45, -0.75, 1.3, 2.6, 0.04, v[3], Math.PI / 2);
       const g = new T.Group();
-      g.add(vb.mesh(matStatic, true));
+      g.add(vb.mesh(matStatic, !small));
       g.position.set(v[0], -0.75, v[1]);
       scene.add(g);
       voiliers.push(g);
@@ -3514,18 +3515,72 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     arrete = false,
     intro = false,
     debut = 0;
+  /*
+    Qualité adaptative. Un appareil qui peine (moins de vingt-cinq images par
+    seconde en moyenne) rend d'abord moins de pixels, puis cesse de recalculer
+    les ombres à chaque image : une ville un peu moins fine vaut mieux qu'une
+    ville qui saccade. On ne remonte jamais : une qualité qui oscille se voit
+    davantage qu'une qualité un peu basse.
+  */
+  let qTemps = 0,
+    qImages = 0,
+    qFini = false;
+  function adapterQualite(brut) {
+    // l'entrée en scène et les retours d'onglet (une image de plusieurs secondes) faussent la mesure
+    if (qFini || intro || brut > 0.25) return;
+    qTemps += brut;
+    qImages++;
+    if (qTemps < 2) return;
+    const moyenne = qTemps / qImages;
+    qTemps = 0;
+    qImages = 0;
+    if (moyenne < 0.04) return;
+    if (renderer.getPixelRatio() > 1) {
+      renderer.setPixelRatio(Math.max(1, renderer.getPixelRatio() - 0.5));
+      resize();
+    } else if (renderer.shadowMap.autoUpdate) {
+      renderer.shadowMap.autoUpdate = false;
+      shadowDirty = true;
+      // ce qui bouge ne doit plus porter d'ombre : figée, elle resterait derrière l'objet
+      for (const o of [pedBody, pedHead, ballon, ...clouds, ...voiliers, ...cars.map((c) => c.g)])
+        o.traverse((x) => (x.castShadow = false));
+      qFini = true;
+    } else qFini = true;
+  }
   function frame(now) {
     if (arrete) return;
     rafId = requestAnimationFrame(frame);
-    const dt = Math.min(0.05, (now - last) / 1000);
+    const brut = Math.max(0, (now - last) / 1000);
     last = now;
+    // La simulation avance à petits pas : une voiture ne doit pas sauter un carrefour sur une image lente.
+    const dt = Math.min(0.05, brut);
+    /*
+      La caméra et les animations, elles, suivent l'horloge et non le nombre
+      d'images. Au pas fixe, un appareil à deux images par seconde mettait une
+      demi-minute à poser la caméra, et les étiquettes glissaient pendant tout
+      ce temps : impossibles à viser.
+    */
+    const dtCam = Math.min(0.5, brut);
     if (intro && now - debut > 1900) intro = false;
+    adapterQualite(brut);
     // L'entrée en scène se pose doucement ; ensuite la caméra répond vite.
-    const k = 1 - Math.exp(-dt * (intro ? 2.6 : 7));
+    const k = 1 - Math.exp(-dtCam * (intro ? 2.6 : 7));
     view.az += (goal.az - view.az) * k;
     view.size += (goal.size - view.size) * k;
     view.tx += (goal.tx - view.tx) * k;
     view.tz += (goal.tz - view.tz) * k;
+    // Arrivée à un millième près : on pose, plutôt que de glisser d'un dixième de pixel sans fin.
+    if (
+      Math.abs(goal.size - view.size) < 1e-3 &&
+      Math.abs(goal.tx - view.tx) < 1e-3 &&
+      Math.abs(goal.tz - view.tz) < 1e-3 &&
+      Math.abs(goal.az - view.az) < 1e-4
+    ) {
+      view.size = goal.size;
+      view.tx = goal.tx;
+      view.tz = goal.tz;
+      view.az = goal.az;
+    }
     applyCam();
     if (now >= sunNext) {
       applySun();
@@ -3533,7 +3588,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     }
     if (playing) simulate(dt);
     if (bank.anim) {
-      bank.anim.t = Math.min(1, bank.anim.t + dt / 0.9);
+      bank.anim.t = Math.min(1, bank.anim.t + dtCam / 0.9);
       const t = bank.anim.t,
         e = 1 - Math.pow(1 - t, 3);
       bank.group.scale.y = bank.anim.from + (1 - bank.anim.from) * e;
@@ -3542,7 +3597,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       if (t >= 1) bank.anim = null;
     }
     if (tower.anim) {
-      tower.anim.t = Math.min(1, tower.anim.t + dt / 0.9);
+      tower.anim.t = Math.min(1, tower.anim.t + dtCam / 0.9);
       const t2 = tower.anim.t,
         e2 = 1 - Math.pow(1 - t2, 3);
       tower.group.scale.y = tower.anim.from + (1 - tower.anim.from) * e2;
