@@ -27,6 +27,10 @@ export interface Ville {
   setPlaying(anime: boolean): void;
   setClock(horloge: (() => Date) | null): void;
   dispose(): void;
+  /** Ce que coûte la dernière image (appels de dessin, triangles, mémoire) : pour les vérifications. */
+  stats(): Record<string, number>;
+  /** La position de chaque véhicule : pour vérifier de l'extérieur qu'aucun n'en traverse un autre. */
+  diagnostic(): { x: number; z: number; len: number; fx: number; fz: number; v: number; ghost: boolean }[];
 }
 
 /** Monte la ville dans `hote` ; `null` si l'appareil n'a pas de WebGL. */

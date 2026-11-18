@@ -1,4 +1,5 @@
 import * as T from "three";
+import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
 import { positionSoleil } from "./soleil";
 
 /**
@@ -74,18 +75,23 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   /* une ville dans une carte (Hameau) se cadre plus serré qu'une ville en plein écran (Sillage) */
   const cadrage = (reglages && reglages.cadrage) || 1;
   /*
-    Les couleurs sont écrites telles qu'elles doivent sortir à l'écran. La
-    gestion des couleurs de three les convertirait deux fois : à la lecture,
-    puis à l'affichage, et toute la palette pâlirait.
+    Les couleurs de la palette sont écrites en sRGB, telles qu'à l'écran ;
+    three les passe en linéaire pour calculer la lumière, puis les rend en
+    sRGB. Calculer l'éclairage directement sur des couleurs d'écran (l'ancien
+    rendu) tirait les faces à l'ombre vers un gris boueux et rendait les
+    reflets faux. Le tone mapping « neutre » garde les teintes de la palette
+    et n'arrondit que les hautes lumières : verre au soleil, or, lampes.
   */
-  T.ColorManagement.enabled = false;
+  T.ColorManagement.enabled = true;
   let renderer;
   try {
     renderer = new T.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   } catch {
     return null;
   }
-  renderer.outputColorSpace = T.LinearSRGBColorSpace;
+  renderer.outputColorSpace = T.SRGBColorSpace;
+  renderer.toneMapping = T.NeutralToneMapping;
+  renderer.toneMappingExposure = 1;
   const small =
     Math.min(window.innerWidth, window.innerHeight) < 720 || (navigator.maxTouchPoints || 0) > 1;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -94,6 +100,12 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   if (small) renderer.shadowMap.autoUpdate = false;
   host.appendChild(renderer.domElement);
   const scene = new T.Scene();
+  /*
+    Une brume légère sur le lointain : la ville a une profondeur, les îlots du
+    fond s'effacent un peu dans la couleur de l'horizon au lieu d'être aussi
+    nets que ceux de devant.
+  */
+  scene.fog = new T.Fog(0xf1efe4, 240, 560);
   const cam = new T.OrthographicCamera(-1, 1, 1, -1, 1, 600);
 
   /* hasard à graine : la même ville à chaque visite */
@@ -179,6 +191,10 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     g.computeVertexNormals();
     return g;
   }
+  function facettes(g) {
+    g.computeVertexNormals();
+    return g;
+  }
   function pyrGeo() {
     const g = new T.ConeGeometry(Math.SQRT1_2, 1, 4, 1, false, Math.PI / 4).toNonIndexed();
     g.computeVertexNormals();
@@ -195,6 +211,11 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     quad: new T.PlaneGeometry(1, 1).toNonIndexed(),
     prism: prismGeo(),
     pyr: pyrGeo(),
+    cyl12: new T.CylinderGeometry(0.5, 0.5, 1, 12).toNonIndexed(),
+    /* à facettes : chaque face garde sa normale, comme taillée */
+    blob: facettes(new T.IcosahedronGeometry(0.5, 1)),
+    pin: facettes(new T.ConeGeometry(0.5, 1, 7).toNonIndexed().translate(0, 0.5, 0)),
+    tronc: facettes(new T.CylinderGeometry(0.32, 0.5, 1, 6).toNonIndexed()),
   };
 
   /* ---- fusion : des milliers de petites formes deviennent une poignée d'appels de dessin */
@@ -202,10 +223,23 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     _nm = new T.Matrix3(),
     _col = new T.Color();
   class Batch {
-    constructor() {
+    /*
+      `ombre` assombrit le pied des faces verticales, là où la lumière du ciel
+      n'atteint pas l'angle entre un mur et le sol. Sans cette occlusion, un
+      bâtiment paraît posé sur la dalle au lieu d'y être ancré. Elle est
+      calculée une fois, à la fusion : elle ne coûte rien au rendu.
+
+      `or` et `verre` : les lots où renvoyer ces deux couleurs. Fondues dans
+      une matière mate, elles ne brillaient pas ; dans la leur, elles
+      reflètent le ciel.
+    */
+    constructor(opt) {
       this.p = [];
       this.n = [];
       this.c = [];
+      this.ombre = !!(opt && opt.ombre);
+      this.or = (opt && opt.or) || null;
+      this.verre = (opt && opt.verre) || null;
     }
     add(geo, m, color) {
       const pos = geo.attributes.position,
@@ -214,10 +248,16 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       _col.set(color);
       for (let i = 0; i < pos.count; i++) {
         _v.fromBufferAttribute(pos, i).applyMatrix4(m);
+        const y = _v.y;
         this.p.push(_v.x, _v.y, _v.z);
         _v.fromBufferAttribute(nor, i).applyMatrix3(_nm).normalize();
         this.n.push(_v.x, _v.y, _v.z);
-        this.c.push(_col.r, _col.g, _col.b);
+        let f = 1;
+        if (this.ombre && Math.abs(_v.y) < 0.55) {
+          const t = clamp((y - CURB) / 0.7, 0, 1);
+          f = 0.62 + 0.38 * t * t * (3 - 2 * t);
+        }
+        this.c.push(_col.r * f, _col.g * f, _col.b * f);
       }
     }
     mesh(mat, cast, receive) {
@@ -241,6 +281,9 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     _e = new T.Euler();
   const place = (x, z, ry, y) => new T.Matrix4().makeRotationY(ry || 0).setPosition(x, y || 0, z);
   function put(b, geo, P, x, y, z, sx, sy, sz, color, ry, rx, rz) {
+    if (color === C.gold && b.or) b = b.or;
+    else if (color === C.glass && b.verre) b = b.verre;
+    else if (color === C.water && b.eau) b = b.eau;
     _e.set(rx || 0, ry || 0, rz || 0, "YXZ");
     _l.compose(_p.set(x, y, z), _q.setFromEuler(_e), _s.set(sx, sy, sz));
     _w.multiplyMatrices(P, _l);
@@ -252,41 +295,169 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     put(b, geo || G.cyl, P, x, y0 + h / 2, z, r * 2, h, r * 2, col);
   const sp = (b, P, x, y, z, r, col, geo) =>
     put(b, geo || G.sph, P, x, y, z, r * 2, r * 2, r * 2, col);
+  /*
+    Les volumes à arêtes cassées. Une boîte aux arêtes vives n'a que trois
+    teintes ; un chanfrein accroche la lumière sur chaque arête, et c'est ce
+    liseré clair qui fait lire un volume comme un objet modelé plutôt que
+    comme un cube de démonstration. Le pied reste à angle droit : posé sur le
+    sol, un chanfrein y creuserait une rainure sombre.
+  */
+  const _chanfreins = new Map();
+  function geoChanfrein(w, h, d) {
+    const k = w.toFixed(3) + "|" + h.toFixed(3) + "|" + d.toFixed(3);
+    let g = _chanfreins.get(k);
+    if (!g) {
+      const r = clamp(Math.min(w, h, d) * 0.08, 0.015, 0.075),
+        a = w / 2,
+        b = h / 2,
+        c = d / 2,
+        pts = [];
+      for (const sx of [-1, 1])
+        for (const sz of [-1, 1])
+          pts.push(
+            new T.Vector3(sx * a, -b, sz * (c - r)),
+            new T.Vector3(sx * (a - r), -b, sz * c),
+            new T.Vector3(sx * a, b - r, sz * (c - r)),
+            new T.Vector3(sx * (a - r), b, sz * (c - r)),
+            new T.Vector3(sx * (a - r), b - r, sz * c),
+          );
+      g = new ConvexGeometry(pts);
+      _chanfreins.set(k, g);
+    }
+    return g;
+  }
+  const bxc = (b, P, x, y0, z, w, h, d, col, ry) =>
+    Math.min(w, h, d) < 0.12
+      ? bx(b, P, x, y0, z, w, h, d, col, ry)
+      : put(b, geoChanfrein(w, h, d), P, x, y0 + h / 2, z, 1, 1, 1, col, ry || 0);
 
   /* ---- matières */
-  const matStatic = new T.MeshLambertMaterial({ vertexColors: true });
+  /*
+    ---- matières
+
+    Des matières physiques (rugosité, métal) plutôt que des aplats : le verre,
+    l'eau, l'or et la carrosserie reflètent le ciel et prennent un reflet de
+    soleil ; le reste reste mat, comme du plâtre ou de la peinture de maquette.
+  */
+  const mat = (o) => new T.MeshStandardMaterial({ roughness: 0.88, metalness: 0, ...o });
+  const matStatic = mat({ vertexColors: true });
+  const matGround = mat({ vertexColors: true, roughness: 0.96 });
   /* terre battue, puis pavés, puis goudron : la chaussée dit l'âge de la ville */
-  const matSlab = new T.MeshLambertMaterial({
+  const matSlab = mat({
     color: PV.routes >= 2 ? C.road : PV.routes === 1 ? 0xcfc9be : 0xd9c8a6,
+    roughness: 0.94,
   });
-  const matFlamme = new T.MeshLambertMaterial({ color: 0xf6a23a, emissive: 0x7a3a08 });
+  const matFlamme = mat({ color: 0xf6a23a, emissive: 0xff7a1a, emissiveIntensity: 0.9 });
   const matFeuA = new T.MeshBasicMaterial({ color: 0x27a97f });
   const matFeuB = new T.MeshBasicMaterial({ color: 0xe5484d });
-  const matWinA = new T.MeshLambertMaterial({ color: 0xeef4fc });
-  const matWinB = new T.MeshLambertMaterial({ color: 0xd3dff3 });
-  const matGlass = new T.MeshLambertMaterial({ color: 0x86b4e0 });
-  const matLamp = new T.MeshLambertMaterial({ color: 0xf4f4ee });
-  const matHead = new T.MeshLambertMaterial({ color: 0xf7f7f0 });
-  const matGold = new T.MeshLambertMaterial({ color: C.gold });
-  const matCloud = new T.MeshLambertMaterial({ color: 0xffffff });
-  const matStorm = new T.MeshLambertMaterial({ color: 0x9aa2bc });
-  const matClock = new T.MeshLambertMaterial({ color: 0xffffff });
-  const matDark = new T.MeshLambertMaterial({ color: C.dark });
-  const matDrop = new T.MeshLambertMaterial({ color: 0xbfe6fb });
-  const matFlag = new T.MeshLambertMaterial({ color: C.yellow, side: T.DoubleSide });
-  const matPed = new T.MeshLambertMaterial({ color: 0xffffff });
-  const matSkin = new T.MeshLambertMaterial({ color: 0xffffff });
+  const matWinA = mat({ color: 0xeef4fc, roughness: 0.22, metalness: 0.1 });
+  const matWinB = mat({ color: 0xd3dff3, roughness: 0.16, metalness: 0.2 });
+  const matGlass = mat({ color: 0x86b4e0, roughness: 0.1, metalness: 0.25 });
+  const matLamp = mat({ color: 0xf4f4ee, roughness: 0.35 });
+  const matHead = mat({ color: 0xf7f7f0, roughness: 0.3 });
+  const matGold = mat({ color: C.gold, roughness: 0.28, metalness: 0.85 });
+  const matCloud = mat({ color: 0xffffff, roughness: 1 });
+  const matStorm = mat({ color: 0x9aa2bc, roughness: 1 });
+  const matClock = mat({ color: 0xffffff, roughness: 0.6 });
+  const matDark = mat({ color: C.dark, roughness: 0.6 });
+  const matDrop = mat({ color: 0xcfeefd, roughness: 0.08, metalness: 0.1 });
+  const matFlag = mat({ color: C.yellow, side: T.DoubleSide });
+  const matPed = mat({ color: 0xffffff, roughness: 0.92 });
+  const matSkin = mat({ color: 0xffffff, roughness: 0.75 });
+  const matWater = mat({ color: C.water, roughness: 0.05, metalness: 0.08 });
+  const matCar = mat({ vertexColors: true, roughness: 0.36, metalness: 0.12 });
+
+  /*
+    ---- le ciel qu'on reflète
+
+    Une matière brillante sans rien à refléter paraît noire ou plate. Un
+    dégradé peint une fois — ciel, horizon clair, sol — suffit au verre, à
+    l'eau et à l'or d'une ville en maquette ; son intensité suit le jour.
+  */
+  const refletants = [
+    [matWinA, 0.9],
+    [matWinB, 1.1],
+    [matGlass, 1.25],
+    [matGold, 1.1],
+    [matWater, 1.2],
+    [matCar, 0.75],
+    [matDrop, 1],
+  ];
+  const envTex = (() => {
+    const pm = new T.PMREMGenerator(renderer),
+      sc = new T.Scene(),
+      geo = new T.SphereGeometry(10, 48, 24),
+      pos = geo.attributes.position,
+      cols = [],
+      haut = new T.Color(0x86ade4),
+      horizon = new T.Color(0xfbf6ec),
+      sol = new T.Color(0x8d8f86),
+      c = new T.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i) / 10;
+      if (y >= 0) c.copy(horizon).lerp(haut, Math.pow(y, 0.55));
+      else c.copy(horizon).lerp(sol, Math.pow(-y, 0.35));
+      cols.push(c.r, c.g, c.b);
+    }
+    geo.setAttribute("color", new T.Float32BufferAttribute(cols, 3));
+    const m = new T.MeshBasicMaterial({ vertexColors: true, side: T.BackSide });
+    sc.add(new T.Mesh(geo, m));
+    const t = pm.fromScene(sc, 0.04).texture;
+    pm.dispose();
+    geo.dispose();
+    m.dispose();
+    return t;
+  })();
+  for (const [m] of refletants) m.envMap = envTex;
 
   const B = {
-    main: new Batch(),
     ground: new Batch(),
     winA: new Batch(),
     winB: new Batch(),
     lamp: new Batch(),
     glass: new Batch(),
+    gold: new Batch(),
+    water: new Batch(),
+    car: new Batch({ ombre: false }),
   };
+  B.main = new Batch({ ombre: true, or: B.gold, verre: B.glass });
+  /* l'eau du sol (bassins, étang, piscine) va dans sa matière, qui reflète le ciel */
+  B.ground.eau = B.water;
+  B.ground.or = B.gold;
 
   /* ---- pièces réutilisables */
+  const CADRE = 0xfbfaf5,
+    PORTE = 0x55607a,
+    LAMPADAIRE = 0x3b4256;
+  const _c3 = new T.Color();
+  /* une teinte plus sombre (k < 1) ou plus claire (k > 1), calculée en linéaire */
+  const teinte = (c, k) => _c3.set(c).multiplyScalar(k).getHex();
+  /*
+    Une fenêtre : un vitrage et, quand le mur peut les porter, un cadre clair
+    et un appui qui dépasse. Ce petit relief fait d'un quadrillage de carrés
+    une façade : sans lui, les fenêtres semblaient peintes sur le mur.
+  */
+  function fenetre(vitre, cadre, P, x, y, z, ry, w, h) {
+    const ox = Math.sin(ry),
+      oz = Math.cos(ry);
+    if (cadre) {
+      put(cadre, G.quad, P, x + ox * 0.012, y, z + oz * 0.012, w + 0.1, h + 0.1, 1, CADRE, ry);
+      put(
+        cadre,
+        G.box,
+        P,
+        x + ox * 0.04,
+        y - h / 2 - 0.05,
+        z + oz * 0.04,
+        w + 0.16,
+        0.045,
+        0.08,
+        CADRE,
+        ry,
+      );
+    }
+    put(vitre, G.quad, P, x + ox * 0.018, y, z + oz * 0.018, w, h, 1, 0xffffff, ry);
+  }
   function windowsOn(wb, P, w, d, y0, floors, fh, rand, opt) {
     const faces = (opt && opt.faces) || [0, 1, 2, 3];
     for (const f of faces) {
@@ -294,29 +465,85 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         n = Math.max(1, Math.floor((span - 0.35) / 0.85)),
         step = span / n;
       for (let fl = 0; fl < floors; fl++) {
-        if (opt && opt.skip && opt.skip(f, fl)) continue;
         const y = y0 + fl * fh + fh * 0.55;
         for (let i = 0; i < n; i++) {
           const t = -span / 2 + step * (i + 0.5),
             b = rand() < 0.6 ? wb.A : wb.B;
-          if (f === 0) put(b, G.quad, P, t, y, d / 2 + 0.015, 0.44, 0.46, 1, 0xffffff, 0);
-          else if (f === 1)
-            put(b, G.quad, P, t, y, -d / 2 - 0.015, 0.44, 0.46, 1, 0xffffff, Math.PI);
-          else if (f === 2)
-            put(b, G.quad, P, w / 2 + 0.015, y, t, 0.44, 0.46, 1, 0xffffff, Math.PI / 2);
-          else put(b, G.quad, P, -w / 2 - 0.015, y, t, 0.44, 0.46, 1, 0xffffff, -Math.PI / 2);
+          if (opt && opt.skip && opt.skip(f, fl, t)) continue;
+          if (f === 0) fenetre(b, wb.M, P, t, y, d / 2, 0, 0.44, 0.46);
+          else if (f === 1) fenetre(b, wb.M, P, t, y, -d / 2, Math.PI, 0.44, 0.46);
+          else if (f === 2) fenetre(b, wb.M, P, w / 2, y, t, Math.PI / 2, 0.44, 0.46);
+          else fenetre(b, wb.M, P, -w / 2, y, t, -Math.PI / 2, 0.44, 0.46);
         }
       }
     }
   }
-  const WIN = { A: B.winA, B: B.winB };
+  const WIN = { A: B.winA, B: B.winB, M: B.main };
+  /* le muret qui borde un toit-terrasse : un toit plat sans lui n'est qu'un couvercle */
+  function acrotere(b, P, x, y, z, w, d, h, t, col) {
+    bx(b, P, x, y, z + d / 2 - t / 2, w, h, t, col);
+    bx(b, P, x, y, z - d / 2 + t / 2, w, h, t, col);
+    bx(b, P, x + w / 2 - t / 2, y, z, t, h, d - 2 * t, col);
+    bx(b, P, x - w / 2 + t / 2, y, z, t, h, d - 2 * t, col);
+  }
+  /*
+    Les arbres : un tronc effilé et un houppier de trois masses à facettes, de
+    trois tons, plutôt qu'une boule lisse ; les pins en trois étages. Les
+    facettes accrochent la lumière comme les arêtes des bâtiments.
+  */
   function tree(x, z, y0, s, pine) {
     s = s || 1;
-    cy(B.main, I4, x, y0, z, 0.07 * s, 0.6 * s, C.trunk, G.cyl8);
+    put(B.main, G.tronc, I4, x, y0 + 0.3 * s, z, 0.15 * s, 0.6 * s, 0.15 * s, C.trunk);
     if (pine) {
-      put(B.main, G.cone, I4, x, y0 + 0.4 * s, z, 1.05 * s, 1.1 * s, 1.05 * s, pick(C.pine));
-      put(B.main, G.cone, I4, x, y0 + 0.98 * s, z, 0.76 * s, 0.95 * s, 0.76 * s, pick(C.pine));
-    } else sp(B.main, I4, x, y0 + 0.95 * s, z, 0.52 * s, pick(C.leaf));
+      const c = pick(C.pine);
+      put(B.main, G.pin, I4, x, y0 + 0.3 * s, z, 1.1 * s, 0.82 * s, 1.1 * s, teinte(c, 0.9));
+      put(B.main, G.pin, I4, x, y0 + 0.68 * s, z, 0.86 * s, 0.74 * s, 0.86 * s, c, 0.45);
+      put(
+        B.main,
+        G.pin,
+        I4,
+        x,
+        y0 + 1.02 * s,
+        z,
+        0.58 * s,
+        0.66 * s,
+        0.58 * s,
+        teinte(c, 1.12),
+        0.9,
+      );
+    } else {
+      const c = pick(C.leaf),
+        a = R() * 6.28,
+        ca = Math.cos(a),
+        sa = Math.sin(a);
+      put(B.main, G.blob, I4, x, y0 + 0.95 * s, z, 1.02 * s, 0.94 * s, 1.02 * s, c, a);
+      put(
+        B.main,
+        G.blob,
+        I4,
+        x + ca * 0.3 * s,
+        y0 + 0.8 * s,
+        z + sa * 0.3 * s,
+        0.66 * s,
+        0.6 * s,
+        0.66 * s,
+        teinte(c, 0.86),
+        a + 1,
+      );
+      put(
+        B.main,
+        G.blob,
+        I4,
+        x - ca * 0.18 * s,
+        y0 + 1.22 * s,
+        z - sa * 0.18 * s,
+        0.6 * s,
+        0.54 * s,
+        0.6 * s,
+        teinte(c, 1.1),
+        a + 2,
+      );
+    }
   }
   /*
     Les arbres des rues et de la couronne arrivent par lots. Chacun a sa place
@@ -327,108 +554,195 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     const h = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
     if (h < PV.arbres / 6) tree(x, z, y0, s, pine);
   }
+  /* le réverbère : un socle, un fût sombre, un chapeau au-dessus du globe */
   const lampes = [];
   function lamp(x, z, y0) {
     if (PV.eclairage < 1) return;
     lampes.push([x, y0, z]);
-    cy(B.main, I4, x, y0, z, 0.045, 1.7, C.metal, G.cyl8);
-    sp(B.lamp, I4, x, y0 + 1.8, z, 0.15, 0xffffff);
+    cy(B.main, I4, x, y0, z, 0.075, 0.14, LAMPADAIRE, G.cyl8);
+    cy(B.main, I4, x, y0, z, 0.032, 1.74, LAMPADAIRE, G.cyl8);
+    put(B.main, G.cone, I4, x, y0 + 1.86, z, 0.36, 0.16, 0.36, LAMPADAIRE);
+    sp(B.lamp, I4, x, y0 + 1.78, z, 0.1, 0xffffff);
   }
   function house(x, z, ry, roofCol, y0) {
     const P = place(x, z, ry, y0);
-    bx(B.main, P, 0, 0, 0, 2.0, 1.15, 1.6, C.wall);
-    put(B.main, G.prism, P, 0, 1.15, 0, 1.9, 0.82, 2.3, roofCol, Math.PI / 2);
-    bx(B.main, P, 0.55, 1.3, -0.3, 0.22, 0.62, 0.22, C.wall);
-    bx(B.main, P, -0.5, 0, 0.8, 0.34, 0.62, 0.05, roofCol);
-    put(B.winA, G.quad, P, 0.32, 0.68, 0.815, 0.56, 0.42, 1, 0xffffff, 0);
-    put(B.winB, G.quad, P, -0.4, 0.68, -0.815, 0.46, 0.42, 1, 0xffffff, Math.PI);
-    put(B.winB, G.quad, P, 0.4, 0.68, -0.815, 0.46, 0.42, 1, 0xffffff, Math.PI);
-    put(B.winA, G.quad, P, 1.015, 0.68, 0, 0.5, 0.42, 1, 0xffffff, Math.PI / 2);
-    put(B.winB, G.quad, P, -1.015, 0.68, 0, 0.5, 0.42, 1, 0xffffff, -Math.PI / 2);
+    bxc(B.main, P, 0, 0, 0, 2.0, 1.15, 1.6, C.wall);
+    bx(B.main, P, 0, 0, 0, 2.04, 0.14, 1.64, 0xe2ded3);
+    put(B.main, G.prism, P, 0, 1.15, 0, 1.94, 0.82, 2.36, roofCol, Math.PI / 2);
+    // un liseré sombre sous le toit : la toiture se détache du mur au lieu de s'y coller
+    bx(B.main, P, 0, 1.11, 0, 2.08, 0.05, 1.7, teinte(roofCol, 0.55));
+    bxc(B.main, P, 0.55, 1.3, -0.3, 0.24, 0.66, 0.24, C.wall);
+    bx(B.main, P, 0.55, 1.96, -0.3, 0.3, 0.05, 0.3, teinte(roofCol, 0.7));
+    bx(B.main, P, -0.5, 0, 0.8, 0.36, 0.64, 0.05, roofCol);
+    bx(B.main, P, -0.5, 0.7, 0.9, 0.5, 0.04, 0.22, teinte(roofCol, 0.8));
+    fenetre(B.winA, B.main, P, 0.32, 0.68, 0.8, 0, 0.5, 0.38);
+    fenetre(B.winB, B.main, P, -0.4, 0.68, -0.8, Math.PI, 0.42, 0.38);
+    fenetre(B.winB, B.main, P, 0.4, 0.68, -0.8, Math.PI, 0.42, 0.38);
+    fenetre(B.winA, B.main, P, 1.0, 0.68, 0, Math.PI / 2, 0.46, 0.38);
+    fenetre(B.winB, B.main, P, -1.0, 0.68, 0, -Math.PI / 2, 0.46, 0.38);
   }
   function apartment(x, z, ry, w, d, floors, col, y0, band) {
     const P = place(x, z, ry, y0),
       fh = 0.78,
       h = floors * fh + 0.25;
-    bx(B.main, P, 0, 0, 0, w, h, d, col);
-    bx(B.main, P, 0, h, 0, w + 0.14, 0.12, d + 0.14, C.roof);
-    bx(B.main, P, w * 0.18, h + 0.12, -d * 0.15, 0.7, 0.34, 0.6, 0xdadee6);
-    if (floors > 8) cy(B.main, P, -w * 0.2, h + 0.12, d * 0.16, 0.3, 0.42, 0xdadee6);
+    bxc(B.main, P, 0, 0, 0, w, h, d, col);
+    // le soubassement, plus sombre : le rez-de-chaussée se lit
+    bx(B.main, P, 0, 0, 0, w + 0.05, 0.3, d + 0.05, teinte(col, 0.74));
+    bx(B.main, P, 0, h, 0, w - 0.12, 0.04, d - 0.12, C.roof);
+    acrotere(B.main, P, 0, h, 0, w + 0.06, d + 0.06, 0.2, 0.09, C.white);
+    bxc(B.main, P, w * 0.18, h + 0.04, -d * 0.15, 0.7, 0.36, 0.6, 0xd9dde5);
+    bx(B.main, P, w * 0.18, h + 0.4, -d * 0.15, 0.76, 0.04, 0.66, 0xc9ced8);
+    if (floors > 8) {
+      cy(B.main, P, -w * 0.2, h + 0.04, d * 0.16, 0.3, 0.42, 0xdadee6);
+      cy(B.main, P, -w * 0.2, h + 0.46, d * 0.16, 0.33, 0.04, 0xc9ced8);
+    }
     if (band)
-      bx(B.main, P, 0, Math.floor(floors / 2) * fh + 0.02, 0, w + 0.1, 0.16, d + 0.1, C.white);
-    bx(B.main, P, 0, 0, d / 2 + 0.02, 0.55, 0.72, 0.05, 0xffffff);
-    windowsOn(WIN, P, w, d, 0.12, floors, fh, R);
+      bx(B.main, P, 0, Math.floor(floors / 2) * fh + 0.02, 0, w + 0.1, 0.14, d + 0.1, C.white);
+    // l'entrée : une porte vitrée sombre sous un auvent
+    bx(B.main, P, 0, 0, d / 2 + 0.02, 0.55, 0.72, 0.05, PORTE);
+    bx(B.main, P, 0, 0.78, d / 2 + 0.2, 0.86, 0.05, 0.4, C.white);
+    windowsOn(WIN, P, w, d, 0.12, floors, fh, R, {
+      // pas de fenêtre en travers de la porte
+      skip: (f, fl, t) => f === 0 && fl === 0 && Math.abs(t) < 0.55,
+    });
   }
+  const MURS_BOUTIQUE = [0xf4e7d4, 0xe7eee2, 0xf2ddd3, 0xe2e7f1, 0xf5efdb, 0xece3f2];
   function shop(x, z, ry, w, col, y0) {
-    const P = place(x, z, ry, y0);
-    bx(B.main, P, 0, 0, 0, w, 1.5, 2.4, C.wall);
-    bx(B.main, P, 0, 1.5, 0, w + 0.1, 0.12, 2.5, C.roof);
-    bx(B.main, P, w * 0.15, 1.62, -0.5, 0.6, 0.3, 0.5, 0xdadee6);
-    put(B.main, G.box, P, 0, 1.12, 1.48, w - 0.08, 0.08, 0.72, col, 0, 0.36);
-    bx(B.main, P, 0, 1.3, 1.2, w * 0.62, 0.28, 0.08, col);
-    bx(B.main, P, -w / 2 + 0.42, 0, 1.2, 0.42, 0.86, 0.05, col);
-    put(B.winA, G.quad, P, 0.28, 0.58, 1.216, w * 0.5, 0.76, 1, 0xffffff, 0);
+    const P = place(x, z, ry, y0),
+      mur = pick(MURS_BOUTIQUE);
+    bxc(B.main, P, 0, 0, 0, w, 1.5, 2.4, mur);
+    bx(B.main, P, 0, 0, 0, w + 0.04, 0.16, 2.44, teinte(mur, 0.8));
+    bx(B.main, P, 0, 1.5, 0, w - 0.12, 0.04, 2.28, C.roof);
+    acrotere(B.main, P, 0, 1.5, 0, w + 0.06, 2.46, 0.16, 0.08, C.white);
+    bxc(B.main, P, w * 0.15, 1.54, -0.5, 0.6, 0.28, 0.5, 0xd9dde5);
+    /* le store rayé, une bande sur deux à la couleur de la boutique */
+    const nb = 6,
+      lb = (w - 0.08) / nb;
+    for (let k = 0; k < nb; k++)
+      put(
+        B.main,
+        G.box,
+        P,
+        -(w - 0.08) / 2 + lb * (k + 0.5),
+        1.12,
+        1.48,
+        lb,
+        0.06,
+        0.72,
+        k % 2 ? CADRE : col,
+        0,
+        0.36,
+      );
+    bx(B.main, P, 0, 1.3, 1.2, w * 0.62, 0.26, 0.08, col);
+    bx(B.main, P, -w / 2 + 0.42, 0, 1.2, 0.42, 0.86, 0.05, PORTE);
+    fenetre(B.winA, B.main, P, 0.28, 0.6, 1.2, 0, w * 0.5, 0.72);
   }
-  function vehicle(b, lights, P, kind, col) {
-    const wheel = (x, z, r) =>
-      put(b, G.cyl8, P, x, r, z, r * 2, 0.12, r * 2, C.tire, 0, 0, Math.PI / 2);
-    let L = 1.55;
+
+  /*
+    ---- les véhicules
+
+    Une caisse aux arêtes cassées, un habitacle aux vitres inclinées, des roues
+    avec leur jante, des phares devant et des feux rouges derrière : assez pour
+    reconnaître une 2 CV d'un taxi au premier coup d'œil, sans quitter la
+    sobriété du décor.
+  */
+  const _cabines = new Map();
+  function geoCabine(wb, wt, h, lb, lt, dz) {
+    const k = [wb, wt, h, lb, lt, dz].map((v) => v.toFixed(3)).join("|");
+    let g = _cabines.get(k);
+    if (!g) {
+      const pts = [];
+      for (const sx of [-1, 1])
+        for (const sz of [-1, 1])
+          pts.push(
+            new T.Vector3((sx * wb) / 2, 0, (sz * lb) / 2),
+            new T.Vector3((sx * wt) / 2, h, (sz * lt) / 2 + dz),
+          );
+      g = new ConvexGeometry(pts);
+      _cabines.set(k, g);
+    }
+    return g;
+  }
+  function vehicle(b, lights, P, kind, col, stops) {
+    const lb = lights || b,
+      sb = stops || b;
+    const roue = (x, z, r) => {
+      put(b, G.cyl12, P, x, r, z, r * 2, 0.13, r * 2, C.tire, 0, 0, Math.PI / 2);
+      put(
+        b,
+        G.cyl12,
+        P,
+        x + Math.sign(x) * 0.014,
+        r,
+        z,
+        r * 1.05,
+        0.12,
+        r * 1.05,
+        0xd5d9e2,
+        0,
+        0,
+        Math.PI / 2,
+      );
+    };
+    const quatre = (ex, z1, z2, r) => {
+      roue(ex, z1, r);
+      roue(-ex, z1, r);
+      roue(ex, z2, r);
+      roue(-ex, z2, r);
+    };
+    const phares = (y, z, w, ecart) => {
+      bx(lb, P, ecart, y, z, w, 0.08, 0.03, 0xfff6d8);
+      bx(lb, P, -ecart, y, z, w, 0.08, 0.03, 0xfff6d8);
+    };
+    const feux = (y, z, w, ecart) => {
+      bx(sb, P, ecart, y, z - 0.03, w, 0.07, 0.03, 0xd8343c);
+      bx(sb, P, -ecart, y, z - 0.03, w, 0.07, 0.03, 0xd8343c);
+    };
+    const vitres = (wb, wt, h, l1, l2, dz, y, z) =>
+      put(b, geoCabine(wb, wt, h, l1, l2, dz), P, 0, y, z, 1, 1, 1, C.glass);
+    const PARE = 0xc9ced8;
     if (kind === "velo") {
-      /* un cadre, deux roues fines, un cycliste */
-      L = 0.9;
-      put(b, G.cyl8, P, 0, 0.2, 0.32, 0.4, 0.04, 0.4, C.tire, 0, 0, Math.PI / 2);
-      put(b, G.cyl8, P, 0, 0.2, -0.32, 0.4, 0.04, 0.4, C.tire, 0, 0, Math.PI / 2);
+      put(b, G.cyl12, P, 0, 0.2, 0.32, 0.4, 0.04, 0.4, C.tire, 0, 0, Math.PI / 2);
+      put(b, G.cyl12, P, 0, 0.2, -0.32, 0.4, 0.04, 0.4, C.tire, 0, 0, Math.PI / 2);
       bx(b, P, 0, 0.2, 0, 0.04, 0.05, 0.66, col);
       bx(b, P, 0, 0.22, -0.08, 0.04, 0.28, 0.04, col);
+      bx(b, P, 0, 0.42, 0.26, 0.3, 0.03, 0.03, C.dark);
       cy(b, P, 0, 0.42, -0.04, 0.09, 0.34, col, G.cyl8);
       sp(b, P, 0, 0.86, -0.02, 0.09, 0xf3d3b5);
-      return 0;
-    } else if (kind === "deudeuche") {
-      /* la 2 CV : caisse basse, toit bombé, ailes rondes */
-      bx(b, P, 0, 0.13, 0, 0.72, 0.3, 1.5, col);
-      put(b, G.cyl, P, 0, 0.43, -0.12, 0.68, 0.62, 0.95, col, 0, Math.PI / 2);
-      bx(b, P, 0, 0.36, 0.2, 0.7, 0.18, 0.04, C.glass);
-      for (const s of [-1, 1]) for (const z of [0.5, -0.5]) sp(b, P, s * 0.34, 0.2, z, 0.17, col);
-      bx(b, P, 0, 0.14, 0.76, 0.5, 0.12, 0.04, C.metal);
-      wheel(0.34, 0.5, 0.13);
-      wheel(-0.34, 0.5, 0.13);
-      wheel(0.34, -0.5, 0.13);
-      wheel(-0.34, -0.5, 0.13);
-    } else if (kind === "taxi" || kind === "sport") {
-      const bas = kind === "sport";
-      bx(b, P, 0, 0.12, 0, 0.78, bas ? 0.24 : 0.3, bas ? 1.7 : 1.55, col);
-      bx(b, P, 0, bas ? 0.36 : 0.42, -0.12, 0.64, bas ? 0.2 : 0.26, bas ? 0.7 : 0.8, C.glass);
-      bx(b, P, 0, bas ? 0.56 : 0.68, -0.12, 0.66, 0.05, bas ? 0.72 : 0.82, col);
-      if (bas) {
-        L = 1.7;
-        bx(b, P, 0, 0.42, -0.8, 0.78, 0.04, 0.16, C.dark);
-        bx(b, P, 0.3, 0.3, -0.8, 0.04, 0.12, 0.08, C.dark);
-        bx(b, P, -0.3, 0.3, -0.8, 0.04, 0.12, 0.08, C.dark);
-      } else {
-        bx(b, P, 0, 0.73, -0.12, 0.34, 0.12, 0.18, C.white);
-        bx(b, P, 0, 0.3, 0, 0.8, 0.06, 1.2, C.dark);
-      }
-      wheel(0.37, 0.52, 0.14);
-      wheel(-0.37, 0.52, 0.14);
-      wheel(0.37, -0.52, 0.14);
-      wheel(-0.37, -0.52, 0.14);
-    } else if (kind === "camion") {
-      L = 2.7;
-      bx(b, P, 0, 0.2, 0.95, 0.9, 0.85, 0.75, col);
-      bx(b, P, 0, 0.62, 1.33, 0.82, 0.3, 0.04, C.glass);
-      bx(b, P, 0, 0.26, -0.38, 0.96, 1.15, 1.9, C.white);
-      bx(b, P, 0, 0.9, -0.38, 0.98, 0.18, 1.92, col);
-      wheel(0.44, 0.95, 0.18);
-      wheel(-0.44, 0.95, 0.18);
-      wheel(0.44, -0.6, 0.18);
-      wheel(-0.44, -0.6, 0.18);
-      wheel(0.44, -1.05, 0.18);
-      wheel(-0.44, -1.05, 0.18);
-    } else if (kind === "tram") {
+      return;
+    }
+    if (kind === "deudeuche") {
+      /* la 2 CV : caisse basse, capot plongeant, toit bombé, ailes rondes */
+      bxc(b, P, 0, 0.13, -0.05, 0.72, 0.28, 1.4, col);
+      put(b, G.box, P, 0, 0.38, 0.5, 0.66, 0.06, 0.42, col, 0, 0.22);
+      vitres(0.66, 0.58, 0.3, 0.86, 0.62, -0.06, 0.41, -0.12);
+      put(b, G.cyl12, P, 0, 0.71, -0.18, 0.6, 0.62, 0.2, col, 0, Math.PI / 2);
+      for (const s of [-1, 1]) for (const z of [0.5, -0.5]) sp(b, P, s * 0.34, 0.22, z, 0.17, col);
+      bx(b, P, 0, 0.14, 0.7, 0.5, 0.12, 0.04, PARE);
+      bx(b, P, 0, 0.14, -0.76, 0.6, 0.08, 0.04, PARE);
+      sp(lb, P, 0.24, 0.36, 0.66, 0.06, 0xfff6d8);
+      sp(lb, P, -0.24, 0.36, 0.66, 0.06, 0xfff6d8);
+      feux(0.3, -0.75, 0.08, 0.27);
+      quatre(0.34, 0.5, -0.5, 0.13);
+      return;
+    }
+    if (kind === "camion") {
+      bxc(b, P, 0, 0.2, 0.95, 0.9, 0.85, 0.75, col);
+      bx(b, P, 0, 0.62, 1.33, 0.8, 0.3, 0.03, C.glass);
+      bxc(b, P, 0, 0.26, -0.38, 0.96, 1.15, 1.9, C.white);
+      bx(b, P, 0, 0.92, -0.38, 0.98, 0.16, 1.92, col);
+      bx(b, P, 0, 0.12, 1.34, 0.86, 0.1, 0.05, PARE);
+      phares(0.32, 1.34, 0.14, 0.3);
+      feux(0.36, -1.33, 0.12, 0.36);
+      roue(0.44, 0.95, 0.18);
+      roue(-0.44, 0.95, 0.18);
+      quatre(0.44, -0.6, -1.05, 0.18);
+      return;
+    }
+    if (kind === "tram") {
       /* deux voitures articulées et un pantographe : il ne roule que sur goudron */
-      L = 4.4;
       for (const z of [-1.1, 1.1]) {
-        bx(b, P, 0, 0.2, z, 0.92, 0.95, 2.1, C.white);
+        bxc(b, P, 0, 0.2, z, 0.92, 0.95, 2.1, C.white);
         bx(b, P, 0, 0.6, z, 0.95, 0.32, 1.9, C.glass);
         bx(b, P, 0, 0.26, z, 0.95, 0.1, 2.1, col);
         bx(b, P, 0, 1.15, z, 0.84, 0.06, 2.0, C.metal);
@@ -436,41 +750,58 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       bx(b, P, 0, 0.25, 0, 0.8, 0.85, 0.2, C.dark);
       put(b, G.box, P, 0, 1.5, 0.6, 0.04, 0.7, 0.04, C.dark, 0, 0.5);
       bx(b, P, 0, 1.78, 0.42, 0.5, 0.03, 0.06, C.dark);
+      phares(0.4, 2.16, 0.16, 0.3);
+      feux(0.4, -2.15, 0.14, 0.32);
       for (const z of [1.75, 0.45, -0.45, -1.75]) {
-        wheel(0.44, z, 0.15);
-        wheel(-0.44, z, 0.15);
+        roue(0.44, z, 0.15);
+        roue(-0.44, z, 0.15);
       }
-    } else if (kind === "van") {
-      L = 2.1;
-      bx(b, P, 0, 0.16, -0.2, 0.86, 0.8, 1.5, C.white);
-      bx(b, P, 0, 0.16, 0.78, 0.84, 0.56, 0.5, C.white);
-      bx(b, P, 0, 0.44, 1.0, 0.78, 0.24, 0.08, C.glass);
-      bx(b, P, 0, 0.44, -0.2, 0.89, 0.16, 1.3, col);
-      wheel(0.42, 0.62, 0.16);
-      wheel(-0.42, 0.62, 0.16);
-      wheel(0.42, -0.62, 0.16);
-      wheel(-0.42, -0.62, 0.16);
-    } else if (kind === "bus") {
-      L = 3.0;
-      bx(b, P, 0, 0.18, 0, 0.9, 0.85, 3.0, col);
-      bx(b, P, 0, 0.6, 0, 0.93, 0.28, 2.7, C.glass);
-      bx(b, P, 0, 1.03, 0, 0.84, 0.05, 2.86, C.white);
-      wheel(0.44, 0.95, 0.17);
-      wheel(-0.44, 0.95, 0.17);
-      wheel(0.44, -0.95, 0.17);
-      wheel(-0.44, -0.95, 0.17);
-    } else {
-      bx(b, P, 0, 0.13, 0, 0.74, 0.3, 1.55, col);
-      bx(b, P, 0, 0.43, -0.1, 0.66, 0.26, 0.8, C.glass);
-      bx(b, P, 0, 0.69, -0.1, 0.68, 0.05, 0.82, col);
-      wheel(0.36, 0.5, 0.14);
-      wheel(-0.36, 0.5, 0.14);
-      wheel(0.36, -0.5, 0.14);
-      wheel(-0.36, -0.5, 0.14);
+      return;
     }
-    const lb = lights || b;
-    bx(lb, P, 0.25, 0.26, L / 2 - (kind === "van" ? 0.04 : 0) + 0.005, 0.15, 0.1, 0.04, 0xfff6d8);
-    bx(lb, P, -0.25, 0.26, L / 2 - (kind === "van" ? 0.04 : 0) + 0.005, 0.15, 0.1, 0.04, 0xfff6d8);
+    if (kind === "bus") {
+      bxc(b, P, 0, 0.18, 0, 0.9, 0.86, 3.0, col);
+      bx(b, P, 0, 0.6, 0, 0.93, 0.3, 2.7, C.glass);
+      bx(b, P, 0, 0.6, 1.49, 0.8, 0.34, 0.03, C.glass);
+      bxc(b, P, 0, 1.04, 0, 0.84, 0.06, 2.86, C.white);
+      bx(b, P, 0, 0.16, 1.5, 0.86, 0.1, 0.05, PARE);
+      phares(0.32, 1.51, 0.14, 0.3);
+      feux(0.36, -1.5, 0.1, 0.36);
+      quatre(0.44, 0.95, -0.95, 0.17);
+      return;
+    }
+    if (kind === "van") {
+      bxc(b, P, 0, 0.16, -0.2, 0.86, 0.8, 1.5, C.white);
+      bxc(b, P, 0, 0.16, 0.78, 0.84, 0.56, 0.5, C.white);
+      bx(b, P, 0, 0.44, 1.02, 0.76, 0.24, 0.03, C.glass);
+      bx(b, P, 0, 0.44, -0.2, 0.89, 0.16, 1.3, col);
+      bx(b, P, 0, 0.14, 1.04, 0.84, 0.1, 0.05, PARE);
+      phares(0.28, 1.04, 0.14, 0.26);
+      feux(0.34, -0.95, 0.1, 0.34);
+      quatre(0.42, 0.62, -0.62, 0.16);
+      return;
+    }
+    /* la citadine, et ses deux cousines : le taxi et la voiture de sport */
+    const sport = kind === "sport",
+      L = sport ? 1.75 : 1.6;
+    bxc(b, P, 0, 0.12, 0, sport ? 0.84 : 0.76, sport ? 0.24 : 0.3, L, col);
+    if (sport) {
+      vitres(0.7, 0.56, 0.2, 0.84, 0.44, -0.1, 0.36, -0.08);
+      bxc(b, P, 0, 0.56, -0.18, 0.58, 0.04, 0.46, col);
+      bx(b, P, 0, 0.44, -0.84, 0.84, 0.04, 0.16, C.dark);
+      for (const s of [-1, 1]) bx(b, P, s * 0.3, 0.32, -0.84, 0.04, 0.12, 0.06, C.dark);
+    } else {
+      vitres(0.68, 0.6, 0.26, 0.92, 0.6, -0.06, 0.42, -0.08);
+      bxc(b, P, 0, 0.68, -0.14, 0.62, 0.05, 0.62, col);
+    }
+    if (kind === "taxi") {
+      bxc(b, P, 0, 0.73, -0.14, 0.32, 0.12, 0.18, C.white);
+      bx(b, P, 0, 0.3, 0, 0.78, 0.05, 1.1, C.dark);
+    }
+    bx(b, P, 0, 0.12, L / 2 + 0.01, 0.78, 0.1, 0.05, PARE);
+    bx(b, P, 0, 0.12, -L / 2 - 0.01, 0.78, 0.1, 0.05, PARE);
+    phares(sport ? 0.27 : 0.31, L / 2 + 0.01, 0.14, 0.25);
+    feux(sport ? 0.29 : 0.33, -L / 2 - 0.01, 0.12, 0.27);
+    quatre(0.37, L * 0.33, -L * 0.33, 0.15);
   }
 
   /*
@@ -487,25 +818,30 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   }
   function cabane(cx, cz, ry, accent) {
     const P = place(cx, cz, ry, YQ);
-    bx(B.main, P, 0, 0, 0, 2.2, 1.15, 1.8, C.wood);
+    bxc(B.main, P, 0, 0, 0, 2.2, 1.15, 1.8, C.wood);
     for (const y of [0.36, 0.76]) bx(B.main, P, 0, y, 0, 2.24, 0.05, 1.84, 0xb08a62);
     put(B.main, G.prism, P, 0, 1.15, 0, 2.15, 0.75, 2.6, 0x8a6a4a, Math.PI / 2);
+    bx(B.main, P, 0, 1.11, 0, 2.3, 0.05, 1.9, 0x5e4630);
     bx(B.main, P, -0.45, 0, 0.91, 0.5, 0.82, 0.05, accent);
-    put(B.winA, G.quad, P, 0.5, 0.64, 0.915, 0.44, 0.36, 1, 0xffffff, 0);
+    fenetre(B.winA, null, P, 0.5, 0.64, 0.9, 0, 0.44, 0.36);
+    bx(B.main, P, 0.5, 0.42, 0.95, 0.56, 0.05, 0.08, 0x8a6a4a);
     bx(B.ground, P, 0, -0.02, 1.6, 0.7, 0.03, 1.4, 0xe0cfae);
     return P;
   }
   function maisonnette(cx, cz, ry, w, mur, toit, accent) {
     const P = place(cx, cz, ry, YQ);
-    bx(B.main, P, 0, 0, -0.6, w, 1.7, 2.8, mur);
+    bxc(B.main, P, 0, 0, -0.6, w, 1.7, 2.8, mur);
+    bx(B.main, P, 0, 0, -0.6, w + 0.04, 0.18, 2.84, teinte(mur, 0.8));
     put(B.main, G.prism, P, 0, 1.7, -0.6, 3.1, 1.05, w + 0.3, toit, Math.PI / 2);
-    bx(B.main, P, w * 0.28, 1.9, -1.1, 0.3, 0.8, 0.3, mur);
+    bx(B.main, P, 0, 1.66, -0.6, w + 0.1, 0.05, 2.9, teinte(toit, 0.55));
+    bxc(B.main, P, w * 0.28, 1.9, -1.1, 0.3, 0.8, 0.3, mur);
+    bx(B.main, P, w * 0.28, 2.7, -1.1, 0.36, 0.05, 0.36, teinte(toit, 0.7));
     bx(B.main, P, 0, 0, 0.81, 0.6, 1.05, 0.05, accent);
-    for (const x of [-w * 0.3, w * 0.3])
-      put(B.winA, G.quad, P, x, 0.95, 0.815, 0.62, 0.5, 1, 0xffffff, 0);
+    bx(B.main, P, 0, 1.12, 0.95, 0.8, 0.05, 0.3, teinte(toit, 0.85));
+    for (const x of [-w * 0.3, w * 0.3]) fenetre(B.winA, B.main, P, x, 0.95, 0.8, 0, 0.62, 0.5);
     for (const x of [-w * 0.25, w * 0.25])
-      put(B.winB, G.quad, P, x, 0.95, -2.015, 0.62, 0.5, 1, 0xffffff, Math.PI);
-    put(B.winA, G.quad, P, w / 2 + 0.015, 0.95, -0.6, 0.6, 0.5, 1, 0xffffff, Math.PI / 2);
+      fenetre(B.winB, B.main, P, x, 0.95, -2.0, Math.PI, 0.62, 0.5);
+    fenetre(B.winA, B.main, P, w / 2, 0.95, -0.6, Math.PI / 2, 0.6, 0.5);
     bx(B.ground, P, 0, -0.02, 2.1, 0.9, 0.03, 2.6, C.pave);
     return P;
   }
@@ -520,27 +856,31 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       bx(B.main, I4, cx + s * 2.4, YQ + 0.42, cz, 0.02, 0.02, 4.8, 0xf6f5f0);
     }
   }
-  /* le prestige : des massifs fleuris aux quatre coins et un liseré doré */
+  /*
+    Le prestige : des massifs fleuris aux quatre coins et un liseré doré. Les
+    bacs restent en retrait du bord de l'îlot : les passants qui en font le
+    tour les traversaient.
+  */
   function fleurs(cx, cz) {
     const tons = [C.pink, C.yellow, C.violet, 0xffffff, C.orange];
     for (const sx of [-1, 1])
       for (const sz of [-1, 1]) {
-        const x = cx + sx * 3.9,
-          z = cz + sz * 3.9;
-        cy(B.main, I4, x, CURB, z, 0.62, 0.2, C.white);
+        const x = cx + sx * 3.85,
+          z = cz + sz * 3.85;
+        cy(B.main, I4, x, CURB, z, 0.5, 0.2, C.white);
         for (let k = 0; k < 7; k++) {
           const a = (k / 7) * Math.PI * 2;
           sp(
             B.main,
             I4,
-            x + Math.cos(a) * 0.36,
-            CURB + 0.28,
-            z + Math.sin(a) * 0.36,
-            0.13,
+            x + Math.cos(a) * 0.3,
+            CURB + 0.27,
+            z + Math.sin(a) * 0.3,
+            0.11,
             tons[(k + (sx + 2) * (sz + 3)) % 5],
           );
         }
-        sp(B.main, I4, x, CURB + 0.32, z, 0.16, C.lawn);
+        sp(B.main, I4, x, CURB + 0.3, z, 0.14, C.lawn);
       }
     for (const s of [-1, 1]) {
       bx(B.ground, I4, cx, CURB, cz + s * 4.95, 9.9, 0.05, 0.08, C.gold);
@@ -562,9 +902,31 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     sh.quadraticCurveTo(-s, s, -s, s - r);
     sh.lineTo(-s, -s + r);
     sh.quadraticCurveTo(-s, -s, -s + r, -s);
-    const g = new T.ExtrudeGeometry(sh, { depth: 1.8, bevelEnabled: false, curveSegments: 8 });
+    const g = new T.ExtrudeGeometry(sh, {
+      depth: 1.8,
+      bevelEnabled: false,
+      curveSegments: 8,
+      steps: 6,
+    });
     g.rotateX(Math.PI / 2);
-    const slab = new T.Mesh(g, matSlab);
+    /*
+      Le socle de la maquette : une bordure de pierre, puis des strates de
+      terre de plus en plus sombres. Un flanc uni gris faisait de la ville une
+      plaque de plastique ; les strates en font un morceau de terrain découpé.
+      Une couleur par triangle (et non par sommet) : des bandes nettes, pas un
+      dégradé baveux.
+    */
+    const STRATES = [0xddd7ca, 0xbca487, 0xb09678, 0xa48a6b, 0x977c5e, 0x8a7052];
+    const pos = g.attributes.position,
+      cols = new Float32Array(pos.count * 3),
+      cs = new T.Color();
+    for (let i = 0; i + 2 < pos.count; i += 3) {
+      const ym = (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3;
+      cs.set(STRATES[clamp(Math.floor(-ym / 0.3), 0, STRATES.length - 1)]);
+      for (let j = 0; j < 3; j++) cols.set([cs.r, cs.g, cs.b], (i + j) * 3);
+    }
+    g.setAttribute("color", new T.BufferAttribute(cols, 3));
+    const slab = new T.Mesh(g, [matSlab, mat({ vertexColors: true, roughness: 1 })]);
     slab.receiveShadow = true;
     scene.add(slab);
 
@@ -583,6 +945,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     cx.closePath();
     cx.fill();
     const tex = new T.CanvasTexture(cv);
+    tex.colorSpace = T.SRGBColorSpace;
     const sz = (2 * SLAB * 256) / 168;
     const und = new T.Mesh(
       new T.PlaneGeometry(sz, sz),
@@ -629,6 +992,11 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
             bx(B.ground, I4, RX[k], 0.002, t, 0.12, 0.012, 0.75, 0xffffff);
             bx(B.ground, I4, t, 0.002, RX[k], 0.75, 0.012, 0.12, 0xffffff);
           }
+          // les lignes de rive : la chaussée a un bord, les voies une largeur
+          for (const o of [-1.3, 1.3]) {
+            bx(B.ground, I4, RX[k] + o, 0.002, (a + b) / 2, 0.06, 0.012, b - a, 0xf3f3ee);
+            bx(B.ground, I4, (a + b) / 2, 0.002, RX[k] + o, b - a, 0.012, 0.06, 0xf3f3ee);
+          }
         }
     for (let i = 0; i < NN; i++)
       for (let j = 0; j < NN; j++) {
@@ -642,7 +1010,14 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
           if (j < NN - 1)
             bx(B.ground, I4, x + k * 0.54, 0.002, z + 2.0, 0.3, 0.012, 0.72, 0xffffff);
         }
-        lamp(x + 1.72, z + 1.72, CURB);
+        /* la ligne d'arrêt, en travers de la voie qui arrive, devant le passage piéton */
+        if (PV.feux && i > 0 && i < NN - 1 && j > 0 && j < NN - 1) {
+          bx(B.ground, I4, x - 2.55, 0.002, z + 0.75, 0.14, 0.012, 1.3, 0xffffff);
+          bx(B.ground, I4, x + 2.55, 0.002, z - 0.75, 0.14, 0.012, 1.3, 0xffffff);
+          bx(B.ground, I4, x - 0.75, 0.002, z - 2.55, 1.3, 0.012, 0.14, 0xffffff);
+          bx(B.ground, I4, x + 0.75, 0.002, z + 2.55, 1.3, 0.012, 0.14, 0xffffff);
+        }
+        lamp(x + 1.62, z + 1.62, CURB);
       }
   })();
 
@@ -653,7 +1028,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     nord-sud, l'autre pour l'axe est-ouest, suffisent à les animer tous.
   */
   const feuxA = new Batch(),
-    feuxB = new Batch();
+    feuxB = new Batch(),
+    ampoules = [];
   if (PV.feux)
     for (let i = 1; i < NN - 1; i++)
       for (let j = 1; j < NN - 1; j++)
@@ -661,8 +1037,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
           [-1, 1],
           [1, -1],
         ]) {
-          const x = RX[i] + sx * 1.72,
-            z = RX[j] + sz * 1.72;
+          const x = RX[i] + sx * 1.62,
+            z = RX[j] + sz * 1.62;
           cy(B.main, I4, x, CURB, z, 0.04, 1.55, C.dark, G.cyl8);
           bx(B.main, I4, x, CURB + 1.3, z, 0.2, 0.42, 0.2, C.dark);
           sp(feuxA, I4, x, CURB + 1.5, z + sz * 0.11, 0.07, 0xffffff);
@@ -675,13 +1051,14 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   if (PV.eclairage >= 2)
     for (const k of [1, 2, 3])
       for (let j = 0; j < NN - 1; j++) {
-        const a = RX[j] + 1.72,
-          b = RX[j + 1] + 1.72,
-          o = RX[k] + 1.72;
+        const a = RX[j] + 1.62,
+          b = RX[j + 1] + 1.62,
+          o = RX[k] + 1.62;
         for (let t = 0.04; t < 0.97; t += 0.06) {
           const s = 1.9 - Math.sin(t * Math.PI) * 0.55;
           sp(B.lamp, I4, o, CURB + s, a + (b - a) * t, 0.06, 0xffffff);
           sp(B.lamp, I4, a + (b - a) * t, CURB + s, o, 0.06, 0xffffff);
+          ampoules.push(o, CURB + s, a + (b - a) * t, a + (b - a) * t, CURB + s, o);
         }
       }
 
@@ -805,9 +1182,9 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         ].forEach((b, i) => {
           if (n < 2 && i > 1) return;
           const P = place(cx + b[0], cz + b[1], b[2], YL);
-          bx(B.main, P, 0, 0.18, 0, 0.3, 0.06, 0.95, C.wood);
-          bx(B.main, P, -0.14, 0.24, 0, 0.05, 0.28, 0.95, C.wood);
-          for (const z of [-0.38, 0.38]) bx(B.main, P, 0, 0, z, 0.26, 0.18, 0.05, C.dark);
+          bxc(B.main, P, 0, 0.18, 0, 0.3, 0.06, 0.95, C.wood);
+          bxc(B.main, P, -0.14, 0.24, 0, 0.05, 0.28, 0.95, C.wood);
+          for (const z of [-0.38, 0.38]) bxc(B.main, P, 0, 0, z, 0.26, 0.18, 0.05, C.dark);
         });
       if (kiosque) {
         const X = cx - 3.2,
@@ -835,7 +1212,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
           Z = cz + 2.8;
         bx(B.ground, I4, X, YL, Z, 2.4, 0.03, 2.2, 0xf1dfb0);
         /* toboggan, balançoire, tourniquet */
-        bx(B.main, I4, X - 0.6, YL, Z - 0.5, 0.5, 0.9, 0.5, C.yellow);
+        bxc(B.main, I4, X - 0.6, YL, Z - 0.5, 0.5, 0.9, 0.5, C.yellow);
         put(B.main, G.box, I4, X - 0.6, YL + 0.48, Z + 0.15, 0.36, 0.05, 1.15, C.pink, 0, 0.62);
         for (const z of [-0.6, 0.6])
           put(
@@ -852,14 +1229,14 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
             0,
             z * 0.5,
           );
-        bx(B.main, I4, X + 0.6, YL + 0.98, Z, 0.05, 0.05, 1.0, C.blue2);
-        bx(B.main, I4, X + 0.6, YL + 0.28, Z, 0.26, 0.04, 0.2, C.orange);
+        bxc(B.main, I4, X + 0.6, YL + 0.98, Z, 0.05, 0.05, 1.0, C.blue2);
+        bxc(B.main, I4, X + 0.6, YL + 0.28, Z, 0.26, 0.04, 0.2, C.orange);
         cy(B.main, I4, X - 0.3, YL, Z + 0.75, 0.32, 0.08, C.teal);
       }
       if (statue) {
         const X = cx - 1.1,
           Z = cz - 2.2;
-        bx(B.main, I4, X, YL, Z, 0.7, 0.7, 0.7, C.white);
+        bxc(B.main, I4, X, YL, Z, 0.7, 0.7, 0.7, C.white);
         cy(B.main, I4, X, YL + 0.7, Z, 0.16, 0.7, C.gold, G.cyl8);
         sp(B.main, I4, X, YL + 1.55, Z, 0.17, C.gold);
         put(B.main, G.box, I4, X + 0.18, YL + 1.3, Z, 0.07, 0.5, 0.07, C.gold, 0, 0, -0.7);
@@ -882,7 +1259,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
             sp(B.main, I4, cx - 3.3 + m * 0.45, YL + 0.12, cz + 1.2 + k * 0.6, 0.11, C.teal2);
         tree(cx + 3.0, cz + 3.0, YL, 0.85);
         if (n === 2) {
-          bx(B.main, I4, cx, YL, cz + 4.05, 8.5, 0.45, 0.35, 0x5fc48e);
+          bxc(B.main, I4, cx, YL, cz + 4.05, 8.5, 0.45, 0.35, 0x5fc48e);
           tree(cx - 3.2, cz - 3.0, YL, 0.8, true);
         }
         return;
@@ -903,12 +1280,16 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         DECK = 0xd8b48a,
         HEDGE = 0x5fc48e;
       bx(B.ground, I4, cx, CURB, cz, 8.6, 0.03, 8.6, C.lawn);
-      bx(B.main, P, -1.0, 0, -1.6, 5.4, 1.3, 3.2, W);
-      bx(B.main, P, -1.0, 1.3, -1.6, 5.6, 0.1, 3.4, C.roof);
-      bx(B.main, P, -1.9, 1.4, -1.2, 3.6, 1.2, 3.4, 0xcda47a);
-      bx(B.main, P, -1.9, 2.6, -1.2, 3.9, 0.12, 3.7, C.roof);
-      bx(B.main, P, 0.9, 0, -2.2, 1.3, 2.9, 1.6, DK);
-      bx(B.main, P, 1.2, 0, 0.02, 0.7, 1.1, 0.05, DK);
+      bxc(B.main, P, -1.0, 0, -1.6, 5.4, 1.3, 3.2, W);
+      bxc(B.main, P, -1.0, 1.3, -1.6, 5.6, 0.1, 3.4, C.roof);
+      bxc(B.main, P, -1.9, 1.4, -1.2, 3.6, 1.2, 3.4, 0xcda47a);
+      bxc(B.main, P, -1.9, 2.6, -1.2, 3.9, 0.12, 3.7, C.roof);
+      bxc(B.main, P, 0.9, 0, -2.2, 1.3, 2.9, 1.6, DK);
+      // le noyau sombre : une fente vitrée sur deux faces et une corniche, plutôt qu'un cube noir
+      put(B.glass, G.quad, P, 0.9, 1.7, -1.385, 0.34, 2.0, 1, 0xffffff, 0);
+      put(B.glass, G.quad, P, 1.565, 1.7, -2.2, 0.34, 2.0, 1, 0xffffff, Math.PI / 2);
+      bx(B.main, P, 0.9, 2.9, -2.2, 1.42, 0.08, 1.72, C.roof);
+      bxc(B.main, P, 1.2, 0, 0.02, 0.7, 1.1, 0.05, DK);
       put(B.glass, G.quad, P, -1.6, 0.68, 0.015, 3.4, 0.95, 1, 0xffffff, 0);
       put(B.glass, G.quad, P, -1.9, 2.0, 0.515, 3.0, 0.8, 1, 0xffffff, 0);
       put(B.glass, G.quad, P, 1.715, 0.68, -1.0, 1.6, 0.9, 1, 0xffffff, Math.PI / 2);
@@ -920,23 +1301,23 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       bx(B.ground, P, -1.0, 0, 1.1, 5.4, 0.08, 2.2, DECK);
       bx(B.ground, P, -0.9, 0, 3.15, 3.8, 0.07, 1.9, 0xf4f3ee);
       bx(B.ground, P, -0.9, 0.07, 3.15, 3.4, 0.012, 1.5, C.water);
-      bx(B.main, P, -2.7, 0.08, 1.25, 0.5, 0.14, 1.2, W);
-      bx(B.main, P, -2.0, 0.08, 1.25, 0.5, 0.14, 1.2, W);
+      bxc(B.main, P, -2.7, 0.08, 1.25, 0.5, 0.14, 1.2, W);
+      bxc(B.main, P, -2.0, 0.08, 1.25, 0.5, 0.14, 1.2, W);
       cy(B.main, P, -0.7, 0.08, 1.25, 0.035, 1.5, C.metal, G.cyl8);
       put(B.main, G.cone, P, -0.7, 1.4, 1.25, 1.7, 0.45, 1.7, 0xe5672e);
       bx(B.ground, P, 3.0, 0, 0.9, 1.9, 0.015, 6.8, C.pave);
-      bx(B.main, P, 3.0, 1.25, -2.2, 2.3, 0.1, 3.2, C.roof);
+      bxc(B.main, P, 3.0, 1.25, -2.2, 2.3, 0.1, 3.2, C.roof);
       cy(B.main, P, 3.95, 0, -0.8, 0.05, 1.25, DK, G.cyl8);
       cy(B.main, P, 3.95, 0, -3.6, 0.05, 1.25, DK, G.cyl8);
       vehicle(
-        B.main,
+        B.car,
         null,
         place(cx + 3.0, cz - 2.3, 0, YL + 0.015),
         NQ.home >= 4 && aVehicule("sport") ? "sport" : "car",
         NQ.home >= 4 && aVehicule("sport") ? 0xe5484d : C.blue2,
       );
-      bx(B.main, P, -4.05, 0, 0, 0.4, 0.5, 8.5, HEDGE);
-      bx(B.main, P, 0, 0, -4.05, 8.5, 0.5, 0.4, HEDGE);
+      bxc(B.main, P, -4.05, 0, 0, 0.4, 0.5, 8.5, HEDGE);
+      bxc(B.main, P, 0, 0, -4.05, 8.5, 0.5, 0.4, HEDGE);
       tree(cx - 3.4, cz + 3.3, YL, 0.85);
       tree(cx + 1.55, cz + 3.5, YL, 0.7, true);
     }
@@ -1031,7 +1412,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     ].forEach((v, k) => {
       if (v)
         vehicle(
-          B.main,
+          B.car,
           null,
           place(px + (v[0] === "van" ? 0.35 : 0.5), -4.375 + k * 1.25, -Math.PI / 2, Yp),
           v[0],
@@ -1144,11 +1525,11 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     const Y = CURB,
       X = PLX,
       Z = PLZ;
-    bx(B.main, I4, X, Y + 0.62, Z, 1.5, 5.6, 1.5, C.white);
-    bx(B.main, I4, X, Y + 2.3, Z, 1.62, 0.16, 1.62, C.violet);
-    bx(B.main, I4, X, Y + 4.4, Z, 1.62, 0.16, 1.62, C.violet);
-    bx(B.main, I4, X, Y + 6.22, Z, 2.0, 1.9, 2.0, C.violet);
-    bx(B.main, I4, X, Y + 8.12, Z, 2.2, 0.14, 2.2, C.white);
+    bxc(B.main, I4, X, Y + 0.62, Z, 1.5, 5.6, 1.5, C.white);
+    bxc(B.main, I4, X, Y + 2.3, Z, 1.62, 0.16, 1.62, C.violet);
+    bxc(B.main, I4, X, Y + 4.4, Z, 1.62, 0.16, 1.62, C.violet);
+    bxc(B.main, I4, X, Y + 6.22, Z, 2.0, 1.9, 2.0, C.violet);
+    bxc(B.main, I4, X, Y + 8.12, Z, 2.2, 0.14, 2.2, C.white);
     put(B.main, G.pyr, I4, X, Y + 8.26, Z, 2.1, 1.5, 2.1, C.violet2);
     sp(B.main, I4, X, Y + 9.9, Z, 0.17, C.gold);
     const disc = new T.CircleGeometry(0.74, 28);
@@ -1180,14 +1561,14 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         /* l'école sous un toit de planches : une cloche sur un poteau, un tableau noir */
         const P = cabane(UNX, UNZ, Math.PI / 2, C.blue2);
         cy(B.main, P, 1.6, 0, 0.9, 0.05, 1.7, C.wood, G.cyl8);
-        bx(B.main, P, 1.6, 1.65, 0.9, 0.5, 0.06, 0.08, C.wood);
+        bxc(B.main, P, 1.6, 1.65, 0.9, 0.5, 0.06, 0.08, C.wood);
         put(B.main, G.cone, P, 1.6, 1.25, 0.9, 0.3, 0.32, 0.3, C.gold);
-        bx(B.main, P, -1.6, 0, 1.2, 1.1, 1.0, 0.08, C.wood);
-        bx(B.main, P, -1.6, 0.35, 1.25, 0.95, 0.6, 0.02, 0x2f4a3a);
+        bxc(B.main, P, -1.6, 0, 1.2, 1.1, 1.0, 0.08, C.wood);
+        bxc(B.main, P, -1.6, 0.35, 1.25, 0.95, 0.6, 0.02, 0x2f4a3a);
       } else {
         const P = maisonnette(UNX, UNZ, Math.PI / 2, 4.4, C.white, C.blue2, C.blue);
         /* le clocheton dit déjà « école » */
-        bx(B.main, P, -1.2, 2.3, -0.6, 0.7, 0.8, 0.7, C.white);
+        bxc(B.main, P, -1.2, 2.3, -0.6, 0.7, 0.8, 0.7, C.white);
         put(B.main, G.pyr, P, -1.2, 3.1, -0.6, 0.85, 0.7, 0.85, C.blue2);
         put(B.main, G.cone, P, -1.2, 2.45, -0.6, 0.32, 0.3, 0.32, C.gold);
       }
@@ -1195,13 +1576,13 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       return;
     }
     if (n >= 4) fleurs(UNX, UNZ);
-    bx(B.main, PU, 0, 0, -2.5, 8.2, 2.5, 3.0, C.blue);
-    bx(B.main, PU, 0, 2.5, -2.5, 8.4, 0.14, 3.2, C.roof);
+    bxc(B.main, PU, 0, 0, -2.5, 8.2, 2.5, 3.0, C.blue);
+    bxc(B.main, PU, 0, 2.5, -2.5, 8.4, 0.14, 3.2, C.roof);
     for (const x of [-3.3, -2.3, 2.3, 3.3])
       for (const z of [-3.1, -1.9]) put(B.main, G.box, PU, x, 2.67, z, 0.8, 0.04, 0.9, C.panel);
     for (const s of [-1, 1]) {
-      bx(B.main, PU, s * 3.0, 0, 0.7, 2.2, 2.0, 3.4, C.blue);
-      bx(B.main, PU, s * 3.0, 2.0, 0.7, 2.4, 0.14, 3.6, C.roof);
+      bxc(B.main, PU, s * 3.0, 0, 0.7, 2.2, 2.0, 3.4, C.blue);
+      bxc(B.main, PU, s * 3.0, 2.0, 0.7, 2.4, 0.14, 3.6, C.roof);
       windowsOn(
         WIN,
         place(0, 0, 0, 0)
@@ -1226,12 +1607,12 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       R,
       { faces: [1, 2, 3] },
     );
-    bx(B.main, PU, 0, 0, -0.1, 3.8, 0.14, 1.9, C.white);
-    bx(B.main, PU, 0, 0.14, -0.35, 3.4, 0.12, 1.3, C.white);
+    bxc(B.main, PU, 0, 0, -0.1, 3.8, 0.14, 1.9, C.white);
+    bxc(B.main, PU, 0, 0.14, -0.35, 3.4, 0.12, 1.3, C.white);
     for (const x of [-1.2, -0.4, 0.4, 1.2]) cy(B.main, PU, x, 0.26, -0.3, 0.15, 2.0, C.white);
-    bx(B.main, PU, 0, 2.26, -0.55, 3.2, 0.26, 1.1, C.white);
+    bxc(B.main, PU, 0, 2.26, -0.55, 3.2, 0.26, 1.1, C.white);
     put(B.main, G.prism, PU, 0, 2.52, -0.55, 3.2, 0.8, 1.1, C.white);
-    bx(B.main, PU, 0, 0.26, -0.98, 1.0, 1.5, 0.06, 0xffffff);
+    bxc(B.main, PU, 0, 0.26, -0.98, 1.0, 1.5, 0.06, 0xffffff);
     cy(B.main, PU, 0, 2.64, -2.5, 0.82, 0.7, C.white);
     put(B.main, G.sph2, PU, 0, 3.34, -2.5, 1.56, 1.3, 1.56, n >= 4 ? C.gold : C.blue2);
     cy(B.main, PU, 0, 3.95, -2.5, 0.035, 1.35, C.metal, G.cyl8);
@@ -1272,10 +1653,10 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       /* la boîte à livres : on en prend un, on en laisse un */
       const bx0 = n === 1 ? 2.6 : 3.1;
       cy(B.main, Q, bx0, 0, 1.4, 0.05, 0.9, C.wood, G.cyl8);
-      bx(B.main, Q, bx0, 0.9, 1.4, 0.8, 0.6, 0.5, C.blue2);
+      bxc(B.main, Q, bx0, 0.9, 1.4, 0.8, 0.6, 0.5, C.blue2);
       put(B.main, G.prism, Q, bx0, 1.5, 1.4, 0.6, 0.25, 0.9, C.blue, Math.PI / 2);
       [C.orange, C.yellow, C.pink, C.teal].forEach((c, i) =>
-        bx(B.main, Q, bx0 - 0.27 + i * 0.18, 0.98, 1.66, 0.14, 0.36, 0.02, c),
+        bxc(B.main, Q, bx0 - 0.27 + i * 0.18, 0.98, 1.66, 0.14, 0.36, 0.02, c),
       );
       if (n === 2) {
         put(B.main, G.box, Q, -0.3, 2.05, 0.82, 0.6, 0.06, 0.4, 0xffffff, 0, Math.PI / 2, 0.4);
@@ -1287,24 +1668,24 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     if (n >= 4) fleurs(LBX, LBZ);
     bx(B.ground, I4, LBX, CURB, LBZ + 2.6, 8.8, 0.03, 3.4, 0xf4e8d2);
     /* le corps : un volume de pierre claire, un toit de tuile */
-    bx(B.main, P, 0, 0, -1.9, 7.6, 0.4, 4.6, C.white);
-    bx(B.main, P, 0, 0.4, -1.9, 7.0, 2.6, 4.0, PIERRE);
-    bx(B.main, P, 0, 3.0, -1.9, 7.3, 0.16, 4.3, C.white);
+    bxc(B.main, P, 0, 0, -1.9, 7.6, 0.4, 4.6, C.white);
+    bxc(B.main, P, 0, 0.4, -1.9, 7.0, 2.6, 4.0, PIERRE);
+    bxc(B.main, P, 0, 3.0, -1.9, 7.3, 0.16, 4.3, C.white);
     put(B.main, G.prism, P, 0, 3.16, -1.9, 7.3, 1.1, 4.3, TOIT);
     /* le porche : quatre colonnes, un fronton */
-    bx(B.main, P, 0, 0, 0.55, 4.6, 0.14, 0.5, C.white);
-    bx(B.main, P, 0, 0.14, 0.3, 4.6, 0.14, 0.5, C.white);
+    bxc(B.main, P, 0, 0, 0.55, 4.6, 0.14, 0.5, C.white);
+    bxc(B.main, P, 0, 0.14, 0.3, 4.6, 0.14, 0.5, C.white);
     for (const x of [-1.65, -0.55, 0.55, 1.65]) cy(B.main, P, x, 0.4, 0.35, 0.17, 2.1, C.white);
-    bx(B.main, P, 0, 2.5, 0.2, 4.4, 0.26, 0.9, C.white);
+    bxc(B.main, P, 0, 2.5, 0.2, 4.4, 0.26, 0.9, C.white);
     put(B.main, G.prism, P, 0, 2.76, 0.2, 4.4, 0.8, 0.9, C.white);
-    bx(B.main, P, 0, 0.4, 0.12, 1.1, 1.6, 0.06, TOIT);
+    bxc(B.main, P, 0, 0.4, 0.12, 1.1, 1.6, 0.06, TOIT);
     /* l'enseigne : un livre ouvert sur le faîte */
     put(B.main, G.box, P, -0.52, 4.75, -1.9, 1.05, 0.1, 1.5, 0xffffff, 0, 0, 0.42);
     put(B.main, G.box, P, 0.52, 4.75, -1.9, 1.05, 0.1, 1.5, 0xffffff, 0, 0, -0.42);
     const reliure = n >= 4 ? C.gold : C.blue2;
     put(B.main, G.box, P, -0.54, 4.69, -1.9, 1.15, 0.08, 1.62, reliure, 0, 0, 0.42);
     put(B.main, G.box, P, 0.54, 4.69, -1.9, 1.15, 0.08, 1.62, reliure, 0, 0, -0.42);
-    bx(B.main, P, 0, 4.3, -1.9, 0.14, 0.3, 1.62, reliure);
+    bxc(B.main, P, 0, 4.3, -1.9, 0.14, 0.3, 1.62, reliure);
     put(B.winA, G.quad, P, -2.45, 1.7, 0.115, 1.2, 1.5, 1, 0xffffff, 0);
     put(B.winA, G.quad, P, 2.45, 1.7, 0.115, 1.2, 1.5, 1, 0xffffff, 0);
     windowsOn(
@@ -1365,17 +1746,17 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       const Q = place(RSX, RSZ - 0.5, 0, YQ);
       for (const x of [-1.2, 1.2])
         for (const z of [-0.6, 0.6]) cy(B.main, Q, x, 0, z, 0.05, 1.6, C.wood, G.cyl8);
-      bx(B.main, Q, 0, 0, 0.5, 2.6, 0.8, 0.5, C.wood);
+      bxc(B.main, Q, 0, 0, 0.5, 2.6, 0.8, 0.5, C.wood);
       put(B.main, G.prism, Q, 0, 1.6, 0, 1.6, 0.5, 2.8, C.orange, Math.PI / 2);
       [C.yellow, C.pink, C.teal, C.blue2].forEach((c, i) =>
-        bx(B.main, Q, -0.9 + i * 0.6, 0.8, 0.5, 0.36, 0.14, 0.3, c),
+        bxc(B.main, Q, -0.9 + i * 0.6, 0.8, 0.5, 0.36, 0.14, 0.3, c),
       );
       for (const [x, z] of [
         [1.9, 1.0],
         [2.3, 0.4],
         [1.95, 0.4],
       ])
-        bx(B.main, Q, x, z === 1.0 ? 0 : 0.4, z, 0.4, 0.4, 0.4, 0xb08a62);
+        bxc(B.main, Q, x, z === 1.0 ? 0 : 0.4, z, 0.4, 0.4, 0.4, 0xb08a62);
       return;
     }
     if (n === 2) {
@@ -1387,10 +1768,10 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     }
     if (n >= 4) fleurs(RSX, RSZ);
     bx(B.ground, I4, RSX, CURB, RSZ + 1.7, 8.8, 0.03, 5.2, 0xf4e8d2);
-    bx(B.main, P, 0, 0, -2.5, 7.0, 2.7, 3.2, C.orange);
-    bx(B.main, P, 0, 2.7, -2.5, 7.2, 0.14, 3.4, C.roof);
+    bxc(B.main, P, 0, 0, -2.5, 7.0, 2.7, 3.2, C.orange);
+    bxc(B.main, P, 0, 2.7, -2.5, 7.2, 0.14, 3.4, C.roof);
     /* enseigne : trois cartes dressées sur le toit, en éventail */
-    bx(B.main, P, 1.2, 2.84, -2.5, 3.0, 0.16, 0.7, C.white);
+    bxc(B.main, P, 1.2, 2.84, -2.5, 3.0, 0.16, 0.7, C.white);
     [
       [0.25, C.blue2, 0.22],
       [1.2, n >= 4 ? C.gold : C.yellow, 0],
@@ -1415,7 +1796,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         0,
         0.34,
       );
-    bx(B.main, P, 0, 0, -0.87, 1.0, 1.6, 0.06, 0xffffff);
+    bxc(B.main, P, 0, 0, -0.87, 1.0, 1.6, 0.06, 0xffffff);
     put(B.winA, G.quad, P, -2.1, 0.95, -0.885, 1.9, 1.1, 1, 0xffffff, 0);
     put(B.winA, G.quad, P, 2.1, 0.95, -0.885, 1.9, 1.1, 1, 0xffffff, 0);
     windowsOn(
@@ -1457,13 +1838,13 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       if (nb === 1) {
         /* le coffre en bois, cerclé et cadenassé d'or */
         const P = cabane(BKX - 1.0, BKZ - 0.8, 0, C.teal2);
-        bx(B.main, P, 2.6, 0, 1.0, 1.3, 0.7, 0.85, 0x9b7650);
-        for (const x of [-0.45, 0.45]) bx(B.main, P, 2.6 + x, 0, 1.0, 0.08, 0.72, 0.88, C.gold);
-        bx(B.main, P, 2.6, 0.32, 1.44, 0.2, 0.22, 0.04, C.gold);
+        bxc(B.main, P, 2.6, 0, 1.0, 1.3, 0.7, 0.85, 0x9b7650);
+        for (const x of [-0.45, 0.45]) bxc(B.main, P, 2.6 + x, 0, 1.0, 0.08, 0.72, 0.88, C.gold);
+        bxc(B.main, P, 2.6, 0.32, 1.44, 0.2, 0.22, 0.04, C.gold);
       } else {
         const P = maisonnette(BKX, BKZ, 0, 4.4, C.white, C.teal, C.teal2);
         for (const x of [-0.7, 0.7]) cy(B.main, P, x, 0, 1.2, 0.12, 1.7, C.white);
-        bx(B.main, P, 0, 1.7, 1.0, 2.0, 0.16, 0.7, C.white);
+        bxc(B.main, P, 0, 1.7, 1.0, 2.0, 0.16, 0.7, C.white);
         put(B.main, G.cyl, P, 0, 2.2, 0.83, 0.5, 0.05, 0.5, C.gold, 0, Math.PI / 2);
       }
     }
@@ -1478,7 +1859,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       const yb = nt === 1 ? 0 : 0.1,
         zb = nt === 1 ? 1.6 : 1.9;
       for (const x of [-1.0, 1.0]) cy(B.main, P, x, 0, zb, 0.05, 1.6 + yb, C.wood, G.cyl8);
-      bx(B.main, P, 0, 0.9 + yb, zb + 0.05, 2.1, 0.8, 0.06, C.dark);
+      bxc(B.main, P, 0, 0.9 + yb, zb + 0.05, 2.1, 0.8, 0.06, C.dark);
       [0.1, 0.25, 0.18, 0.4, 0.33, 0.55].forEach((h, i) =>
         bx(
           B.main,
@@ -1498,13 +1879,16 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   /* ---- maillages fixes */
   const mMain = B.main.mesh(matStatic, true);
   scene.add(mMain);
-  const mGround = B.ground.mesh(matStatic, false);
+  const mGround = B.ground.mesh(matGround, false);
   scene.add(mGround);
   scene.add(
     B.winA.mesh(matWinA, false),
     B.winB.mesh(matWinB, false),
     B.lamp.mesh(matLamp, false, false),
     B.glass.mesh(matGlass, false),
+    B.gold.mesh(matGold, true),
+    B.water.mesh(matWater, false),
+    B.car.mesh(matCar, true),
     feuxA.mesh(matFeuA, false, false),
     feuxB.mesh(matFeuB, false, false),
   );
@@ -1521,7 +1905,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       const m = bank.group.children.pop();
       m.geometry.dispose();
     }
-    const b = new Batch(),
+    const bo = new Batch(),
+      b = new Batch({ ombre: true, or: bo }),
       wa = new Batch(),
       wb = new Batch(),
       rnd = rng(77);
@@ -1529,23 +1914,23 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       fh = 0.8,
       H = floors * fh,
       y0 = 0.4;
-    bx(b, P, 0, 0, 0, 7.6, y0, 7.2, C.white);
-    bx(b, P, 0, 0, 3.8, 4.6, 0.27, 0.5, C.white);
-    bx(b, P, 0, 0, 4.15, 4.6, 0.13, 0.4, C.white);
-    bx(b, P, 0, y0, -0.6, 5.2, H, 4.4, C.teal);
+    bxc(b, P, 0, 0, 0, 7.6, y0, 7.2, C.white);
+    bxc(b, P, 0, 0, 3.8, 4.6, 0.27, 0.5, C.white);
+    bxc(b, P, 0, 0, 4.15, 4.6, 0.13, 0.4, C.white);
+    bxc(b, P, 0, y0, -0.6, 5.2, H, 4.4, C.teal);
     for (let f = 4; f < floors; f += 4)
-      bx(b, P, 0, y0 + f * fh - 0.07, -0.6, 5.32, 0.14, 4.52, C.white);
-    bx(b, P, 0, y0 + H, -0.6, 5.4, 0.16, 4.6, C.white);
-    bx(b, P, 1.4, y0 + H + 0.16, -1.4, 0.9, 0.4, 0.8, 0xdadee6);
+      bxc(b, P, 0, y0 + f * fh - 0.07, -0.6, 5.32, 0.14, 4.52, C.white);
+    bxc(b, P, 0, y0 + H, -0.6, 5.4, 0.16, 4.6, C.white);
+    bxc(b, P, 1.4, y0 + H + 0.16, -1.4, 0.9, 0.4, 0.8, 0xdadee6);
     for (const x of [-1.65, -0.55, 0.55, 1.65]) cy(b, P, x, y0, 2.7, 0.2, 1.9, C.white);
-    bx(b, P, 0, y0 + 1.9, 2.35, 4.2, 0.28, 1.5, C.white);
+    bxc(b, P, 0, y0 + 1.9, 2.35, 4.2, 0.28, 1.5, C.white);
     put(b, G.prism, P, 0, y0 + 2.18, 2.35, 4.2, 0.85, 1.5, C.white);
     put(b, G.cyl, P, 0, y0 + 2.52, 3.105, 0.52, 0.06, 0.52, C.gold, 0, Math.PI / 2);
-    bx(b, P, 0, y0, 1.62, 1.1, 1.5, 0.06, C.teal2);
-    bx(b, P, 0, y0 + H + 0.16, -0.6, 0.5, 0.3, 0.5, C.white);
+    bxc(b, P, 0, y0, 1.62, 1.1, 1.5, 0.06, C.teal2);
+    bxc(b, P, 0, y0 + H + 0.16, -0.6, 0.5, 0.3, 0.5, C.white);
     if (NQ.bank >= 4) {
       /* le prestige : une couronne dorée et un dôme au sommet */
-      bx(b, P, 0, y0 + H - 0.5, -0.6, 5.36, 0.22, 4.56, C.gold);
+      bxc(b, P, 0, y0 + H - 0.5, -0.6, 5.36, 0.22, 4.56, C.gold);
       cy(b, P, -1.2, y0 + H + 0.16, -0.6, 0.9, 0.3, C.white);
       put(b, G.sph2, P, -1.2, y0 + H + 0.46, -0.6, 1.5, 1.1, 1.5, C.gold);
     }
@@ -1553,7 +1938,12 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     windowsOn({ A: wa, B: wb }, Pt, 5.2, 4.4, 0.05, floors, fh, rnd, {
       skip: (f, fl) => f === 0 && fl < 4,
     });
-    bank.group.add(b.mesh(matStatic, true), wa.mesh(matWinA, false), wb.mesh(matWinB, false));
+    bank.group.add(
+      b.mesh(matStatic, true),
+      wa.mesh(matWinA, false),
+      wb.mesh(matWinB, false),
+      bo.mesh(matGold, true),
+    );
     bank.floors = floors;
     bank.top = CURB + y0 + H + 0.16;
     coin.position.set(BKX, bank.top + 1.3, BKZ - 0.6);
@@ -1562,7 +1952,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   /* ---- Salle de marché : la tour grandit avec les trades du mois */
   const tower = { group: new T.Group(), floors: 0, top: 0, anim: null };
   scene.add(tower.group);
-  const matBeacon = new T.MeshLambertMaterial({ color: 0xf2c037 });
+  const matBeacon = mat({ color: 0xf2c037, roughness: 0.3 });
   let feu = [0.95, 0.75, 0.2];
   const beacon = new T.Mesh(G.sph, matBeacon);
   beacon.scale.setScalar(0.36);
@@ -1573,27 +1963,28 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       const m = tower.group.children.pop();
       m.geometry.dispose();
     }
-    const b = new Batch(),
+    const bo = new Batch(),
+      b = new Batch({ ombre: true, or: bo }),
       gl = new Batch(),
       P = place(TWX, TWZ, 0, CURB),
       fh = 0.8,
       NAVY = 0x27306b,
       y0 = 0.5;
-    bx(b, P, 0, 0, 0, 8.2, y0, 8.2, C.white);
-    bx(b, P, 0, y0, 0, 6.6, 1.6, 6.6, NAVY);
+    bxc(b, P, 0, 0, 0, 8.2, y0, 8.2, C.white);
+    bxc(b, P, 0, y0, 0, 6.6, 1.6, 6.6, NAVY);
     put(gl, G.quad, P, 0, y0 + 0.8, 3.315, 5.6, 1.1, 1, 0xffffff, 0);
     put(gl, G.quad, P, 3.315, y0 + 0.8, 0, 5.6, 1.1, 1, 0xffffff, Math.PI / 2);
-    bx(b, P, 0, y0 + 1.6, 0, 6.9, 0.14, 6.9, C.white);
+    bxc(b, P, 0, y0 + 1.6, 0, 6.9, 0.14, 6.9, C.white);
     const n1 = Math.ceil(floors * 0.6),
       n2 = floors - n1,
       yA = y0 + 1.74,
       hA = n1 * fh,
       yB = yA + hA + 0.14,
       hB = n2 * fh;
-    bx(b, P, 0, yA, 0, 5.4, hA, 5.4, NAVY);
-    bx(b, P, 0, yA + hA, 0, 5.6, 0.14, 5.6, C.white);
-    bx(b, P, 0, yB, 0, 4.0, hB, 4.0, NAVY);
-    bx(b, P, 0, yB + hB, 0, 4.2, 0.16, 4.2, C.white);
+    bxc(b, P, 0, yA, 0, 5.4, hA, 5.4, NAVY);
+    bxc(b, P, 0, yA + hA, 0, 5.6, 0.14, 5.6, C.white);
+    bxc(b, P, 0, yB, 0, 4.0, hB, 4.0, NAVY);
+    bxc(b, P, 0, yB + hB, 0, 4.2, 0.16, 4.2, C.white);
     for (let k = 0; k < 4; k++) {
       const a = (k * Math.PI) / 2,
         sa = Math.sin(a),
@@ -1604,14 +1995,14 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         put(gl, G.quad, P, sa * 2.015, yB + fl * fh + 0.42, ca * 2.015, 3.4, 0.5, 1, 0xffffff, a);
     }
     const yT = yB + hB + 0.16;
-    bx(b, P, 0, yT, 0, 1.6, 0.7, 1.6, C.white);
+    bxc(b, P, 0, yT, 0, 1.6, 0.7, 1.6, C.white);
     cy(b, P, 0, yT + 0.7, 0, 0.06, 2.4, NQ.tower >= 4 ? C.gold : C.metal, G.cyl8);
     if (NQ.tower >= 4) {
-      bx(b, P, 0, yB + hB - 0.3, 0, 4.12, 0.2, 4.12, C.gold);
-      bx(b, P, 0, yA + hA - 0.3, 0, 5.52, 0.2, 5.52, C.gold);
+      bxc(b, P, 0, yB + hB - 0.3, 0, 4.12, 0.2, 4.12, C.gold);
+      bxc(b, P, 0, yA + hA - 0.3, 0, 5.52, 0.2, 5.52, C.gold);
       put(b, G.pyr, P, 0, yT + 0.7, 0, 1.5, 1.2, 1.5, C.gold);
     }
-    tower.group.add(b.mesh(matStatic, true), gl.mesh(matGlass, false));
+    tower.group.add(b.mesh(matStatic, true), gl.mesh(matGlass, false), bo.mesh(matGold, true));
     tower.floors = floors;
     tower.top = CURB + yT + 3.1;
     beacon.position.set(TWX, tower.top, TWZ);
@@ -1679,7 +2070,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     [0.05, 3.0, 0.2, C.violet],
     [0.5, 2.7, -0.15, C.teal],
   ].forEach((bn) => {
-    const m = new T.Mesh(G.sph2, new T.MeshLambertMaterial({ color: bn[3] }));
+    const m = new T.Mesh(G.sph2, mat({ color: bn[3], roughness: 0.35 }));
     m.position.set(bn[0], bn[1], bn[2]);
     m.scale.set(0.6, 0.72, 0.6);
     balloons.add(m);
@@ -1707,7 +2098,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       [-1.5, -0.15, -0.1, 1.25],
       [0.3, 0.35, -0.6, 1.0],
     ].forEach((p) => {
-      const m = new T.Mesh(G.sph2, matCloud);
+      const m = new T.Mesh(G.blob, matCloud);
       m.position.set(p[0], p[1], p[2]);
       m.scale.set(p[3] * 2, p[3] * 1.25, p[3] * 2);
       m.castShadow = !small;
@@ -1836,15 +2227,59 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
 
   /* le port : une bande d'eau devant la ville, un ponton, des voiliers */
   const voiliers = [];
+  let scintillement = null,
+    surfaceMer = null;
   if (aAmbiance("port")) {
-    /* un bassin taillé à la largeur de la dalle : la ville s'avance sur l'eau, elle ne flotte pas dessus */
-    const eau = new T.Mesh(
-      new T.BoxGeometry(2 * SLAB - 1, 1.4, 12),
-      new T.MeshLambertMaterial({ color: C.water }),
-    );
-    eau.position.set(0, -1.6, SLAB + 6);
+    /*
+      Le bassin est taillé comme la dalle : coins arrondis, flanc en coupe,
+      clair en surface et sombre en profondeur. Un pavé bleu uni posé contre
+      la ville faisait un bloc de plastique ; la coupe en fait de l'eau.
+    */
+    const x0 = -SLAB + 0.6,
+      x1 = SLAB - 0.6,
+      z0 = SLAB - 0.5,
+      z1 = SLAB + 12,
+      rc = 2.2;
+    const sh = new T.Shape();
+    sh.moveTo(x0, z0);
+    sh.lineTo(x1, z0);
+    sh.lineTo(x1, z1 - rc);
+    sh.quadraticCurveTo(x1, z1, x1 - rc, z1);
+    sh.lineTo(x0 + rc, z1);
+    sh.quadraticCurveTo(x0, z1, x0, z1 - rc);
+    sh.lineTo(x0, z0);
+    const ge = new T.ExtrudeGeometry(sh, { depth: 0.9, bevelEnabled: false, curveSegments: 8 });
+    ge.rotateX(Math.PI / 2);
+    ge.translate(0, -0.9, 0);
+    const pe = ge.attributes.position,
+      ce = [],
+      cHaut = new T.Color(0x78bce6),
+      cBas = new T.Color(0x22507e),
+      cc = new T.Color();
+    for (let i = 0; i < pe.count; i++) {
+      cc.copy(cHaut).lerp(cBas, clamp((-0.9 - pe.getY(i)) / 0.9, 0, 1));
+      ce.push(cc.r, cc.g, cc.b);
+    }
+    ge.setAttribute("color", new T.Float32BufferAttribute(ce, 3));
+    const matMer = mat({ color: 0x4d93c6, roughness: 0.04, metalness: 0.1, envMap: envTex });
+    refletants.push([matMer, 1.3]);
+    const eau = new T.Mesh(ge, [matMer, mat({ vertexColors: true, roughness: 0.25 })]);
     eau.receiveShadow = true;
     scene.add(eau);
+    /* des éclats qui glissent sur l'eau, comme sur l'étang, à l'échelle du large (texture posée plus bas) */
+    const gs = new T.ShapeGeometry(sh, 8).rotateX(Math.PI / 2);
+    surfaceMer = new T.Mesh(
+      gs,
+      new T.MeshBasicMaterial({
+        transparent: true,
+        depthWrite: false,
+        opacity: 0.35,
+        side: T.DoubleSide,
+      }),
+    );
+    surfaceMer.position.y = -0.885;
+    surfaceMer.visible = false;
+    scene.add(surfaceMer);
     const b = new Batch();
     for (const x of [-12, 8]) {
       bx(b, I4, x, -0.9, SLAB + 3.5, 1.4, 0.95, 7, C.wood);
@@ -1903,6 +2338,42 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     return { dx, dz, rx, rz, x0, z0, x1, z1, len: Math.abs(x1 - x0) + Math.abs(z1 - z0) };
   }
   const cars = [];
+  const LONGUEURS = {
+    car: 1.6,
+    taxi: 1.6,
+    sport: 1.75,
+    deudeuche: 1.55,
+    van: 2.1,
+    camion: 2.7,
+    bus: 3,
+    tram: 4.4,
+    velo: 0.9,
+  };
+  const flaqueToile = document.createElement("canvas");
+  flaqueToile.width = 64;
+  flaqueToile.height = 128;
+  {
+    const fx = flaqueToile.getContext("2d");
+    if (fx) {
+      const gr = fx.createRadialGradient(32, 40, 2, 32, 64, 62);
+      gr.addColorStop(0, "rgba(255,236,190,0.9)");
+      gr.addColorStop(0.5, "rgba(255,226,170,0.32)");
+      gr.addColorStop(1, "rgba(255,220,160,0)");
+      fx.fillStyle = gr;
+      fx.fillRect(0, 0, 64, 128);
+    }
+  }
+  const texFlaque = new T.CanvasTexture(flaqueToile);
+  texFlaque.colorSpace = T.SRGBColorSpace;
+  const matFlaque = new T.MeshBasicMaterial({
+    map: texFlaque,
+    transparent: true,
+    depthWrite: false,
+    blending: T.AdditiveBlending,
+    opacity: 0,
+  });
+  matFlaque.visible = false;
+  const geoFlaque = new T.PlaneGeometry(1.15, 2.1).rotateX(-Math.PI / 2);
   (function spawnCars() {
     const edges = [];
     nodes.forEach((a) => a.nb.forEach((b) => edges.push([a, b])));
@@ -1952,12 +2423,23 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       if (kind === "tram" && trams++ >= (small ? 1 : 2)) kind = pool[(k + 1) % pool.length];
       const col = COUL[kind] ? COUL[kind][k % COUL[kind].length] : cols[k % cols.length];
       const b = new Batch(),
-        lb = new Batch();
-      vehicle(b, lb, I4, kind, col);
+        lb = new Batch(),
+        tb = new Batch();
+      vehicle(b, lb, I4, kind, col, tb);
+      /* les feux arrière s'allument au freinage : chaque véhicule a les siens */
+      const stopMat = mat({ color: 0xc8303a, emissive: 0xff2a2a, emissiveIntensity: 0 });
       const g = new T.Group(),
-        body = b.mesh(matStatic, !small),
-        li = lb.mesh(matHead, false, false);
-      g.add(body, li);
+        body = b.mesh(matCar, !small),
+        li = lb.mesh(matHead, false, false),
+        st = tb.mesh(stopMat, false, false);
+      g.add(body, li, st);
+      if (kind !== "velo") {
+        // la nuit, les phares posent une flaque de lumière sur la chaussée devant le véhicule
+        const fl = new T.Mesh(geoFlaque, matFlaque);
+        fl.position.set(0, 0.012, LONGUEURS[kind] / 2 + 1.05);
+        fl.renderOrder = 1;
+        g.add(fl);
+      }
       scene.add(g);
       const a = edges[k][0],
         bb = edges[k][1],
@@ -1983,7 +2465,11 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         fz: seg.dz,
         wait: 0,
         ghost: 0,
-        len: { bus: 3, van: 2.1, camion: 2.7, tram: 4.4, velo: 0.9, sport: 1.7 }[kind] || 1.55,
+        len: LONGUEURS[kind],
+        stopMat,
+        frein: 0,
+        attente: false,
+        attenteT: 0,
       });
     }
   })();
@@ -1993,38 +2479,58 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     const ph = time % CYCLE;
     return estOuest ? ph >= 7 && ph < 13 : ph < 6;
   };
+  const auCentre = (n) => n.i > 0 && n.i < NN - 1 && n.j > 0 && n.j < NN - 1;
+  /*
+    Un carrefour ne prend qu'un véhicule à la fois : celui de tête le réserve
+    avant de s'engager, les autres l'attendent à la ligne. Sans cela, deux
+    voitures qui tournaient se traversaient au milieu du croisement. Les feux
+    s'ajoutent par-dessus, et chacun freine en proportion de la distance qui
+    lui reste : une file qui ralentit, pas une suite d'arrêts nets.
+  */
   function stepCar(c, dt) {
     let v = c.vmax,
-      auFeu = false;
+      attente = false,
+      devant = false;
     if (c.ghost > 0) c.ghost -= dt;
-    else
+    else {
       for (const o of cars) {
         if (o === c) continue;
         const ex = o.x - c.x,
           ez = o.z - c.z,
           f = ex * c.fx + ez * c.fz,
-          gap = 2.2 + (c.len + o.len) / 2;
-        if (f > 0 && f < gap && Math.abs(ex * c.fz - ez * c.fx) < 0.6) {
-          v = Math.min(v, f < gap - 1.3 ? 0 : o.v * 0.9);
-          // la file derrière un feu rouge attend le vert, elle ne double pas
-          if (o.auFeu) auFeu = true;
+          marge = 0.45 + (c.len + o.len) / 2;
+        if (f > 0 && f < marge + 2.4 && Math.abs(ex * c.fz - ez * c.fx) < 0.6) {
+          v = Math.min(v, Math.max(0, (f - marge) * 1.9));
+          devant = true;
+          // la file derrière un feu rouge ou un carrefour occupé attend, elle ne double pas
+          if (o.attente) attente = true;
         }
       }
-    if (PV.feux && c.mode === "s" && c.b.i > 0 && c.b.i < NN - 1 && c.b.j > 0 && c.b.j < NN - 1) {
-      const reste = c.seg.len - c.s;
-      if (reste < 1.3 && reste > 0.05 && !vert(c.seg.dx !== 0)) {
-        v = 0;
-        auFeu = true;
+      if (c.mode === "s") {
+        const reste = c.seg.len - c.s,
+          n = c.b,
+          ligne = 0.45 + c.len / 2;
+        if (reste < 3 + ligne) {
+          const rouge = PV.feux && auCentre(n) && !vert(c.seg.dx !== 0);
+          if (!rouge && !devant && (!n.occupant || n.occupant === c)) n.occupant = c;
+          if (n.occupant !== c) {
+            v = Math.min(v, Math.max(0, (reste - ligne) * 1.6));
+            attente = true;
+          }
+        }
       }
     }
-    c.v += (v - c.v) * Math.min(1, dt * 3.5);
-    // Arrêté au rouge, on attend sans s'impatienter : la traversée « fantôme » est pour les bouchons.
-    c.auFeu = auFeu;
-    if (c.v < 0.08 && !auFeu) {
+    c.frein = v < c.v - 0.3 || (attente && c.v < 0.2) ? 1 : 0;
+    c.v += (v - c.v) * Math.min(1, dt * 4);
+    c.attente = attente;
+    // Bloqué sans raison visible (un bouchon en boucle) : on finit par passer, mais jamais en brûlant un feu.
+    c.attenteT = attente ? c.attenteT + dt : 0;
+    if ((c.v < 0.08 && !attente) || c.attenteT > 14) {
       c.wait += dt;
-      if (c.wait > 4) {
+      if (c.wait > 4 || c.attenteT > 14) {
         c.ghost = 2.5;
         c.wait = 0;
+        c.attenteT = 0;
       }
     } else c.wait = 0;
     const adv = c.v * dt;
@@ -2063,6 +2569,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     if (c.mode === "t") {
       if (c.u >= 1) {
         const q = c.cur;
+        if (c.b.occupant === c) c.b.occupant = null;
         c.a = c.b;
         c.b = c.next;
         c.seg = q.seg;
@@ -2087,6 +2594,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     }
     c.g.position.set(c.x, 0, c.z);
     c.g.rotation.y = Math.atan2(c.fx, c.fz);
+    c.stopMat.emissiveIntensity = c.frein * 1.8 + nightK * 0.7;
   }
 
   /* ---- piétons (un corps et une tête instanciés pour tout le monde) */
@@ -2122,7 +2630,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       else {
         const i = Math.floor(R() * 4),
           j = Math.floor(R() * 4),
-          o = rr(0.28, 0.62);
+          // sur le trottoir, à distance des réverbères et des bacs posés aux angles des îlots
+          o = rr(0.32, 0.5);
         r = { x0: CELLS[i][0] + o, x1: CELLS[i][1] - o, z0: CELLS[j][0] + o, z1: CELLS[j][1] - o };
       }
       r.per = 2 * (r.x1 - r.x0) + 2 * (r.z1 - r.z0);
@@ -2153,8 +2662,9 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     for (let k = 0; k < 6; k++)
       mk({ type: "jog", th: R() * 6.28, w: rr(0.45, 0.7), y: CURB + 0.03, idx: k });
   })();
+  // une gélule plutôt qu'un cylindre : des épaules arrondies, une silhouette et non un pion
   const pedBody = new T.InstancedMesh(
-    new T.CylinderGeometry(0.11, 0.15, 0.42, 8),
+    new T.CapsuleGeometry(0.115, 0.2, 3, 10),
     matPed,
     peds.length,
   );
@@ -2234,21 +2744,28 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   }
 
   /* ---- lumière */
-  const hemi = new T.HemisphereLight(0xffffff, 0xe6e2d2, 0.78 * LUM);
-  const sun = new T.DirectionalLight(0xffffff, 0.3 * LUM);
+  /*
+    En linéaire, l'écart entre la face au soleil et la face à l'ombre se joue
+    sur la part du soleil : un ciel plus discret et un soleil plus franc
+    redonnent du relief que le passage au linéaire, à intensités égales, aurait
+    aplati.
+  */
+  const hemi = new T.HemisphereLight(0xffffff, 0xe6e2d2, 0.58 * LUM);
+  const sun = new T.DirectionalLight(0xffffff, 0.85 * LUM);
   sun.position.set(-30, 75, 60);
   sun.castShadow = true;
   // Un bord d'ombre fondu : net, il découpait chaque immeuble au cutter.
-  sun.shadow.radius = 3;
+  sun.shadow.radius = 4;
   sun.shadow.mapSize.set(small ? 1024 : 2048, small ? 1024 : 2048);
-  sun.shadow.camera.left = -52;
-  sun.shadow.camera.right = 52;
-  sun.shadow.camera.top = 52;
-  sun.shadow.camera.bottom = -52;
-  sun.shadow.camera.near = 20;
-  sun.shadow.camera.far = 260;
-  sun.shadow.bias = -0.0006;
-  sun.shadow.normalBias = 0.03;
+  // Au plus près de la dalle : chaque texel d'ombre en couvre moins, les bords sont plus fins.
+  sun.shadow.camera.left = -47;
+  sun.shadow.camera.right = 47;
+  sun.shadow.camera.top = 47;
+  sun.shadow.camera.bottom = -47;
+  sun.shadow.camera.near = 40;
+  sun.shadow.camera.far = 230;
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.035;
   scene.add(hemi, sun);
 
   /* le jour et la nuit suivent l'heure réelle : ciel, teinte de la lumière, direction du soleil, fenêtres allumées */
@@ -2297,6 +2814,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   cielToile.width = cielToile.height = 512;
   const cielCtx = cielToile.getContext("2d");
   const cielTex = new T.CanvasTexture(cielToile);
+  cielTex.colorSpace = T.SRGBColorSpace;
   /* les étoiles : toujours aux mêmes places, comme le reste de la ville */
   const RE = rng(4242);
   const etoiles = [];
@@ -2344,7 +2862,11 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     haloCtx.fillRect(0, 0, 64, 64);
   }
   const matHalo = new T.MeshBasicMaterial({
-    map: new T.CanvasTexture(haloToile),
+    map: (() => {
+      const t = new T.CanvasTexture(haloToile);
+      t.colorSpace = T.SRGBColorSpace;
+      return t;
+    })(),
     transparent: true,
     depthWrite: false,
     blending: T.AdditiveBlending,
@@ -2355,6 +2877,12 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     matHalo,
     Math.max(1, lampes.length),
   );
+  /*
+    Sans réverbère (avant le palier de l'éclairage), l'instance de réserve
+    restait à l'origine : une tache de lumière au milieu du carrefour central,
+    chaque nuit, sous aucune lampe.
+  */
+  halos.count = lampes.length;
   lampes.forEach((l, i) => {
     _im.makeTranslation(l[0], l[1] + 0.03, l[2]);
     halos.setMatrixAt(i, _im);
@@ -2362,6 +2890,60 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   halos.frustumCulled = false;
   halos.visible = false;
   scene.add(halos);
+
+  /*
+    ---- les lueurs
+
+    Le globe d'un réverbère allumé n'était qu'un point clair. Un halo tourné
+    vers la caméra autour de chaque globe, et un point lumineux sur chaque
+    ampoule de guirlande, donnent l'éblouissement d'une lampe vue de nuit,
+    sans le coût d'un vrai flou lumineux en post-traitement.
+  */
+  const lueurToile = document.createElement("canvas");
+  lueurToile.width = lueurToile.height = 64;
+  {
+    const lx = lueurToile.getContext("2d");
+    if (lx) {
+      const gr = lx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, "rgba(255,246,220,1)");
+      gr.addColorStop(0.18, "rgba(255,226,160,0.75)");
+      gr.addColorStop(0.5, "rgba(255,200,120,0.18)");
+      gr.addColorStop(1, "rgba(255,190,110,0)");
+      lx.fillStyle = gr;
+      lx.fillRect(0, 0, 64, 64);
+    }
+  }
+  const texLueur = new T.CanvasTexture(lueurToile);
+  texLueur.colorSpace = T.SRGBColorSpace;
+  const matLueur = new T.SpriteMaterial({
+    map: texLueur,
+    transparent: true,
+    depthWrite: false,
+    blending: T.AdditiveBlending,
+    opacity: 0,
+  });
+  matLueur.visible = false;
+  for (const l of lampes) {
+    const sp1 = new T.Sprite(matLueur);
+    sp1.position.set(l[0], l[1] + 1.78, l[2]);
+    sp1.scale.setScalar(1.25);
+    scene.add(sp1);
+  }
+  const matPoints = new T.PointsMaterial({
+    map: texLueur,
+    size: 9,
+    sizeAttenuation: false,
+    transparent: true,
+    depthWrite: false,
+    blending: T.AdditiveBlending,
+    opacity: 0,
+  });
+  matPoints.visible = false;
+  if (ampoules.length) {
+    const gp = new T.BufferGeometry();
+    gp.setAttribute("position", new T.Float32BufferAttribute(ampoules, 3));
+    scene.add(new T.Points(gp, matPoints));
+  }
 
   /*
     ---- les reflets de l'eau
@@ -2390,7 +2972,15 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     }
   }
   const refletTex = new T.CanvasTexture(refletToile);
+  refletTex.colorSpace = T.SRGBColorSpace;
   refletTex.wrapS = refletTex.wrapT = T.RepeatWrapping;
+  if (surfaceMer) {
+    scintillement = refletTex.clone();
+    scintillement.repeat.set(0.11, 0.11);
+    surfaceMer.material.map = scintillement;
+    surfaceMer.material.needsUpdate = true;
+    surfaceMer.visible = true;
+  }
   refletTex.center.set(0.5, 0.5);
   const matReflet = new T.MeshBasicMaterial({
     map: refletTex,
@@ -2432,13 +3022,22 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     const day = step(-7, 3, a),
       lit = 1 - step(-4, 3, a);
     grad(SKY, a, bgCol);
+    scene.fog.color.copy(bgCol);
+    // Le ciel reflété suit le jour : la nuit, le verre ne doit pas briller comme à midi.
+    for (const [m, k] of refletants) m.envMapIntensity = k * (0.18 + 0.82 * day);
     grad(SKY_HAUT, a, hautCol);
     peindreCiel(lit);
     matHalo.opacity = 0.62 * lit;
-    halos.visible = lit > 0.02;
+    halos.visible = lit > 0.02 && lampes.length > 0;
+    matLueur.opacity = 0.85 * lit;
+    matLueur.visible = lit > 0.02;
+    matPoints.opacity = 0.9 * lit;
+    matPoints.visible = lit > 0.02;
+    matFlaque.opacity = 0.55 * lit;
+    matFlaque.visible = lit > 0.05;
     grad(HSKY, a, hemi.color);
     grad(HGND, a, hemi.groundColor);
-    hemi.intensity = (0.5 + 0.28 * day) * LUM;
+    hemi.intensity = (0.36 + 0.22 * day) * LUM;
     if (a > 0) {
       const el = clamp(22 + 0.85 * a, 22, 72) * RAD,
         ce = Math.cos(el); // un peu plus haut que le vrai soleil : des ombres plus courtes, plus douces
@@ -2448,11 +3047,11 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         -ce * Math.cos(sp0.az) * 125,
       ); // est = +x, nord = -z
       grad(SUNC, a, sun.color);
-      sun.intensity = 0.34 * step(-1, 5, a) * LUM;
+      sun.intensity = 0.85 * step(-1, 5, a) * LUM;
     } else {
       sun.position.set(-37, 94, 75);
       sun.color.set(0x9fb0ff);
-      sun.intensity = 0.2 * step(-5, -11, a) * LUM; // clair de lune
+      sun.intensity = 0.32 * step(-5, -11, a) * LUM; // clair de lune
     }
     matWinA.color.set(0xeef4fc).lerp(_c2.set(0xffe3a3), lit);
     matWinA.emissive.set(0xf2b95a).multiplyScalar(lit);
@@ -2836,7 +3435,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     }
     if (ballon.children.length) {
       const a = time * 0.025;
-      ballon.position.set(Math.cos(a) * 24, 17 + Math.sin(time * 0.4) * 0.6, Math.sin(a) * 18 - 4);
+      // au-dessus de la plus haute tour : à 17, sa course la faisait passer au travers
+      ballon.position.set(Math.cos(a) * 24, 25 + Math.sin(time * 0.4) * 0.6, Math.sin(a) * 18 - 4);
     }
     voiliers.forEach((v, i) => {
       v.position.y = -0.75 + Math.sin(time * 1.3 + i) * 0.06;
@@ -2872,18 +3472,29 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       );
       d.m.rotation.y = -d.a;
     });
-    for (let i = 0; i < NDROP; i++) {
-      const th = ((i % 8) * Math.PI) / 4 + 0.39,
-        p = (time * 0.85 + (i < 8 ? 0 : 0.5)) % 1,
-        r = 1.4 + 0.55 * p;
-      _im.compose(
-        _ip.set(PLX + Math.cos(th) * r, CURB + 0.5 + 3.4 * p * (1 - p), PLZ + Math.sin(th) * r),
-        _iq,
-        _is.set(0.2, 0.2, 0.2),
-      );
-      drops.setMatrixAt(i, _im);
+    if (drops.visible) {
+      /*
+        Au pied de la tour de l'horloge, les jets partent de son socle ; au
+        deuxième âge, sans tour, ils partent de la vasque centrale. Partir du
+        même rayon dans les deux cas les faisait jaillir de nulle part.
+      */
+      const r0 = NQ.plaza >= 3 ? 1.4 : 0.32,
+        dr = NQ.plaza >= 3 ? 0.55 : 1.3,
+        y0 = CURB + (NQ.plaza >= 3 ? 0.5 : 0.66),
+        hj = NQ.plaza >= 3 ? 3.4 : 2.6;
+      for (let i = 0; i < NDROP; i++) {
+        const th = ((i % 8) * Math.PI) / 4 + 0.39,
+          p = (time * 0.85 + (i < 8 ? 0 : 0.5)) % 1,
+          r = r0 + dr * p;
+        _im.compose(
+          _ip.set(PLX + Math.cos(th) * r, y0 + hj * p * (1 - p), PLZ + Math.sin(th) * r),
+          _iq,
+          _is.set(0.18, 0.18, 0.18),
+        );
+        drops.setMatrixAt(i, _im);
+      }
+      drops.instanceMatrix.needsUpdate = true;
     }
-    drops.instanceMatrix.needsUpdate = true;
     if (storm.visible) {
       for (let i = 0; i < NR; i++) {
         const s = rainSeed[i],
@@ -2958,6 +3569,12 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     }
     refletTex.rotation = time * 0.04;
     refletTex.offset.x = time * 0.012;
+    if (scintillement) {
+      scintillement.offset.x = time * 0.006;
+      scintillement.offset.y = Math.sin(time * 0.2) * 0.02;
+      // la nuit, l'eau ne renvoie plus qu'un peu de lune : des éclats blancs y faisaient des étoiles
+      surfaceMer.material.opacity = 0.35 * (1 - 0.75 * nightK);
+    }
     matReflet.opacity = (0.4 + 0.12 * Math.sin(time * 1.3)) * (1 - 0.55 * nightK);
     renderer.render(scene, cam);
     updatePins();
@@ -3079,6 +3696,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       }
     });
     cielTex.dispose();
+    // le ciel reflété n'est attaché à aucun objet de la scène : le parcours ci-dessus ne le voit pas
+    envTex.dispose();
     renderer.dispose();
     renderer.forceContextLoss();
     if (el.parentNode) el.parentNode.removeChild(el);
@@ -3100,6 +3719,19 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     setPlaying: (p) => {
       playing = !!p;
     },
+    /* ce que coûte une image : de quoi vérifier qu'un ajout ne fait pas exploser le rendu */
+    stats: () => ({ ...renderer.info.render, ...renderer.info.memory }),
+    /* où sont les véhicules : de quoi vérifier, de l'extérieur, qu'aucun ne traverse un autre */
+    diagnostic: () =>
+      cars.map((c) => ({
+        x: c.x,
+        z: c.z,
+        len: c.len,
+        fx: c.fx,
+        fz: c.fz,
+        v: c.v,
+        ghost: c.ghost > 0,
+      })),
     dispose,
   };
 }
