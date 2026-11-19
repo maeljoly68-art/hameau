@@ -29,7 +29,10 @@ export interface BilanSeance {
  */
 export async function preparerBilan(sessionId: string): Promise<BilanSeance | null> {
   await suivi.vider();
-  const [lectures, d] = await Promise.all([lireLectures(sessionId), chargerCours()]);
+  // Sans rien de lu (la plupart des séances), on ne recharge pas tous les cours pour rien.
+  const lectures = await lireLectures(sessionId);
+  if (lectures.length === 0) return null;
+  const d = await chargerCours();
   const vues = pagesVues(lectures, d.chapitres);
   if (vues.length === 0) return null;
   const jour = cleJour(new Date());

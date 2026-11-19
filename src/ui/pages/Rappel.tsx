@@ -9,6 +9,7 @@ import type { Note } from '../../core/revision.ts';
 import { formatDuree } from '../../core/temps.ts';
 import { noterChapitres } from '../../data/cours.ts';
 import { IconeLien } from '../Icones.tsx';
+import { lisibleDansHameau, ouvrirLiseuse } from '../liseuse/ouvrir.ts';
 import { RappelEcrit } from '../RappelEcrit.tsx';
 import { SaisieScore } from './Blocs.tsx';
 import { NotesRevision, type Faire } from './CoursDetail.tsx';
@@ -36,7 +37,11 @@ function PageDuRappel({ item, cours, chapitre, numero, cartes, aujourdhui, faire
         etiquette={`Ce dont tu te souviens de ${chapitre.titre}`}
         pages={[{ id: chapitre.id, titre: chapitre.titre, cartes }]}
         fiche={
-          lien ? (
+          lisibleDansHameau(cours) ? (
+            <button type="button" className="bouton petit discret" onClick={() => ouvrirLiseuse(cours.id, chapitre.id)}>
+              Ouvrir la fiche
+            </button>
+          ) : lien ? (
             <a className="bouton petit discret" href={lien} target="_blank" rel="noopener noreferrer">
               Ouvrir la fiche <IconeLien />
             </a>
