@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLES_QUARTIERS, PALIERS, cleProgression, heuresDe, jourDeFete, nouveautes, paliersFranchis, progressionVille } from '../src/core/ville.ts';
+import { CLES_QUARTIERS, PALIERS, cleProgression, heuresDe, jourDeFete, nouveautes, paliersFranchis, prochaineNouveaute, progressionVille } from '../src/core/ville.ts';
 
 test('à 0 h : une cabane et un feu de camp, rien d’autre', () => {
   const p = progressionVille(0);
@@ -83,4 +83,37 @@ test('le feu d’artifice : débloqué ET une journée de grand travail', () => 
   assert.equal(jourDeFete(progressionVille(100), 500), false, 'pas encore débloqué');
   assert.equal(jourDeFete(progressionVille(300), null), false, 'une journée inconnue ne se fête pas');
   assert.equal(jourDeFete(progressionVille(300), 60, 60), true, 'le seuil se règle');
+});
+
+test('prochaineNouveaute : le palier suivant et les minutes qui manquent', () => {
+  const debut = prochaineNouveaute(0)!;
+  assert.equal(debut.heures, 1);
+  assert.deepEqual(debut.paliers.map((p) => p.libelle), ['Les premiers arbres']);
+  assert.equal(debut.minutesRestantes, 60);
+  const novembre = prochaineNouveaute(27.5 * 60)!;
+  assert.equal(novembre.heures, 28);
+  assert.equal(novembre.minutesRestantes, 30);
+});
+
+test('prochaineNouveaute : un palier atteint pile est déjà acquis, on vise le suivant', () => {
+  const p = prochaineNouveaute(60)!;
+  assert.equal(p.heures, 2, 'à 1 h tout rond, les arbres sont là : la suite, c’est le pré');
+  assert.equal(p.minutesRestantes, 60);
+});
+
+test('prochaineNouveaute : la séance en cours fait avancer le compte, pas le palier visé', () => {
+  const p = prochaineNouveaute(27.5 * 60, 20)!;
+  assert.equal(p.heures, 28);
+  assert.equal(p.minutesRestantes, 10);
+  const depasse = prochaineNouveaute(27.5 * 60, 45)!;
+  assert.equal(depasse.heures, 28, 'la nouveauté n’est là qu’à la clôture de la séance');
+  assert.ok(depasse.minutesRestantes <= 0);
+});
+
+test('prochaineNouveaute : ville complète, valeurs illisibles', () => {
+  assert.equal(prochaineNouveaute(280 * 60), null);
+  assert.deepEqual(prochaineNouveaute(Number.NaN), prochaineNouveaute(0));
+  assert.deepEqual(prochaineNouveaute(-30), prochaineNouveaute(0));
+  assert.equal(prochaineNouveaute(0, -15)!.minutesRestantes, 60, 'une durée en cours négative ne rajoute rien');
+  assert.equal(prochaineNouveaute(0, Number.NaN)!.minutesRestantes, 60);
 });

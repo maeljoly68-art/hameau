@@ -28,7 +28,7 @@ import { ongletDansAdresse, ongletValide, sansOnglet, type Onglet } from '../cor
 import { useHameau, useMaintenant } from './useHameau.ts';
 import { usePointsApprentissage } from './usePointsApprentissage.ts';
 import { useSites } from './useSites.ts';
-import { Ville } from './Ville.tsx';
+import { SuiteVille, Ville } from './Ville.tsx';
 
 // Les onglets secondaires ne sont chargés qu'à la première visite : l'écran
 // d'ouverture n'a besoin que de la ville et du chrono.
@@ -468,9 +468,6 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
             <h1>{profil.nomHameau}</h1>
           </div>
           <div className="compteurs">
-            <span className="compteur" title="Heures de travail au total">
-              <IconeHistorique /> {Math.floor(heuresTravail)} h
-            </span>
             <span className={jours > 0 ? 'compteur serie-vive' : 'compteur'} title="Jours d’affilée avec au moins 25 min">
               <IconeFlamme /> {jours}
             </span>
@@ -493,8 +490,9 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                   progression={ville}
                   fete={fete}
                   pied={
-                    miniChronoDisponible() ? (
-                      <div className="village-actions">
+                    <div className="ville-pied">
+                      <SuiteVille minutesCloses={minutesTravail} minutesEnCours={enCours ? ecouleEffectif(enCours, maintenant) : 0} />
+                      {miniChronoDisponible() && (
                         <button
                           className={mini.ouverte ? 'bouton discret icone actif' : 'bouton discret icone'}
                           onClick={() => void (mini.ouverte ? mini.fermer() : mini.ouvrir())}
@@ -504,8 +502,8 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
                         >
                           <IconeFenetre />
                         </button>
-                      </div>
-                    ) : undefined
+                      )}
+                    </div>
                   }
                 />
               </div>

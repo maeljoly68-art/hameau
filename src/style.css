@@ -218,9 +218,15 @@ kbd { font: 600 11px var(--chiffres); padding: 2px 6px; border-radius: 6px; bord
 .cadre-village { overflow: hidden; }
 .village { width: 100%; height: auto; display: block; user-select: none; -webkit-user-select: none; }
 .village-outils { position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; }
-.village-actions { display: flex; gap: 10px; padding: 10px 12px; justify-content: center; border-top: 1px solid var(--bord); }
-.village-actions .bouton.icone { width: 48px; height: 44px; padding: 0; justify-content: center; }
-.village-actions .bouton.icone svg { width: 22px; height: 22px; }
+/* Sous la ville : la prochaine nouveauté, et le mini-chrono quand l'appareil sait l'ouvrir. */
+.ville-pied { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--bord); }
+.ville-suite { flex: 1; min-width: 0; display: grid; gap: 3px; margin: 0; }
+.ville-suite-titre { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--texte-3); font-weight: 650; }
+.ville-suite-ligne { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.ville-suite-quoi { font-weight: 650; color: var(--texte); }
+.ville-suite-quand { font: 700 14px var(--chiffres); color: var(--accent); white-space: nowrap; }
+.ville-pied .bouton.icone { width: 46px; height: 44px; padding: 0; justify-content: center; flex: none; }
+.ville-pied .bouton.icone svg { width: 22px; height: 22px; }
 .carte-village .bandeau { margin: 12px; }
 /* La ville 3D : un cadre de hauteur fixe (le moteur s'y adapte), qu'on fait glisser, pincer et tourner. */
 .cadre-ville { position: relative; height: clamp(340px, 62vh, 640px); touch-action: none; cursor: grab; background: var(--fond-2); }

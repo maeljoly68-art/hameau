@@ -182,6 +182,36 @@ export function nouveautes(avant: number, apres: number): Palier[] {
   return PALIERS.filter((p) => p.heures > a && p.heures <= b);
 }
 
+/** La prochaine nouveauté de la ville, et ce qu'il reste à travailler pour la voir apparaître. */
+export interface ProchaineNouveaute {
+  /** Le palier visé, en heures cumulées. */
+  heures: number;
+  /** Ce qu'il débloque (plusieurs choses quand deux paliers tombent à la même heure). */
+  paliers: Palier[];
+  /**
+   * Les minutes qui manquent. Nul ou négatif pendant une séance qui a déjà assez duré : la nouveauté apparaîtra
+   * à sa clôture, puisque la ville ne compte que les séances terminées.
+   */
+  minutesRestantes: number;
+}
+
+/**
+ * La prochaine nouveauté, à partir des minutes des séances terminées. Le palier visé se choisit sur les seules
+ * séances closes — celles qui font la ville — mais le compte à rebours retire aussi la séance en cours : il avance
+ * pendant qu'on travaille, sans annoncer une nouveauté qui n'est pas encore là. `null` quand la ville est complète.
+ */
+export function prochaineNouveaute(minutesCloses: number, minutesEnCours = 0): ProchaineNouveaute | null {
+  const h = heuresDe(minutesCloses);
+  const suivant = PALIERS.find((p) => p.heures > h);
+  if (!suivant) return null;
+  const enCours = typeof minutesEnCours === 'number' && Number.isFinite(minutesEnCours) && minutesEnCours > 0 ? minutesEnCours : 0;
+  return {
+    heures: suivant.heures,
+    paliers: PALIERS.filter((p) => p.heures === suivant.heures),
+    minutesRestantes: suivant.heures * 60 - h * 60 - enCours,
+  };
+}
+
 /** Une clé qui change quand la ville change : redessiner coûte cher, on ne le fait qu'à un palier franchi. */
 export const cleProgression = (p: Progression): string => `${p.franchis}/${p.total}`;
 
