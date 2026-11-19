@@ -29,6 +29,11 @@ export interface Cours {
    * de ses pages) : le calendrier place des séances d'étude espacées avant le partiel (voir revisionLibre.ts).
    */
   revisionLibreMin: number | null;
+  /**
+   * Le cours tel qu'il se lit dans Hameau (« croissance ») : sa page chiffrée publiée avec le site, la clé en base.
+   * Absent : le cours ne s'ouvre que par son lien (artefact claude.ai).
+   */
+  document?: string | null;
 }
 
 export interface Chapitre {
@@ -45,6 +50,11 @@ export interface Chapitre {
   lien: string | null;
   /** À savoir mot pour mot (formule, définition, dialogue…) : revient plus souvent, toujours par un rappel de tête. */
   parCoeur: boolean;
+  /**
+   * La ou les planches du document du cours qui forment cette page (« C1-2-Modeles », « F01-Notions,F02-Capital-flux »).
+   * C'est par elles que la liseuse sait quelle page on est en train de lire.
+   */
+  ancre?: string | null;
 }
 
 export interface NoteChapitre {

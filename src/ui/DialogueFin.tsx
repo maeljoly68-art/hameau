@@ -22,6 +22,7 @@ export function DialogueFin({
   sessions,
   categories,
   tache,
+  suggestion = null,
   surValider,
   surAnnuler,
 }: {
@@ -30,6 +31,8 @@ export function DialogueFin({
   categories: string[];
   /** Tâche Sillage sur laquelle la session a été lancée, s'il y en a une. */
   tache: { titre: string } | null;
+  /** Ce que la liseuse a compté (« Croissance : pages 1 à 5 (3e fois) ») : la description si on n'en écrit pas. */
+  suggestion?: string | null;
   surValider: (champs: { fin: string; description: string; categorie: string }, options: { tacheFaite: boolean }) => void;
   surAnnuler: () => void;
 }) {
@@ -70,7 +73,12 @@ export function DialogueFin({
       >
         <h2 id="titre-fin">Qu’as-tu fait pendant cette session ?</h2>
         <p className="aide">Une ligne suffit : c’est ce qui rend l’historique utile dans trois semaines.</p>
-        <textarea ref={zone} autoFocus rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex. : relu le chapitre 4, corrigé le bug de connexion…" />
+        {suggestion && (
+          <p className="aide petite lu-suggestion">
+            Lu pendant la séance : <strong>{suggestion}</strong>
+          </p>
+        )}
+        <textarea ref={zone} autoFocus rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder={suggestion ? `Laisse vide pour garder : ${suggestion}` : 'Ex. : relu le chapitre 4, corrigé le bug de connexion…'} />
         {suggestions.length > 0 && description.trim() === '' && (
           <div className="suggestions" role="group" aria-label="Reprendre une description récente">
             {suggestions.map((s) => (

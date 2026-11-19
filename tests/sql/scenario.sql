@@ -837,6 +837,62 @@ insert into public.sessions (debut, fin, categorie) values ('2026-11-08 10:00:00
 select set_config('test.sid2', :'sid2', false) \gset
 insert into public.sessions_sites (session_id, appareil, site, secondes) values (:'sid2', 'chrome-a', 'claude.ai', 60);
 
+-- ── La liseuse ──
+-- Le document d'un cours et l'ancre (une ou plusieurs planches) de chaque page.
+update public.cours set document = 'croissance' where id = :'cid';
+update public.chapitres set ancre = 'C1-2-Modeles' where id = :'hid';
+update public.chapitres set ancre = 'F01-Notions,F02-Capital-flux' where id = :'hid';
+do $$ begin update public.cours set document = 'Croissance !' where id = current_setting('test.cid')::uuid; raise exception 'ÉCHEC : nom de document invalide accepté'; exception when check_violation then null; end $$;
+do $$ begin update public.chapitres set ancre = ',F01' where id = current_setting('test.hid')::uuid; raise exception 'ÉCHEC : ancre vide en tête acceptée'; exception when check_violation then null; end $$;
+do $$ begin update public.chapitres set ancre = 'F01 Notions' where id = current_setting('test.hid')::uuid; raise exception 'ÉCHEC : ancre avec espace acceptée'; exception when check_violation then null; end $$;
+-- Les clés ne s'écrivent pas depuis l'app (seul le propriétaire du projet les pose, en SQL).
+do $$ begin
+  insert into public.cles_documents (user_id, document, fichier, cle) values (current_setting('test.uid')::uuid, 'croissance', 'croissance-0123456789.bin', 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWY=');
+  raise exception 'ÉCHEC : clé écrite depuis l''app';
+exception when insufficient_privilege then null; end $$;
+reset role;
+insert into public.cles_documents (user_id, document, fichier, cle) values ('11111111-1111-1111-1111-111111111111', 'croissance', 'croissance-0123456789.bin', 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWY=');
+do $$ begin insert into public.cles_documents (user_id, document, fichier, cle) values ('11111111-1111-1111-1111-111111111111', 'droit', 'droit.bin', 'courte'); raise exception 'ÉCHEC : clé mal formée acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.cles_documents (user_id, document, fichier, cle) values ('11111111-1111-1111-1111-111111111111', 'droit', '../droit.bin', 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWY='); raise exception 'ÉCHEC : chemin de fichier accepté'; exception when check_violation then null; end $$;
+set role authenticated;
+do $$ begin if (select count(*) from public.cles_documents) <> 1 then raise exception 'ÉCHEC : le compte ne lit pas sa clé'; end if; end $$;
+-- Un trait par ligne ; gommer supprime la ligne, annuler la remet avec le même identifiant.
+insert into public.traits (id, document, page, outil, couleur, epaisseur, points) values ('aaaaaaaa-0000-4000-8000-000000000001', 'croissance', 'C1-2-Modeles', 'stylo', '#1F2430', 2.5, '[10, 20, 30.5, 40]');
+insert into public.traits (id, document, page, outil, couleur, epaisseur, points) values ('aaaaaaaa-0000-4000-8000-000000000002', 'croissance', 'C1-2-Modeles', 'surligneur', '#FFD84A', 18, '[0, 0, 200, 0]');
+delete from public.traits where id = 'aaaaaaaa-0000-4000-8000-000000000002';
+insert into public.traits (id, document, page, outil, couleur, epaisseur, points) values ('aaaaaaaa-0000-4000-8000-000000000002', 'croissance', 'C1-2-Modeles', 'surligneur', '#FFD84A', 18, '[0, 0, 200, 0]');
+do $$ begin
+  if (select count(*) from public.traits) <> 2 then raise exception 'ÉCHEC : traits non enregistrés'; end if;
+  if (select user_id from public.traits limit 1) <> current_setting('test.uid')::uuid then raise exception 'ÉCHEC : le compte du trait'; end if;
+end $$;
+do $$ begin insert into public.traits (id, document, page, outil, couleur, epaisseur, points) values (gen_random_uuid(), 'croissance', 'P', 'feutre', '#000000', 2, '[0,0,1,1]'); raise exception 'ÉCHEC : outil inconnu accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.traits (id, document, page, outil, couleur, epaisseur, points) values (gen_random_uuid(), 'croissance', 'P', 'stylo', 'rouge', 2, '[0,0,1,1]'); raise exception 'ÉCHEC : couleur non hexadécimale acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.traits (id, document, page, outil, couleur, epaisseur, points) values (gen_random_uuid(), 'croissance', 'P', 'stylo', '#000000', 2, '{"x": 1}'); raise exception 'ÉCHEC : points hors tableau acceptés'; exception when check_violation then null; end $$;
+do $$ begin insert into public.traits (id, document, page, outil, couleur, epaisseur, points) values (gen_random_uuid(), 'croissance', 'P', 'stylo', '#000000', 2, '[1]'); raise exception 'ÉCHEC : trait d''un seul nombre accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.traits (id, document, page, outil, couleur, epaisseur, points) values (gen_random_uuid(), 'croissance', 'P', 'stylo', '#000000', 0, '[0,0,1,1]'); raise exception 'ÉCHEC : épaisseur nulle acceptée'; exception when check_violation then null; end $$;
+-- L'état des planches : une clé par ligne, réécrite ; une clé retirée garde sa ligne, vide.
+insert into public.etats_documents (document, cle, valeur) values ('achats', 'av-design-plan', '{"s0":true}');
+insert into public.etats_documents (document, cle, valeur) values ('achats', 'av-design-plan', '{"s0":true,"s1":true}')
+  on conflict (user_id, document, cle) do update set valeur = excluded.valeur, maj_le = now();
+insert into public.etats_documents (document, cle, valeur) values ('achats', 'av-design-best', null);
+do $$ begin
+  if (select valeur from public.etats_documents where cle = 'av-design-plan') <> '{"s0":true,"s1":true}' then raise exception 'ÉCHEC : état non réécrit'; end if;
+  if (select count(*) from public.etats_documents) <> 2 then raise exception 'ÉCHEC : états'; end if;
+end $$;
+do $$ begin insert into public.etats_documents (document, cle, valeur) values ('achats', 'gros', repeat('x', 100001)); raise exception 'ÉCHEC : état de 100 001 caractères accepté'; exception when check_violation then null; end $$;
+do $$ begin insert into public.etats_documents (document, cle, valeur) values ('achats', '', 'x'); raise exception 'ÉCHEC : clé vide acceptée'; exception when check_violation then null; end $$;
+-- Les pages lues pendant une séance : un total par (séance, page, appareil), réécrit à chaque envoi.
+insert into public.lectures (session_id, chapitre_id, appareil, secondes, couverture) values (:'sid2', :'hid', 'ipad', 120, 40), (:'sid2', :'hid', 'pc', 60, 90);
+insert into public.lectures (session_id, chapitre_id, appareil, secondes, couverture) values (:'sid2', :'hid', 'ipad', 300, 85)
+  on conflict (session_id, chapitre_id, appareil) do update set secondes = excluded.secondes, couverture = excluded.couverture, maj_le = now();
+do $$ begin
+  if (select count(*) from public.lectures) <> 2 then raise exception 'ÉCHEC : un envoi renouvelé a créé une ligne de plus'; end if;
+  if (select sum(secondes) from public.lectures) <> 360 then raise exception 'ÉCHEC : deux appareils sur la même page doivent s''additionner'; end if;
+end $$;
+do $$ begin insert into public.lectures (session_id, chapitre_id, appareil, secondes, couverture) values (current_setting('test.sid2')::uuid, current_setting('test.hid')::uuid, 'x', -1, 10); raise exception 'ÉCHEC : secondes négatives acceptées'; exception when check_violation then null; end $$;
+do $$ begin insert into public.lectures (session_id, chapitre_id, appareil, secondes, couverture) values (current_setting('test.sid2')::uuid, current_setting('test.hid')::uuid, 'x', 10, 101); raise exception 'ÉCHEC : couverture au-delà de 100 acceptée'; exception when check_violation then null; end $$;
+do $$ begin insert into public.lectures (session_id, chapitre_id, appareil, secondes, couverture) values (gen_random_uuid(), current_setting('test.hid')::uuid, 'x', 10, 10); raise exception 'ÉCHEC : lecture d''une séance inconnue acceptée'; exception when foreign_key_violation then null; end $$;
+
 -- La date de modification se met à jour toute seule.
 select maj_le as avant from public.chapitres where id = :'hid' \gset
 select set_config('test.avant', :'avant', false) \gset
@@ -884,6 +940,28 @@ do $$ begin
   delete from public.sessions_sites;
   if found then raise exception 'ÉCHEC : sites d''autrui supprimés'; end if;
 end $$;
+-- La liseuse de l'autre compte : ni ses clés, ni son encre, ni l'état de ses planches, ni ses pages lues.
+do $$ begin
+  if (select count(*) from public.cles_documents) + (select count(*) from public.traits) + (select count(*) from public.etats_documents) + (select count(*) from public.lectures) <> 0 then
+    raise exception 'ÉCHEC : RLS de la liseuse';
+  end if;
+end $$;
+do $$ begin
+  insert into public.traits (id, user_id, document, page, outil, couleur, epaisseur, points) values (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'croissance', 'P', 'stylo', '#000000', 2, '[0,0,1,1]');
+  raise exception 'ÉCHEC : trait écrit pour un autre compte';
+exception when insufficient_privilege then null; end $$;
+do $$ begin
+  delete from public.traits;
+  if found then raise exception 'ÉCHEC : encre d''autrui gommée'; end if;
+  update public.etats_documents set valeur = 'x';
+  if found then raise exception 'ÉCHEC : état d''autrui modifié'; end if;
+  update public.lectures set secondes = 1;
+  if found then raise exception 'ÉCHEC : lectures d''autrui modifiées'; end if;
+end $$;
+do $$ begin
+  insert into public.lectures (session_id, chapitre_id, appareil, secondes, couverture) values (current_setting('test.sid2')::uuid, current_setting('test.hid')::uuid, 'intrus', 10, 10);
+  raise exception 'ÉCHEC : lecture rattachée à la séance d''un autre compte';
+exception when foreign_key_violation then null; end $$;
 do $$ begin
   insert into public.chapitres (cours_id, titre) values (current_setting('test.cid')::uuid, 'Intrus');
   raise exception 'ÉCHEC : chapitre rattaché au cours d''un autre compte';
@@ -965,6 +1043,10 @@ do $$ begin
      + (select count(*) from public.cartes where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.pratiques where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.sessions_sites where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.cles_documents where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.traits where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.etats_documents where user_id = '11111111-1111-1111-1111-111111111111')
+     + (select count(*) from public.lectures where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.abonnements_push where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.notifications_reglage where user_id = '11111111-1111-1111-1111-111111111111')
      + (select count(*) from public.reglages_cours where user_id = '11111111-1111-1111-1111-111111111111') <> 0 then

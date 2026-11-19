@@ -89,8 +89,12 @@ async function noterPages(ids: readonly string[], note: Note, jour: string, opti
   if (tot.length > 0) await noterChapitres(tot, note, jour, { ...options, anticipe: true, erreur: dues.length > 0 ? null : options.erreur });
 }
 
-const OuvrirLaFiche = ({ lien }: { lien: string | null }) =>
-  lien ? (
+const OuvrirLaFiche = ({ lien, lire }: { lien: string | null; lire?: () => void }) =>
+  lire ? (
+    <button type="button" className="bouton petit discret" onClick={lire}>
+      Ouvrir la fiche
+    </button>
+  ) : lien ? (
     <a className="bouton petit discret" href={lien} target="_blank" rel="noopener noreferrer">
       Ouvrir la fiche <IconeLien />
     </a>
@@ -102,7 +106,7 @@ const OuvrirLaFiche = ({ lien }: { lien: string | null }) =>
  * Le texte, s'il est tapé ici, est gardé dans le journal : c'est ta réponse, pas un simple geste. La confiance dite
  * avant de comparer mesure l'illusion de savoir (voir confiance.ts).
  */
-function ValiderApprentissage({ bloc, aujourdhui, faire, pages, lien, anticipes }: { bloc: Bloc; aujourdhui: string; faire: Faire; pages: PageDuBloc[]; lien: string | null; anticipes: ReadonlySet<string> }) {
+function ValiderApprentissage({ bloc, aujourdhui, faire, pages, lien, lire, anticipes }: { bloc: Bloc; aujourdhui: string; faire: Faire; pages: PageDuBloc[]; lien: string | null; lire?: () => void; anticipes: ReadonlySet<string> }) {
   return (
     <RappelEcrit
       obligatoire
@@ -110,7 +114,7 @@ function ValiderApprentissage({ bloc, aujourdhui, faire, pages, lien, anticipes 
       etiquette="Ce dont tu te souviens, sans regarder la fiche"
       consigne={`${bloc.parCoeur ? 'À savoir mot pour mot. ' : ''}Ferme la fiche et écris tout ce dont tu te souviens${bloc.pages.length > 1 ? ' de ces pages' : ' de cette page'}, sans regarder. C’est cet effort qui fixe la page.`}
       pages={pages}
-      fiche={<OuvrirLaFiche lien={lien} />}
+      fiche={<OuvrirLaFiche lien={lien} lire={lire} />}
       enfants={(r) => {
         const noter = (note: Note, pct: number | null) => faire(() => noterPages(bloc.chapitreIds, note, aujourdhui, { rappel: r.texte, scorePct: pct, confiance: r.confiance, erreur: r.erreur }, anticipes), 'Noté : le calendrier est recalculé.');
         return (
@@ -160,7 +164,7 @@ function EtapeValidation({ bloc, aujourdhui, userId, faire, r }: { bloc: Bloc; a
  * Valider une séance entière : première séance (lire PUIS écrire de mémoire, avec ton ressenti sur la vitesse), premier
  * retour (écrire de mémoire, puis se noter), révision notée, relecture, ou examen blanc. Ce qui n'est pas validé revient dans le calendrier.
  */
-export function ValiderBloc({ bloc, aujourdhui, userId, faire, pages, lien, anticipes = AUCUNE_PAGE }: { bloc: Bloc; aujourdhui: string; userId: string; faire: Faire; pages: PageDuBloc[]; lien: string | null; anticipes?: ReadonlySet<string> }) {
+export function ValiderBloc({ bloc, aujourdhui, userId, faire, pages, lien, lire, anticipes = AUCUNE_PAGE }: { bloc: Bloc; aujourdhui: string; userId: string; faire: Faire; pages: PageDuBloc[]; lien: string | null; /** Le cours se lit dans Hameau : « Ouvrir la fiche » ouvre la liseuse à la première page du bloc. */ lire?: () => void; anticipes?: ReadonlySet<string> }) {
   if (bloc.etape === 'lire') {
     if (bloc.termines.length === 0) return <span className="aide petite">Cette séance se termine un autre jour : rien à valider aujourd’hui.</span>;
     const faites = pages.filter((p) => bloc.termines.includes(p.id));
@@ -171,7 +175,7 @@ export function ValiderBloc({ bloc, aujourdhui, userId, faire, pages, lien, anti
         etiquette="Ce dont tu te souviens, sans regarder la fiche"
         consigne={`${bloc.parCoeur ? 'À savoir mot pour mot. ' : ''}Lis, puis ferme la fiche et écris tout ce dont tu te souviens. Lire ne suffit pas : c’est en te forçant à le redire que tu l’apprends, dès la première fois.`}
         pages={faites}
-        fiche={<OuvrirLaFiche lien={lien} />}
+        fiche={<OuvrirLaFiche lien={lien} lire={lire} />}
         enfants={(r) => <EtapeValidation bloc={bloc} aujourdhui={aujourdhui} userId={userId} faire={faire} r={r} />}
       />
     );
@@ -183,7 +187,7 @@ export function ValiderBloc({ bloc, aujourdhui, userId, faire, pages, lien, anti
       </button>
     );
   if (bloc.etape === 'examen') return <ValiderExamen bloc={bloc} aujourdhui={aujourdhui} faire={faire} />;
-  if (bloc.etape === 'apprendre') return <ValiderApprentissage bloc={bloc} aujourdhui={aujourdhui} faire={faire} pages={pages} lien={lien} anticipes={anticipes} />;
+  if (bloc.etape === 'apprendre') return <ValiderApprentissage bloc={bloc} aujourdhui={aujourdhui} faire={faire} pages={pages} lien={lien} lire={lire} anticipes={anticipes} />;
   return (
     <div className="valider-bloc">
       <span className="aide petite">Valider la séance, en te notant :</span>

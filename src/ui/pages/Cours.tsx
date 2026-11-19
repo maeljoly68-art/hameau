@@ -28,6 +28,7 @@ import { RevisionLibreDuJour } from './RevisionLibre.tsx';
 import { RappelDuJour } from './Rappel.tsx';
 import { Semaine } from './Semaine.tsx';
 import { ListeCreneaux, NoteCharge, ReglageAgenda } from './Creneaux.tsx';
+import { lisibleDansHameau, ouvrirLiseuse } from '../liseuse/ouvrir.ts';
 
 /** Une séance lancée au chrono : une page, ou un bloc de pages (« Pages 1 à 7 »). */
 export interface LancerChapitre {
@@ -45,6 +46,8 @@ export interface LancerChapitre {
   parCoeur: boolean;
   /** Durée prévue : l'objectif du chrono, et ce à quoi la durée réelle sera comparée pour préciser ta vitesse. */
   minutes: number;
+  /** Le cours se lit dans Hameau : le chrono lancé, la liseuse s'ouvre à la première page du bloc. */
+  lire?: boolean;
 }
 /** L'heure, sur l'appareil, à laquelle un passage a été écrit (le cœur ne lit ni l'horloge ni le fuseau). */
 const heureLocale = (creeLe: string): number | null => {
@@ -121,8 +124,8 @@ function Aujourdhui({ plan, donnees, aujourdhui, faire, surLancer, surChrono, se
                 {!seule && <span className="aide petite pages-titres">{titres.join(' · ')}</span>}
               </div>
               <div className="seance-actions">
-                <ValiderBloc bloc={b} aujourdhui={aujourdhui} userId={userId} faire={faire} pages={b.chapitreIds.map((id, i) => ({ id, titre: titres[i], cartes: cartesDe.get(id) ?? [] }))} lien={(seule ? donnees.chapitres.find((x) => x.id === b.chapitreIds[0])?.lien : null) ?? c.lien} />
-                <button className="lien" onClick={() => surLancer({ coursId: c.id, titreCours: c.titre, titre: nom, chapitreIds: b.chapitreIds, termines: b.termines, type: b.type, etape: b.etape, parCoeur: b.parCoeur, minutes: b.minutes })}>
+                <ValiderBloc bloc={b} aujourdhui={aujourdhui} userId={userId} faire={faire} pages={b.chapitreIds.map((id, i) => ({ id, titre: titres[i], cartes: cartesDe.get(id) ?? [] }))} lien={(seule ? donnees.chapitres.find((x) => x.id === b.chapitreIds[0])?.lien : null) ?? c.lien} lire={lisibleDansHameau(c) ? () => ouvrirLiseuse(c.id, b.chapitreIds[0]) : undefined} />
+                <button className="lien" onClick={() => surLancer({ coursId: c.id, titreCours: c.titre, titre: nom, chapitreIds: b.chapitreIds, termines: b.termines, type: b.type, etape: b.etape, parCoeur: b.parCoeur, minutes: b.minutes, lire: lisibleDansHameau(c) })}>
                   Lancer le chrono
                 </button>
               </div>

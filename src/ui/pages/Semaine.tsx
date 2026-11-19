@@ -17,6 +17,7 @@ import { IconeChevron, IconeCoche } from '../Icones.tsx';
 import { ValiderBloc } from './Blocs.tsx';
 import type { Faire } from './CoursDetail.tsx';
 import type { LancerChapitre } from './Cours.tsx';
+import { lisibleDansHameau, ouvrirLiseuse } from '../liseuse/ouvrir.ts';
 
 const teinte = (c: string) => ({ '--teinte': c }) as CSSProperties;
 const LIBELLE_FAIT: Record<SortePassage, string> = { lecture: 'Lu', revision: 'Révisé', rappel: 'Rappel', relecture: 'Relu', examen: 'Examen blanc' };
@@ -81,7 +82,7 @@ export function Semaine({ plan, donnees, libres, aujourdhui, charge, userId, fai
                 {aujourdhuiMeme ? 'Valider' : 'Le faire maintenant'}
               </button>
               {chrono && (
-                <button type="button" className="lien" onClick={() => surLancer({ coursId: c.id, titreCours: c.titre, titre: nom, chapitreIds: b.chapitreIds, termines: b.termines, type: b.type, etape: b.etape, parCoeur: b.parCoeur, minutes: b.minutes })}>
+                <button type="button" className="lien" onClick={() => surLancer({ coursId: c.id, titreCours: c.titre, titre: nom, chapitreIds: b.chapitreIds, termines: b.termines, type: b.type, etape: b.etape, parCoeur: b.parCoeur, minutes: b.minutes, lire: lisibleDansHameau(c) })}>
                   Lancer le chrono
                 </button>
               )}
@@ -101,7 +102,7 @@ export function Semaine({ plan, donnees, libres, aujourdhui, charge, userId, fai
                     : 'Fait d’avance : le calendrier est recalculé.'}
               </p>
             )}
-            <ValiderBloc bloc={b} aujourdhui={aujourdhui} userId={userId} faire={faire} anticipes={anticipes} pages={b.chapitreIds.map((id, i) => ({ id, titre: titres[i], cartes: cartesDe.get(id) ?? [] }))} lien={(seule ? donnees.chapitres.find((x) => x.id === b.chapitreIds[0])?.lien : null) ?? c.lien} />
+            <ValiderBloc bloc={b} aujourdhui={aujourdhui} userId={userId} faire={faire} anticipes={anticipes} pages={b.chapitreIds.map((id, i) => ({ id, titre: titres[i], cartes: cartesDe.get(id) ?? [] }))} lien={(seule ? donnees.chapitres.find((x) => x.id === b.chapitreIds[0])?.lien : null) ?? c.lien} lire={lisibleDansHameau(c) ? () => ouvrirLiseuse(c.id, b.chapitreIds[0]) : undefined} />
           </div>
         )}
       </li>

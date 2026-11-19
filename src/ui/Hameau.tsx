@@ -29,6 +29,8 @@ import { useHameau, useMaintenant } from './useHameau.ts';
 import { usePointsApprentissage } from './usePointsApprentissage.ts';
 import { useSites } from './useSites.ts';
 import { SuiteVille, Ville } from './Ville.tsx';
+import { BilanLecture, descriptionLecture, preparerBilan, type BilanSeance } from './BilanLecture.tsx';
+import { EVENEMENT_LIRE, type DemandeLecture } from './liseuse/ouvrir.ts';
 
 // Les onglets secondaires ne sont chargés qu'à la première visite : l'écran
 // d'ouverture n'a besoin que de la ville et du chrono.
@@ -80,6 +82,25 @@ const Reglages = lazy(chargerReglages);
 const Taches = lazy(chargerTaches);
 const Amis = lazy(chargerAmis);
 const OngletCours = lazy(chargerOngletCours);
+const Liseuse = lazy(() => import('./Liseuse.tsx'));
+
+/** « ?lire=<cours>&page=<page> » : un lien qui ouvre directement un cours dans la liseuse (sur n'importe quel appareil). */
+function lectureDansAdresse(recherche: string): DemandeLecture | null {
+  const p = new URLSearchParams(recherche);
+  const coursId = p.get('lire');
+  return coursId && /^[0-9a-f-]{36}$/i.test(coursId) ? { coursId, chapitreId: /^[0-9a-f-]{36}$/i.test(p.get('page') ?? '') ? p.get('page') : null } : null;
+}
+function adresseLecture(d: DemandeLecture | null): string {
+  const p = new URLSearchParams(window.location.search);
+  p.delete('lire');
+  p.delete('page');
+  if (d) {
+    p.set('lire', d.coursId);
+    if (d.chapitreId) p.set('page', d.chapitreId);
+  }
+  const q = p.toString();
+  return `${window.location.pathname}${q ? `?${q}` : ''}${window.location.hash}`;
+}
 
 
 
@@ -360,6 +381,34 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
   // Lancer le chrono SUR une page (ou un bloc de pages) : la catégorie est le cours, la durée prévue
   // devient l'objectif, et le lien est retenu pour proposer de valider la séance à la fin.
   const [aNoter, setANoter] = useState<ATraiter | null>(null);
+  // La liseuse : ouverte par un bouton (événement), par un lien (?lire=…) ; le bouton « retour » du navigateur la ferme.
+  const [liseuse, setLiseuse] = useState<DemandeLecture | null>(() => lectureDansAdresse(window.location.search));
+  useEffect(() => {
+    const ouvrir = (e: Event) => {
+      const d = (e as CustomEvent<DemandeLecture>).detail;
+      if (!d?.coursId) return;
+      window.history.pushState({ hameauLiseuse: true }, '', adresseLecture(d));
+      setLiseuse(d);
+    };
+    const retour = () => setLiseuse(lectureDansAdresse(window.location.search));
+    window.addEventListener(EVENEMENT_LIRE, ouvrir);
+    window.addEventListener('popstate', retour);
+    return () => {
+      window.removeEventListener(EVENEMENT_LIRE, ouvrir);
+      window.removeEventListener('popstate', retour);
+    };
+  }, []);
+  const fermerLiseuse = useCallback(() => {
+    if ((window.history.state as { hameauLiseuse?: boolean } | null)?.hameauLiseuse) window.history.back();
+    else {
+      window.history.replaceState(null, '', adresseLecture(null));
+      setLiseuse(null);
+    }
+  }, []);
+  // La fin d'une séance passée dans la liseuse : préparée dès que la fenêtre de fin s'ouvre (le temps qu'on la remplisse).
+  const [bilan, setBilan] = useState<BilanSeance | null>(null);
+  const [suggestionLecture, setSuggestionLecture] = useState<string | null>(null);
+  const bilanPrepare = useRef<{ session: string; promesse: Promise<BilanSeance | null> } | null>(null);
   const lancerChapitre = useCallback(
     (l: LancerChapitre) => {
       if (enCours) return toast('Une session tourne déjà : termine-la d’abord.');
@@ -368,8 +417,12 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
         const lien: ChapitreEnCours = { session: s.id, chapitreIds: l.chapitreIds, termines: l.termines, titre: l.titre, type: l.type, etape: l.etape, parCoeur: l.parCoeur, minutes: l.minutes };
         ecrirePreference('hameau.chapitre-en-cours', lien);
       }).then(() => {
-        setOnglet('village');
         toast(`Session lancée : ${l.titre}`);
+        // Un cours qui se lit dans Hameau s'ouvre à la première page de la séance : c'est là que les pages se comptent.
+        if (l.lire) {
+          window.history.pushState({ hameauLiseuse: true }, '', adresseLecture({ coursId: l.coursId, chapitreId: l.chapitreIds[0] ?? null }));
+          setLiseuse({ coursId: l.coursId, chapitreId: l.chapitreIds[0] ?? null });
+        } else setOnglet('village');
       });
     },
     [agir, depot, enCours, toast],
@@ -386,6 +439,26 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
     [agir, depot, enCours, toast],
   );
   const demarrerRapide = useCallback(() => demarrer(lirePreference('hameau.categorie', ''), lirePreference<number | null>('hameau.objectif', 50)), [demarrer]);
+  // Le chrono lancé depuis la liseuse : rangé sous le nom du cours, sans quitter la page qu'on lit.
+  const demarrerLecture = useCallback(
+    (categorie: string) => {
+      if (enCours) return toast('Une session tourne déjà.');
+      void agir(() => depot.demarrer(categorie, lirePreference<number | null>('hameau.objectif', 50))).then(() => toast('Chrono lancé : les pages que tu lis sont comptées.'));
+    },
+    [agir, depot, enCours, toast],
+  );
+  useEffect(() => {
+    if (!finEnCours || !idEnCours) return;
+    const promesse = preparerBilan(idEnCours).catch(() => null);
+    bilanPrepare.current = { session: idEnCours, promesse };
+    let fini = false;
+    void promesse.then((b) => {
+      if (!fini) setSuggestionLecture(b ? descriptionLecture(b) : null);
+    });
+    return () => {
+      fini = true;
+    };
+  }, [finEnCours, idEnCours]);
   const pause = useCallback(() => enCours && void agir(() => depot.pause(enCours.id)), [agir, depot, enCours]);
   const reprise = useCallback(() => enCours && void agir(() => depot.reprendre(enCours.id)), [agir, depot, enCours]);
 
@@ -409,7 +482,8 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
     const touche = (e: KeyboardEvent) => {
       const cible = e.target as HTMLElement | null;
       if (cible && (cible.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(cible.tagName))) return;
-      if (finEnCours || e.metaKey || e.ctrlKey || e.altKey) return;
+      // Dans la liseuse, l'espace fait défiler la page : il ne doit pas arrêter le chrono.
+      if (finEnCours || liseuse || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.code === 'Space') {
         e.preventDefault();
         if (enCours) setFinEnCours(true);
@@ -422,7 +496,7 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
     };
     window.addEventListener('keydown', touche);
     return () => window.removeEventListener('keydown', touche);
-  }, [enCours, finEnCours, profil, demarrerRapide, pause, reprise]);
+  }, [enCours, finEnCours, liseuse, profil, demarrerRapide, pause, reprise]);
 
   if (!donnees || !derive || !profil || !listeSucces) {
     return <div className="chargement">{erreur ? `Erreur : ${erreur}` : 'Chargement du hameau…'}</div>;
@@ -483,7 +557,8 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
         {depot.synchronise && depot.userId && <Rappels userId={depot.userId} jour={cleJour(new Date(maintenant))} />}
 
         <main className="contenu" id="contenu" tabIndex={-1}>
-          {onglet === 'village' && (
+          {/* Sous la liseuse, la ville 3D (qui dessine chaque image) se met en veille : sur un iPad, c'est de la batterie. */}
+          {onglet === 'village' && !liseuse && (
             <div className="grille-village">
               <div className="col-scene">
                 <Ville
@@ -625,19 +700,31 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
           sessions={donnees.sessions}
           categories={categories}
           tache={tacheDe(enCours)}
-          surAnnuler={() => setFinEnCours(false)}
+          suggestion={suggestionLecture}
+          surAnnuler={() => {
+            setFinEnCours(false);
+            setSuggestionLecture(null);
+          }}
           surValider={(champs, { tacheFaite }) => {
             setFinEnCours(false);
+            setSuggestionLecture(null);
             const tache = tacheDe(enCours);
             const chapitre = lirePreference<ChapitreEnCours | AncienChapitreEnCours | null>('hameau.chapitre-en-cours', null);
             // Le temps réel, pauses déduites : c'est lui qui précise ta vitesse (null : la session n'a pas de durée).
             const reelles = dureeSession(clore(enCours, champs.fin));
-            void agir(() => depot.terminer(enCours.id, champs)).then(() => {
+            // Ce que la liseuse a compté : préparé à l'ouverture de cette fenêtre (sinon, maintenant).
+            const lu = bilanPrepare.current?.session === enCours.id ? bilanPrepare.current.promesse : preparerBilan(enCours.id).catch(() => null);
+            // Sans description écrite, la séance se décrit par ce qu'on a lu (« Croissance : pages 1 à 5 (3e fois) »).
+            const description = champs.description || suggestionLecture || '';
+            void agir(() => depot.terminer(enCours.id, { ...champs, description })).then(async () => {
               toast('Session enregistrée.');
               ecrirePreference('hameau.tache-en-cours', null);
               ecrirePreference('hameau.chapitre-en-cours', null);
-              // Le chapitre travaillé : on propose de le noter tout de suite, c'est là que la mémoire est fraîche.
-              if (chapitre && chapitre.session === enCours.id) setANoter(aTraiter(chapitre, reelles));
+              // Lu dans la liseuse : ce qu'on a vraiment lu se valide (voir BilanLecture). Sinon, le chapitre lancé :
+              // on propose de le noter tout de suite, c'est là que la mémoire est fraîche.
+              const b = await lu;
+              if (b) setBilan(b);
+              else if (chapitre && chapitre.session === enCours.id) setANoter(aTraiter(chapitre, reelles));
               if (tache && tacheFaite)
                 marquerTache(tache.tacheId, true).then(
                     () => toast(`« ${tache.titre} » faite dans Sillage`, { type: 'succes' }),
@@ -770,7 +857,26 @@ export function Hameau({ depot, email, surDeconnexion }: { depot: Depot; email: 
         </div>
       )}
 
-      <div className={aNoter ? 'toasts en-haut' : 'toasts'} aria-live="polite">
+      {liseuse && depot.userId && depot.synchronise && (
+        <Suspense fallback={null}>
+          <Liseuse
+            userId={depot.userId}
+            coursId={liseuse.coursId}
+            chapitreId={liseuse.chapitreId}
+            session={enCours}
+            maintenant={maintenant}
+            surFermer={fermerLiseuse}
+            surDemarrer={demarrerLecture}
+            surPause={pause}
+            surReprendre={reprise}
+            surTerminer={() => setFinEnCours(true)}
+          />
+        </Suspense>
+      )}
+
+      {bilan && <BilanLecture bilan={bilan} toast={toast} surFermer={() => setBilan(null)} />}
+
+      <div className={aNoter || bilan ? 'toasts en-haut' : 'toasts'} aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className={`toast${t.type === 'succes' ? ' succes' : ''}${t.action ? ' avec-action' : ''}`}>
             {t.type === 'succes' && <IconeEtincelle />} {t.texte}

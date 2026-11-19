@@ -30,6 +30,8 @@ interface LigneCours {
   pratique_min?: number | null;
   /** Absente tant que la migration de la révision libre n'est pas passée. */
   revision_libre_min?: number | null;
+  /** Absente tant que la migration de la liseuse n'est pas passée. */
+  document?: string | null;
 }
 interface LigneChapitre {
   id: string;
@@ -43,6 +45,8 @@ interface LigneChapitre {
   lien: string | null;
   /** Absente tant que la migration « mot pour mot » n'est pas passée. */
   par_coeur?: boolean | null;
+  /** Absente tant que la migration de la liseuse n'est pas passée. */
+  ancre?: string | null;
 }
 interface LignePassage {
   id: string;
@@ -89,7 +93,8 @@ interface LigneNote {
   cree_le: string;
 }
 
-const versCours = (l: LigneCours): Cours => ({ id: l.id, titre: l.titre, couleur: l.couleur, partiel: l.partiel && estJour(l.partiel) ? l.partiel : null, lien: l.lien, ordre: l.ordre, motifs: typeof l.motifs === 'string' ? l.motifs : '', enPause: l.en_pause === true, pratiqueMin: pratiqueMinValide(l.pratique_min), revisionLibreMin: revisionLibreMinValide(l.revision_libre_min) });
+const documentValide = (d: unknown): string | null => (typeof d === 'string' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(d) ? d : null);
+const versCours = (l: LigneCours): Cours => ({ id: l.id, titre: l.titre, couleur: l.couleur, partiel: l.partiel && estJour(l.partiel) ? l.partiel : null, lien: l.lien, ordre: l.ordre, motifs: typeof l.motifs === 'string' ? l.motifs : '', enPause: l.en_pause === true, pratiqueMin: pratiqueMinValide(l.pratique_min), revisionLibreMin: revisionLibreMinValide(l.revision_libre_min), document: documentValide(l.document) });
 const versChapitre = (l: LigneChapitre): Chapitre => ({
   id: l.id,
   coursId: l.cours_id,
@@ -101,6 +106,7 @@ const versChapitre = (l: LigneChapitre): Chapitre => ({
   prochaine: l.prochaine_revision && estJour(l.prochaine_revision) ? l.prochaine_revision : null,
   lien: l.lien,
   parCoeur: l.par_coeur === true,
+  ancre: typeof l.ancre === 'string' && l.ancre.length > 0 ? l.ancre : null,
 });
 // Les colonnes « numeric » reviennent parfois en texte selon la couche : on les relit comme des nombres.
 const nombreOuNull = (v: number | string | null): number | null => (v === null ? null : Number(v));
@@ -379,6 +385,23 @@ async function marquerLues(ids: readonly string[], jour: string): Promise<string
   echec(r);
   if (!r.data?.length) throw new Error('Ces pages sont déjà validées (depuis un autre appareil ?) : recharge pour voir où elles en sont.');
   return r.data.map((x: { id: string }) => x.id);
+}
+
+/**
+ * Les pages lues dans la liseuse pendant la séance : validées comme lues, sans toucher à la vitesse (le temps passé
+ * sur la page ne compte pas l'écriture de mémoire, il la ferait croire plus rapide qu'elle n'est). Une page déjà
+ * validée ailleurs entre-temps n'est simplement pas revalidée : ce n'est pas une erreur.
+ */
+export async function validerLectureSuivie(ids: readonly string[], jour: string, rappel: RappelPremiere | null): Promise<void> {
+  if (ids.length === 0) return;
+  const sb = await client();
+  const apres = apresDecouverte(jour);
+  const r = await sb.from('chapitres').update({ niveau: apres.niveau, derniere_revision: apres.derniere, prochaine_revision: apres.prochaine }).in('id', [...ids]).eq('niveau', 0).select('id');
+  echec(r);
+  const faites = (r.data ?? []).map((x: { id: string }) => x.id);
+  await journaliser(faites.map((id) => ({ chapitreId: id, jour, sorte: 'lecture' as const, note: rappel?.note ?? null, minutes: null, scorePct: null, vitesse: null, rappel: rappel?.rappel ?? null, confiance: rappel?.confiance ?? null })));
+  const chapitreId = rappel?.erreur?.chapitreId ?? (faites.length === 1 ? faites[0] : undefined);
+  if (rappel?.erreur && chapitreId) await ajouterErreur(chapitreId, rappel.erreur.texte, jour).catch(() => undefined);
 }
 
 export async function validerLecture(ids: readonly string[], jour: string): Promise<void> {

@@ -986,3 +986,42 @@ div.ag-partiel p { margin: 0; }
 .sem-ajout { display: grid; gap: 10px; background: var(--fond-2); border: 1px solid var(--bord); border-radius: 14px; padding: 12px; }
 .sem-plage { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 420px) { .sem-plage { grid-template-columns: 1fr; } }
+
+/* ── Liseuse : un cours lu dans Hameau ──
+   Au-dessus de l'app (et de sa barre de navigation), sous les fenêtres de dialogue : la fin de séance s'ouvre par-dessus. */
+.liseuse { position: fixed; inset: 0; z-index: 15; display: flex; flex-direction: column; background: var(--fond-2); animation: apparait .18s ease-out; }
+.liseuse-barre { flex: none; display: grid; gap: 6px; padding: calc(env(safe-area-inset-top) + 8px) max(10px, env(safe-area-inset-right)) 8px max(10px, env(safe-area-inset-left)); background: var(--nav); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--bord); }
+.liseuse-ligne { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.liseuse-titre { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.liseuse-cours { flex: 0 1 auto; min-width: 0; max-width: 38%; font-family: var(--affichage); font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 10px; box-shadow: inset 3px 0 0 var(--teinte, var(--accent)); }
+.liseuse-sommaire { flex: 1 1 auto; min-width: 0; max-width: 460px; padding: 8px 10px; border-radius: 12px; font-size: 14px; }
+.liseuse-seance { flex: none; display: flex; align-items: center; gap: 6px; }
+.liseuse-chrono { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border-radius: 99px; background: var(--fond-2); border: 1px solid var(--bord-fort); font-family: var(--chiffres); font-variant-numeric: tabular-nums; font-weight: 600; font-size: 15px; }
+.liseuse-chrono .point { width: 8px; height: 8px; border-radius: 50%; background: var(--vert); animation: lueur 1.6s ease-in-out infinite; }
+.liseuse-chrono.en-pause .point { background: var(--accent); animation: none; }
+.liseuse-outils { flex-wrap: wrap; row-gap: 6px; }
+.liseuse-groupe { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 14px; background: var(--fond-2); border: 1px solid var(--bord); }
+.liseuse-bouton, .liseuse-outil, .liseuse-couleur { min-width: 40px; height: 40px; border: 0; border-radius: 11px; background: transparent; color: var(--texte); display: inline-grid; place-items: center; padding: 0; transition: background .12s var(--ease), color .12s var(--ease); }
+.liseuse-bouton:hover, .liseuse-outil:hover:not(:disabled), .liseuse-couleur:hover { background: var(--carte-2); }
+.liseuse-outil.choisi { background: var(--accent); color: var(--accent-texte); }
+.liseuse-outil:disabled { opacity: .35; cursor: default; }
+.liseuse-outil.texte { padding: 0 11px; font-size: 14px; font-weight: 600; }
+.liseuse-couleur::before { content: ''; width: 22px; height: 22px; border-radius: 50%; background: var(--pastille); box-shadow: 0 0 0 1px var(--bord-fort); }
+.liseuse-couleur.choisie::before { box-shadow: 0 0 0 2px var(--fond-2), 0 0 0 4px var(--texte); }
+.liseuse-trait { display: block; width: 18px; border-radius: 99px; background: currentColor; }
+.liseuse-echelle { min-width: 50px; text-align: center; font-size: 13px; color: var(--texte-2); font-variant-numeric: tabular-nums; }
+.liseuse-etat { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--texte-2); }
+.liseuse-zone { flex: 1 1 auto; min-height: 0; overflow-x: auto; overflow-y: hidden; }
+.liseuse-feuille { height: 100%; margin: 0 auto; overflow: hidden; }
+.liseuse-feuille iframe { display: block; border: 0; transform-origin: 0 0; background: var(--carte); }
+.liseuse-message { height: 100%; display: grid; place-content: center; justify-items: center; gap: 14px; padding: 24px; text-align: center; color: var(--texte-2); }
+@media (max-width: 640px) {
+  .liseuse-cours { display: none; }
+  .liseuse-zoom { display: none; }
+  .liseuse-bouton, .liseuse-outil, .liseuse-couleur { min-width: 38px; height: 38px; }
+}
+.bilan-lecture .lu-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.lu-cours { display: grid; gap: 4px; padding: 10px 14px; border-radius: var(--rayon-petit); background: var(--fond-2); box-shadow: inset 4px 0 0 var(--teinte); }
+.lu-groupe { display: flex; justify-content: space-between; gap: 12px; color: var(--texte-2); }
+.lu-rang { font-weight: 650; color: var(--texte); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lu-fait { margin: 0; color: var(--vert); }

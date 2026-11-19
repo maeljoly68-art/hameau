@@ -11,6 +11,7 @@ import { REVISION_LIBRE_DEFAUT, REVISION_LIBRE_MAX, REVISION_LIBRE_MIN, revision
 import { NIVEAU_MAX, NOTES, type Note } from '../../core/revision.ts';
 import { ajouterChapitres, ajouterNote, marquerParCoeurCours, modifierChapitre, modifierCours, modifierNote, noterChapitre, remettreAZero, supprimerChapitre, supprimerCours, supprimerNote } from '../../data/cours.ts';
 import { IconeChevron, IconeCoche, IconeLien } from '../Icones.tsx';
+import { lisibleDansHameau, ouvrirLiseuse } from '../liseuse/ouvrir.ts';
 import { PanneauCartes } from './Carnet.tsx';
 import { BlocAgendaCours } from './Creneaux.tsx';
 import { FicheVeille } from './Fiche.tsx';
@@ -200,10 +201,16 @@ function LigneChapitre({ chapitre, numero, cours, notes, cartes, carnet, aujourd
           <button className={ouvert === 'edition' ? 'lien actif' : 'lien'} onClick={() => setOuvert(ouvert === 'edition' ? null : 'edition')} aria-expanded={ouvert === 'edition'}>
             Modifier
           </button>
-          {lien && (
-            <a className="lien" href={lien} target="_blank" rel="noopener noreferrer">
-              Ouvrir <IconeLien />
-            </a>
+          {lisibleDansHameau(cours) ? (
+            <button className="lien" onClick={() => ouvrirLiseuse(cours.id, chapitre.id)}>
+              Lire
+            </button>
+          ) : (
+            lien && (
+              <a className="lien" href={lien} target="_blank" rel="noopener noreferrer">
+                Ouvrir <IconeLien />
+              </a>
+            )
           )}
         </span>
       </div>
@@ -258,6 +265,11 @@ export function PageCours({ cours, chapitres, notes, cartes, erreurs, fragiles, 
           <span className="aide">
             Maîtrise : <strong>{maitrise} %</strong> · {chapitres.filter((c) => c.niveau >= 1).length} / {chapitres.length} pages vues
           </span>
+          {lisibleDansHameau(cours) && (
+            <button className="bouton petit" onClick={() => ouvrirLiseuse(cours.id)}>
+              Lire le cours
+            </button>
+          )}
         </div>
         <div className="ligne-pause">
           <button

@@ -21,7 +21,8 @@ self.addEventListener('fetch', (e) => {
   // réponse en cache afficherait des sessions périmées comme si de rien n'était.
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
 
-  if (url.pathname.includes('/assets/')) {
+  // Les cours chiffrés (cours/<nom>-<empreinte>.bin) ne changent jamais non plus : leur nom change avec leur contenu.
+  if (url.pathname.includes('/assets/') || /\/cours\/[a-z0-9.-]+\.bin$/.test(url.pathname)) {
     e.respondWith(
       caches.match(req).then(
         (r) =>
