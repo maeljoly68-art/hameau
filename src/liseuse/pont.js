@@ -449,7 +449,12 @@
       for (const t of m.traits || []) poser(t);
     } else if (m.type === 'trait+') for (const t of m.traits || []) poser(t);
     else if (m.type === 'trait-') for (const id of m.ids || []) retirer(id);
-    else if (m.type === 'etat') local.recevoir(m.cle, m.valeur);
+    else if (m.type === 'etat') {
+      local.recevoir(m.cle, m.valeur);
+      // Une page qui affiche ce qu'elle a rangé (« leçon faite ✓ ») peut se remettre à jour sans recharger ; une page
+      // qui ignore l'événement relira la valeur à son prochain affichage.
+      document.dispatchEvent(new CustomEvent('hameau-etat', { detail: { cle: m.cle } }));
+    }
     else if (m.type === 'passages') marquerPassages(m.pages);
     else if (m.type === 'aller') aller(m.page, m.decalage);
     else if (m.type === 'mesurer') mesurer();

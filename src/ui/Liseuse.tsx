@@ -6,6 +6,7 @@ import moteur from '../liseuse/moteur-dc.js?raw';
 import pont from '../liseuse/pont.js?raw';
 import type { Chapitre } from '../core/cours.ts';
 import { numerosDePages } from '../core/pages.ts';
+import { categorieLecture } from '../core/pratique.ts';
 import { ecouleEffectif, enPause } from '../core/session.ts';
 import { formatChrono } from '../core/temps.ts';
 import type { Session } from '../core/types.ts';
@@ -529,7 +530,7 @@ export default function Liseuse({
           </div>
           <div className="liseuse-seance">
             {ecoule === null ? (
-              <button className="bouton petit demarrer" onClick={() => surDemarrer(cours.titre)} title="Pendant le chrono, Hameau compte les pages que tu lis">
+              <button className="bouton petit demarrer" onClick={() => surDemarrer(categorieLecture(cours))} title="Pendant le chrono, Hameau compte les pages que tu lis">
                 Lancer le chrono
               </button>
             ) : (

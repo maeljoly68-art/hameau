@@ -8,6 +8,7 @@ import type { Session } from '../../core/types.ts';
 import { ajouterPratique, supprimerPratique } from '../../data/cours.ts';
 import { Anneau } from '../Chrono.tsx';
 import { IconeCoche, IconeLien } from '../Icones.tsx';
+import { lisibleDansHameau, ouvrirLiseuse } from '../liseuse/ouvrir.ts';
 import type { Faire } from './CoursDetail.tsx';
 
 const teinte = (c: string) => ({ '--teinte': c }) as CSSProperties;
@@ -55,10 +56,17 @@ function CartePratique({ cours, donnees, sessions, aujourdhui, faire, surChrono 
         <span className={etat.serie > 0 ? 'pratique-serie' : 'pratique-serie sans-serie'}>{etat.serie > 0 ? `Série de ${etat.serie} jour${etat.serie > 1 ? 's' : ''}` : 'Pas de série : commence aujourd’hui'}</span>
       </div>
       <div className="actions gauche pratique-actions">
-        {cours.lien && (
-          <a className="bouton petit" href={cours.lien} target="_blank" rel="noopener noreferrer">
-            Ouvrir l’artefact d’erreurs <IconeLien />
-          </a>
+        {lisibleDansHameau(cours) ? (
+          // Les leçons se lisent dans Hameau : l'encre, « fait » et les scores y suivent d'un appareil à l'autre.
+          <button className="bouton petit" onClick={() => ouvrirLiseuse(cours.id)}>
+            Ouvrir les leçons
+          </button>
+        ) : (
+          cours.lien && (
+            <a className="bouton petit" href={cours.lien} target="_blank" rel="noopener noreferrer">
+              Ouvrir l’artefact d’erreurs <IconeLien />
+            </a>
+          )
         )}
         <button className="bouton petit discret" onClick={() => surChrono(categoriePratique(cours.titre), etat.fait ? PRATIQUE_DEFAUT : etat.restantes)}>
           Lancer le chrono
@@ -79,7 +87,15 @@ function CartePratique({ cours, donnees, sessions, aujourdhui, faire, surChrono 
           ))}
         </p>
       )}
-      {!cours.lien && <p className="aide petite">Ajoute l’adresse de l’artefact dans la page du cours pour l’ouvrir d’ici.</p>}
+      {!cours.lien && !lisibleDansHameau(cours) && <p className="aide petite">Ajoute l’adresse de l’artefact dans la page du cours pour l’ouvrir d’ici.</p>}
+      {lisibleDansHameau(cours) && cours.lien && (
+        <p className="aide petite">
+          Une leçon toute neuve n’est pas encore dans Hameau ?{' '}
+          <a href={cours.lien} target="_blank" rel="noopener noreferrer">
+            L’original sur claude.ai <IconeLien />
+          </a>
+        </p>
+      )}
       <p className="aide petite">Le chrono compte tout seul ; hors chrono, déclare tes minutes. Le calendrier met ce temps de côté chaque jour.</p>
     </section>
   );

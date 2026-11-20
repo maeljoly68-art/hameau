@@ -50,6 +50,11 @@ export function pratiqueValide(brut: unknown): Pratique | null {
 export const categoriePratique = (titreCours: string): string => `${titreCours.trim()} · erreurs`;
 /** Celle d'une séance de révision libre (voir revisionLibre.ts). */
 export const categorieRevision = (titreCours: string): string => `${titreCours.trim()} · révision`;
+/**
+ * Celle du chrono lancé depuis la liseuse. Sur un cours de pratique quotidienne (les leçons TOEIC), lire ses leçons
+ * EST la pratique : rangé sous le seul titre du cours, ce temps ne compterait pas dans la série du jour.
+ */
+export const categorieLecture = (cours: { titre: string; pratiqueMin: number | null }): string => (cours.pratiqueMin !== null ? categoriePratique(cours.titre) : cours.titre.trim());
 
 const normaliser = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
 

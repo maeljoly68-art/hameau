@@ -10,6 +10,7 @@ import {
   PRATIQUE_MAX,
   SERIE_HORIZON,
   apresPratique,
+  categorieLecture,
   categorieRevision,
   categoriePratique,
   estSessionRevision,
@@ -63,6 +64,16 @@ test('le chrono de la pratique a sa catégorie, que les majuscules et les espace
   assert.ok(!estSessionPratique({ categorie: 'TOEIC' }, 'TOEIC'), 'le travail des pages n’est pas la pratique');
   assert.ok(!estSessionPratique({ categorie: 'TAGE MAGE · erreurs' }, 'TOEIC'));
   assert.ok(!estSessionPratique({ categorie: 'TOEIC · erreurs de grammaire' }, 'TOEIC'));
+});
+
+test('le chrono lancé depuis la liseuse compte dans la pratique d’un cours de pratique, et seulement là', () => {
+  const toeic = { titre: 'Rattrapage TOEIC', pratiqueMin: 5 };
+  assert.ok(estSessionPratique({ categorie: categorieLecture(toeic) }, toeic.titre), 'lire les leçons TOEIC, c’est la pratique du jour');
+  const s = { debut: '2026-11-20T09:00:00.000Z', fin: '2026-11-20T09:12:00.000Z', categorie: categorieLecture(toeic), pauseSecondes: 0, pauseDepuis: null };
+  assert.equal(minutesParJour('t', toeic.titre, [], [s]).get('2026-11-20'), 12);
+  const croissance = { titre: ' Croissance ', pratiqueMin: null };
+  assert.equal(categorieLecture(croissance), 'Croissance', 'un cours ordinaire garde son titre');
+  assert.ok(!estSessionPratique({ categorie: categorieLecture(croissance) }, 'Croissance'));
 });
 
 test('la pratique est due jusqu’au partiel compris, sauf cours en pause ou sans minimum', () => {
