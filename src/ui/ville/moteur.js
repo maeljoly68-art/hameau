@@ -206,6 +206,105 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     PKZ = BC[3],
     TWX = BC[0],
     TWZ = BC[0];
+  /*
+    ---- le plan des rues
+
+    En damier, chaque îlot était cerné de sa rue : seize carrés pareils. Des
+    îlots voisins sont maintenant soudés en terres d'un seul tenant : toute la
+    campagne au nord et à l'ouest (bois, champs, verger, étang, la maison, les
+    jardins), le grand parc au sud-est avec la bibliothèque et les maisons qui
+    le bordent, et deux rues piétonnes dans le centre. Il reste deux places
+    carrées, deux longs îlots, un L et une grande terre en équerre ; les
+    voitures, les feux, les passages et les réverbères ne suivent que les rues
+    qui restent. Aucune n'est une impasse : chaque carrefour a au moins deux
+    sorties.
+
+    [colonne, rangée, colonne, rangée, sol] : deux îlots voisins réunis ; le
+    sol de la soudure est de l'herbe (campagne, parc) ou du pavé (rue piétonne).
+  */
+  const SOUDURES = [
+    [0, 0, 1, 0, "herbe"],
+    [1, 0, 2, 0, "herbe"],
+    [2, 0, 3, 0, "herbe"],
+    [0, 0, 0, 1, "herbe"],
+    [0, 1, 0, 2, "herbe"],
+    [0, 2, 0, 3, "herbe"],
+    [2, 3, 3, 3, "herbe"],
+    [3, 2, 3, 3, "herbe"],
+    [2, 1, 3, 1, "pave"],
+    [1, 2, 1, 3, "pave"],
+  ];
+  /* la route qui séparait deux îlots soudés : entre deux nœuds voisins du quadrillage */
+  const cleRue = (i, j, i2, j2) =>
+    i * 5 + j < i2 * 5 + j2 ? `${i},${j},${i2},${j2}` : `${i2},${j2},${i},${j}`;
+  /*
+    Au nord et à l'ouest, plus de route de ceinture : la campagne court
+    jusqu'au bord de la maquette, autour des fermes de la couronne. La ville et
+    ses rues se tiennent au sud-est. (Avec elles partent les deux bouts de
+    ceinture qui n'auraient plus mené nulle part.)
+  */
+  const CEINTURE_OTEE = [
+    [0, 0, 1, 0],
+    [1, 0, 2, 0],
+    [2, 0, 3, 0],
+    [3, 0, 4, 0],
+    [0, 0, 0, 1],
+    [0, 1, 0, 2],
+    [0, 2, 0, 3],
+    [0, 3, 0, 4],
+    [4, 0, 4, 1],
+    [0, 4, 1, 4],
+  ];
+  const coupees = new Set([
+    ...SOUDURES.map(([i, j, i2]) =>
+      i2 !== i ? cleRue(i + 1, j, i + 1, j + 1) : cleRue(i, j + 1, i + 1, j + 1),
+    ),
+    ...CEINTURE_OTEE.map(([i, j, i2, j2]) => cleRue(i, j, i2, j2)),
+  ]);
+  const rue = (i, j, i2, j2) => !coupees.has(cleRue(i, j, i2, j2));
+  const VOISINS = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+  /*
+    Les îlots tels qu'on en fait le tour à pied : les soudures réunissent des
+    cases. Un îlot rectangulaire est bordé de rues sur ses quatre côtés, on
+    marche sur son trottoir ; la campagne en équerre et le parc en L n'ont pas
+    de trottoir tout autour, les passants n'y tournent pas.
+  */
+  const ILOTS = (() => {
+    const chef = Array.from({ length: 16 }, (_, k) => k);
+    const trouver = (k) => (chef[k] === k ? k : (chef[k] = trouver(chef[k])));
+    for (const [i, j, i2, j2] of SOUDURES) chef[trouver(i * 4 + j)] = trouver(i2 * 4 + j2);
+    const groupes = new Map();
+    for (let k = 0; k < 16; k++) groupes.set(trouver(k), [...(groupes.get(trouver(k)) || []), k]);
+    return [...groupes.values()]
+      .map((cases) => {
+        const is = cases.map((k) => Math.floor(k / 4)),
+          js = cases.map((k) => k % 4);
+        const i0 = Math.min(...is),
+          i1 = Math.max(...is),
+          j0 = Math.min(...js),
+          j1 = Math.max(...js);
+        return {
+          i0,
+          i1,
+          j0,
+          j1,
+          cases: cases.length,
+          rectangle: (i1 - i0 + 1) * (j1 - j0 + 1) === cases.length,
+        };
+      })
+      .filter((g) => g.rectangle);
+  })();
+  const sorties = (i, j) =>
+    VOISINS.filter(([di, dj]) => {
+      const a = i + di,
+        b2 = j + dj;
+      return a >= 0 && a < NN && b2 >= 0 && b2 < NN && rue(i, j, a, b2);
+    }).length;
 
   /* ---- géométries unitaires (toutes non indexées, pour pouvoir être fusionnées) */
   function prismGeo() {
@@ -1276,6 +1375,136 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
           /* avant les pavés, les îlots sont des prés */
           PV.routes < 1 ? 0xd6e7c8 : BC[i] === PLX && BC[j] === PLZ ? C.plaza : C.pave,
         );
+    /*
+      Les soudures : la chaussée entre deux îlots réunis disparaît sous le sol
+      de l'îlot. Côté campagne et parc, la pelouse passe d'un îlot à l'autre
+      (le trottoir ne reste que le long des rues) ; dans le centre, c'est une
+      rue piétonne pavée, plantée d'arbres, avec ses bancs.
+    */
+    for (const [i, j, i2, , sol] of SOUDURES) {
+      const enX = i2 !== i,
+        mx = enX ? RX[i + 1] : BC[i],
+        mz = enX ? BC[j] : RX[j + 1];
+      const base = PV.routes < 1 ? 0xd6e7c8 : C.pave;
+      if (enX) bx(B.ground, I4, mx, 0, mz, 3.02, CURB, 10, base);
+      else bx(B.ground, I4, mx, 0, mz, 10, CURB, 3.02, base);
+      if (sol === "herbe") {
+        if (enX) {
+          bx(B.ground, I4, mx, CURB, mz, 4.42, 0.03, 8.6, C.lawn);
+          zone(mx - 2.2, mz - 4.2, mx + 2.2, mz + 4.2);
+        } else {
+          bx(B.ground, I4, mx, CURB, mz, 8.6, 0.03, 4.42, C.lawn);
+          zone(mx - 4.2, mz - 2.2, mx + 4.2, mz + 2.2);
+        }
+      } else {
+        // la rue piétonne : trois arbres dans leurs bacs, deux bancs entre eux
+        for (const t of [-3.2, 0, 3.2]) {
+          const x = enX ? mx : mx + t,
+            z = enX ? mz + t : mz;
+          cy(B.main, I4, x, CURB, z, 0.42, 0.22, 0xe2ddd2, G.cyl8);
+          tree(x, z, CURB + 0.22, 0.75, false);
+        }
+        for (const t of [-1.6, 1.6]) {
+          const P = place(enX ? mx : mx + t, enX ? mz + t : mz, enX ? 0 : Math.PI / 2, CURB);
+          bxc(B.main, P, 0, 0.18, 0, 0.3, 0.06, 0.95, C.wood);
+          bxc(B.main, P, -0.14, 0.24, 0, 0.05, 0.28, 0.95, C.wood);
+          for (const zz of [-0.38, 0.38]) bxc(B.main, P, 0, 0, zz, 0.26, 0.18, 0.05, C.dark);
+        }
+      }
+    }
+    /* la ceinture ôtée : de l'herbe, du bord des champs jusqu'aux fermes de la couronne */
+    const LC = RING + 0.4,
+      LI = 23.8;
+    for (const [x0, z0, x1, z1] of [
+      [-LC, -LC, LC, -LI],
+      [-LC, -LC, -LI, LC],
+      [LI, -LC, LC, -14.5],
+      [-LC, LI, -14.5, LC],
+    ]) {
+      bx(B.ground, I4, (x0 + x1) / 2, 0, (z0 + z1) / 2, x1 - x0, CURB + 0.03, z1 - z0, C.lawn);
+      zone(x0 + 0.2, z0 + 0.2, x1 - 0.2, z1 - 0.2);
+    }
+    /*
+      Des chemins de terre partent des rues et serpentent entre les terres
+      jusqu'aux fermes du bord : la campagne a ses passages, pas seulement des
+      parcelles. Ils sont tracés avant le reste, qui s'écarte d'eux (registre
+      des emprises).
+    */
+    const chemin = (x0, z0, x1, z1, amp, tours) => {
+      const L = Math.hypot(x1 - x0, z1 - z0),
+        n = Math.ceil(L / 0.55),
+        ux = (x1 - x0) / L,
+        uz = (z1 - z0) / L;
+      let px = x0,
+        pz = z0;
+      for (let k = 1; k <= n; k++) {
+        const t = k / n,
+          // l'ondulation s'éteint aux deux bouts : le chemin part droit de la rue et arrive droit à la ferme
+          w = Math.sin(t * Math.PI * 2 * tours) * amp * Math.sin(t * Math.PI),
+          x = x0 + (x1 - x0) * t - uz * w,
+          z = z0 + (z1 - z0) * t + ux * w,
+          l = Math.hypot(x - px, z - pz);
+        bx(
+          B.ground,
+          I4,
+          (px + x) / 2,
+          CURB + 0.03,
+          (pz + z) / 2,
+          0.55,
+          0.008,
+          l + 0.22,
+          0xe3d6b8,
+          Math.atan2(x - px, z - pz),
+        );
+        px = x;
+        pz = z;
+      }
+    };
+    chemin(-14.6, -14.6, -12.4, -27.9, 0.8, 1);
+    chemin(-14.6, -14.6, -27.9, -11.9, 0.8, 1.5);
+    chemin(0, -14.6, 0.5, -27.9, 0.55, 1);
+    chemin(-14.6, 0, -27.9, 1.4, 0.7, 1);
+    chemin(-14.6, 13, -27.9, 14.2, 0.6, 1.5);
+    /*
+      Les virages : là où une rue tourne sans croiser d'autre rue, l'angle
+      extérieur de la chaussée s'arrondit (un congé de trottoir). Une rue qui
+      tourne en équerre vive, c'était encore le damier.
+    */
+    const conge = (() => {
+      const sh = new T.Shape();
+      sh.moveTo(1, 0);
+      sh.lineTo(1, 1);
+      sh.lineTo(0, 1);
+      sh.absarc(0, 0, 1, Math.PI / 2, 0, true);
+      const g = new T.ExtrudeGeometry(sh, { depth: 1, bevelEnabled: false, curveSegments: 10 });
+      g.rotateX(-Math.PI / 2);
+      return g;
+    })();
+    for (let i = 0; i < NN; i++)
+      for (let j = 0; j < NN; j++) {
+        const ex = VOISINS.filter(([di, dj]) => {
+          const a = i + di,
+            b2 = j + dj;
+          return a >= 0 && a < NN && b2 >= 0 && b2 < NN && rue(i, j, a, b2);
+        });
+        if (ex.length !== 2 || ex[0][0] + ex[1][0] === 0) continue;
+        const sx = -(ex[0][0] + ex[1][0]),
+          sz = -(ex[0][1] + ex[1][1]),
+          ry = sx > 0 ? (sz < 0 ? 0 : -Math.PI / 2) : sz < 0 ? Math.PI / 2 : Math.PI;
+        put(
+          B.ground,
+          conge,
+          I4,
+          RX[i],
+          0,
+          RX[j],
+          1.5,
+          CURB,
+          1.5,
+          PV.routes < 1 ? 0xd6e7c8 : C.pave,
+          ry,
+        );
+      }
     /* couronne de pelouse */
     const ro = (RING + 4.2) * 2,
       rc = RING + 2.1,
@@ -1295,36 +1524,42 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         for (let j = 0; j < NN - 1; j++) {
           const a = RX[j] + 2.9,
             b = RX[j + 1] - 2.9;
+          const le = rue(k, j, k, j + 1),
+            ln = rue(j, k, j + 1, k);
           for (let t = a + 0.4; t < b; t += 1.45) {
-            bx(B.ground, I4, RX[k], 0.002, t, 0.12, 0.012, 0.75, 0xffffff);
-            bx(B.ground, I4, t, 0.002, RX[k], 0.75, 0.012, 0.12, 0xffffff);
+            if (le) bx(B.ground, I4, RX[k], 0.002, t, 0.12, 0.012, 0.75, 0xffffff);
+            if (ln) bx(B.ground, I4, t, 0.002, RX[k], 0.75, 0.012, 0.12, 0xffffff);
           }
           // les lignes de rive : la chaussée a un bord, les voies une largeur
           for (const o of [-1.3, 1.3]) {
-            bx(B.ground, I4, RX[k] + o, 0.002, (a + b) / 2, 0.06, 0.012, b - a, 0xf3f3ee);
-            bx(B.ground, I4, (a + b) / 2, 0.002, RX[k] + o, b - a, 0.012, 0.06, 0xf3f3ee);
+            if (le) bx(B.ground, I4, RX[k] + o, 0.002, (a + b) / 2, 0.06, 0.012, b - a, 0xf3f3ee);
+            if (ln) bx(B.ground, I4, (a + b) / 2, 0.002, RX[k] + o, b - a, 0.012, 0.06, 0xf3f3ee);
           }
         }
     for (let i = 0; i < NN; i++)
       for (let j = 0; j < NN; j++) {
         const x = RX[i],
           z = RX[j];
-        for (let k = -2; k <= 2 && PV.feux; k++) {
-          if (i > 0) bx(B.ground, I4, x - 2.0, 0.002, z + k * 0.54, 0.72, 0.012, 0.3, 0xffffff);
-          if (i < NN - 1)
-            bx(B.ground, I4, x + 2.0, 0.002, z + k * 0.54, 0.72, 0.012, 0.3, 0xffffff);
-          if (j > 0) bx(B.ground, I4, x + k * 0.54, 0.002, z - 2.0, 0.3, 0.012, 0.72, 0xffffff);
-          if (j < NN - 1)
-            bx(B.ground, I4, x + k * 0.54, 0.002, z + 2.0, 0.3, 0.012, 0.72, 0xffffff);
+        /* un virage ou une rue qui continue tout droit n'a ni passage ni feu : seulement les vrais carrefours */
+        const carrefour = sorties(i, j) >= 3,
+          o = i > 0 && rue(i - 1, j, i, j),
+          e = i < NN - 1 && rue(i, j, i + 1, j),
+          n = j > 0 && rue(i, j - 1, i, j),
+          su = j < NN - 1 && rue(i, j, i, j + 1);
+        for (let k = -2; k <= 2 && PV.feux && carrefour; k++) {
+          if (o) bx(B.ground, I4, x - 2.0, 0.002, z + k * 0.54, 0.72, 0.012, 0.3, 0xffffff);
+          if (e) bx(B.ground, I4, x + 2.0, 0.002, z + k * 0.54, 0.72, 0.012, 0.3, 0xffffff);
+          if (n) bx(B.ground, I4, x + k * 0.54, 0.002, z - 2.0, 0.3, 0.012, 0.72, 0xffffff);
+          if (su) bx(B.ground, I4, x + k * 0.54, 0.002, z + 2.0, 0.3, 0.012, 0.72, 0xffffff);
         }
         /* la ligne d'arrêt, en travers de la voie qui arrive, devant le passage piéton */
-        if (PV.feux && i > 0 && i < NN - 1 && j > 0 && j < NN - 1) {
-          bx(B.ground, I4, x - 2.55, 0.002, z + 0.75, 0.14, 0.012, 1.3, 0xffffff);
-          bx(B.ground, I4, x + 2.55, 0.002, z - 0.75, 0.14, 0.012, 1.3, 0xffffff);
-          bx(B.ground, I4, x - 0.75, 0.002, z - 2.55, 1.3, 0.012, 0.14, 0xffffff);
-          bx(B.ground, I4, x + 0.75, 0.002, z + 2.55, 1.3, 0.012, 0.14, 0xffffff);
+        if (PV.feux && carrefour && i > 0 && i < NN - 1 && j > 0 && j < NN - 1) {
+          if (o) bx(B.ground, I4, x - 2.55, 0.002, z + 0.75, 0.14, 0.012, 1.3, 0xffffff);
+          if (e) bx(B.ground, I4, x + 2.55, 0.002, z - 0.75, 0.14, 0.012, 1.3, 0xffffff);
+          if (n) bx(B.ground, I4, x - 0.75, 0.002, z - 2.55, 1.3, 0.012, 0.14, 0xffffff);
+          if (su) bx(B.ground, I4, x + 0.75, 0.002, z + 2.55, 1.3, 0.012, 0.14, 0xffffff);
         }
-        lamp(x + 1.62, z + 1.62, CURB);
+        if (sorties(i, j) > 0) lamp(x + 1.62, z + 1.62, CURB);
       }
   })();
 
@@ -1340,10 +1575,12 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   if (PV.feux)
     for (let i = 1; i < NN - 1; i++)
       for (let j = 1; j < NN - 1; j++)
-        for (const [sx, sz] of [
-          [-1, 1],
-          [1, -1],
-        ]) {
+        for (const [sx, sz] of sorties(i, j) < 3
+          ? []
+          : [
+              [-1, 1],
+              [1, -1],
+            ]) {
           const x = RX[i] + sx * 1.62,
             z = RX[j] + sz * 1.62;
           cy(B.main, I4, x, CURB, z, 0.04, 1.55, C.dark, G.cyl8);
@@ -1360,12 +1597,19 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       for (let j = 0; j < NN - 1; j++) {
         const a = RX[j] + 1.62,
           b = RX[j + 1] + 1.62,
-          o = RX[k] + 1.62;
+          o = RX[k] + 1.62,
+          le = rue(k, j, k, j + 1),
+          ln = rue(j, k, j + 1, k);
         for (let t = 0.04; t < 0.97; t += 0.06) {
           const s = 1.9 - Math.sin(t * Math.PI) * 0.55;
-          sp(B.lamp, I4, o, CURB + s, a + (b - a) * t, 0.06, 0xffffff);
-          sp(B.lamp, I4, a + (b - a) * t, CURB + s, o, 0.06, 0xffffff);
-          ampoules.push(o, CURB + s, a + (b - a) * t, a + (b - a) * t, CURB + s, o);
+          if (le) {
+            sp(B.lamp, I4, o, CURB + s, a + (b - a) * t, 0.06, 0xffffff);
+            ampoules.push(o, CURB + s, a + (b - a) * t);
+          }
+          if (ln) {
+            sp(B.lamp, I4, a + (b - a) * t, CURB + s, o, 0.06, 0xffffff);
+            ampoules.push(a + (b - a) * t, CURB + s, o);
+          }
         }
       }
 
@@ -3085,7 +3329,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     ].forEach((d) => {
       const i = n.i + d[0],
         j = n.j + d[1];
-      if (i >= 0 && i < NN && j >= 0 && j < NN) n.nb.push(nodeAt(i, j));
+      if (i >= 0 && i < NN && j >= 0 && j < NN && rue(n.i, n.j, i, j)) n.nb.push(nodeAt(i, j));
     });
   });
   function laneOf(a, b) {
@@ -3241,7 +3485,7 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     const ph = time % CYCLE;
     return estOuest ? ph >= 7 && ph < 13 : ph < 6;
   };
-  const auCentre = (n) => n.i > 0 && n.i < NN - 1 && n.j > 0 && n.j < NN - 1;
+  const auCentre = (n) => n.i > 0 && n.i < NN - 1 && n.j > 0 && n.j < NN - 1 && n.nb.length >= 3;
   /*
     Un carrefour ne prend qu'un véhicule à la fois : celui de tête le réserve
     avant de s'engager, les autres l'attendent à la ligne. Sans cela, deux
@@ -3385,16 +3629,23 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     const nLoop = Math.round((small ? 80 : 150) * (0.15 + 0.85 * avance));
     for (let k = 0; k < nLoop; k++) {
       let r;
-      if (k % 5 === 4) {
-        const o = RING + 0.08 + R() * 0.24;
-        r = { x0: -o, x1: o, z0: -o, z1: o };
-      } // trottoir de la couronne
-      else {
-        const i = Math.floor(R() * 4),
-          j = Math.floor(R() * 4),
-          // sur le trottoir, à distance des réverbères et des bacs posés aux angles des îlots
-          o = rr(0.32, 0.5);
-        r = { x0: CELLS[i][0] + o, x1: CELLS[i][1] - o, z0: CELLS[j][0] + o, z1: CELLS[j][1] - o };
+      {
+        // un îlot bordé de rues, d'autant plus fréquenté qu'il est grand
+        const poids = ILOTS.reduce((t, g) => t + g.cases, 0);
+        let tire = R() * poids,
+          g = ILOTS[0];
+        for (const c of ILOTS) {
+          g = c;
+          if ((tire -= c.cases) < 0) break;
+        }
+        // sur le trottoir, à distance des réverbères et des bacs posés aux angles des îlots
+        const o = rr(0.32, 0.5);
+        r = {
+          x0: CELLS[g.i0][0] + o,
+          x1: CELLS[g.i1][1] - o,
+          z0: CELLS[g.j0][0] + o,
+          z1: CELLS[g.j1][1] - o,
+        };
       }
       r.per = 2 * (r.x1 - r.x0) + 2 * (r.z1 - r.z0);
       mk({ type: "loop", r, s: R() * r.per, dir: R() < 0.5 ? 1 : -1, v: rr(0.5, 1.0), y: CURB });
