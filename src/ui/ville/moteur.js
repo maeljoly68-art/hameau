@@ -707,12 +707,36 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       const a = r() * 6.28,
         d = k ? 0.18 * s : 0,
         t = (0.42 + r() * 0.2) * s;
-      put(B.main, G.caillou, I4, x + Math.cos(a) * d, y0 + t * 0.34, z + Math.sin(a) * d, t, t * 0.78, t, teinte(c, 0.92 + r() * 0.2), a);
+      put(
+        B.main,
+        G.caillou,
+        I4,
+        x + Math.cos(a) * d,
+        y0 + t * 0.34,
+        z + Math.sin(a) * d,
+        t,
+        t * 0.78,
+        t,
+        teinte(c, 0.92 + r() * 0.2),
+        a,
+      );
     }
   }
   function caillou(x, z, y0, s, r) {
     const t = (0.22 + r() * 0.2) * s;
-    put(B.main, G.caillou, I4, x, y0 + t * 0.18, z, t * 1.2, t * 0.65, t, r() < 0.5 ? 0xc9c3b6 : 0xb8b2a6, r() * 6.28);
+    put(
+      B.main,
+      G.caillou,
+      I4,
+      x,
+      y0 + t * 0.18,
+      z,
+      t * 1.2,
+      t * 0.65,
+      t,
+      r() < 0.5 ? 0xc9c3b6 : 0xb8b2a6,
+      r() * 6.28,
+    );
   }
   /* une nuance d'herbe au sol : plus claire ou plus sombre, jamais un motif */
   function tache(x, z, y0, rx, rz, col, a) {
@@ -753,7 +777,14 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       volet = VOLETS[Math.floor(h01(x, z, 3) * VOLETS.length)],
       avecVolets = h01(x, z, 4) < 0.6;
     // largeur, profondeur, hauteur des murs
-    const [w, d, hm] = forme === 1 ? [2.5, 1.5, 1.0] : forme === 2 ? [1.8, 1.6, 1.75] : forme === 3 ? [1.9, 1.8, 1.15] : [2.0, 1.6, 1.15];
+    const [w, d, hm] =
+      forme === 1
+        ? [2.5, 1.5, 1.0]
+        : forme === 2
+          ? [1.8, 1.6, 1.75]
+          : forme === 3
+            ? [1.9, 1.8, 1.15]
+            : [2.0, 1.6, 1.15];
     bxc(B.main, P, 0, 0, 0, w, hm, d, mur);
     bx(B.main, P, 0, 0, 0, w + 0.04, 0.16, d + 0.04, teinte(mur, 0.78));
     if (forme === 3) {
@@ -761,7 +792,19 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       put(B.main, G.pyr, P, 0, hm, 0, w + 0.45, 0.9, d + 0.45, roofCol);
       bx(B.main, P, 0, hm - 0.04, 0, w + 0.1, 0.05, d + 0.1, teinte(roofCol, 0.55));
     } else {
-      put(B.main, G.prism, P, 0, hm, 0, d + 0.34, forme === 2 ? 1.0 : 0.82, w + 0.36, roofCol, Math.PI / 2);
+      put(
+        B.main,
+        G.prism,
+        P,
+        0,
+        hm,
+        0,
+        d + 0.34,
+        forme === 2 ? 1.0 : 0.82,
+        w + 0.36,
+        roofCol,
+        Math.PI / 2,
+      );
       // un liseré sombre sous le toit : la toiture se détache du mur au lieu de s'y coller
       bx(B.main, P, 0, hm - 0.04, 0, w + 0.08, 0.05, d + 0.1, teinte(roofCol, 0.55));
     }
@@ -778,7 +821,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     const fen = (fx, fy, fz, fry, fw, fh, vitre) => {
       fenetre(vitre, B.main, P, fx, fy, fz, fry, fw, fh);
       if (avecVolets && Math.abs(fry) < 0.1)
-        for (const s of [-1, 1]) bx(B.main, P, fx + s * (fw / 2 + 0.11), fy - fh / 2, fz + 0.03, 0.14, fh, 0.03, volet);
+        for (const s of [-1, 1])
+          bx(B.main, P, fx + s * (fw / 2 + 0.11), fy - fh / 2, fz + 0.03, 0.14, fh, 0.03, volet);
     };
     const xs = forme === 1 ? [0.25, 0.85] : [0.3];
     for (const fx of xs) fen(fx, 0.62, d / 2, 0, 0.42, 0.36, B.winA);
@@ -796,7 +840,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
     bx(B.ground, P, px, -0.02, d / 2 + 0.75, 0.42, 0.05, 0.95, 0xe7dfcf);
     const cl = d / 2 + 1.2;
     /* un bout de clôture ou de haie plus court qu'un pas faisait un petit cube posé là : on s'en passe */
-    const courts = (s) => Math.abs((s < 0 ? -w / 2 - 0.1 : w / 2 + (forme === 1 ? 0.9 : 0.1)) - (px + s * 0.34)) < 0.5;
+    const courts = (s) =>
+      Math.abs((s < 0 ? -w / 2 - 0.1 : w / 2 + (forme === 1 ? 0.9 : 0.1)) - (px + s * 0.34)) < 0.5;
     if (h01(x, z, 6) < 0.55)
       for (const s of [-1, 1]) {
         if (courts(s)) continue;
@@ -806,7 +851,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
           m = (a + b2) / 2;
         bx(B.main, P, m, 0.22, cl, lg, 0.05, 0.04, 0xf6f3ea);
         bx(B.main, P, m, 0.08, cl, lg, 0.05, 0.04, 0xf6f3ea);
-        for (let t = 0; t <= lg + 0.01; t += 0.32) bx(B.main, P, Math.min(a, b2) + t, 0, cl, 0.05, 0.34, 0.05, 0xf6f3ea);
+        for (let t = 0; t <= lg + 0.01; t += 0.32)
+          bx(B.main, P, Math.min(a, b2) + t, 0, cl, 0.05, 0.34, 0.05, 0xf6f3ea);
       }
     else
       for (const s of [-1, 1]) {
@@ -863,7 +909,16 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       acrotere(B.main, P, 0, 1.5, 0, w + 0.06, 2.46, 0.2, 0.09, teinte(mur, 0.86));
       for (const t of [-0.3, 0.3]) {
         bxc(B.main, P, t * w, 1.54, -0.75, 0.7, 0.18, 0.32, 0xb08b63);
-        for (const u of [-0.2, 0, 0.2]) sp(B.main, P, t * w + u, 1.78, -0.75, 0.13, FEUILLU[(Math.round(u * 10) + 3) % FEUILLU.length]);
+        for (const u of [-0.2, 0, 0.2])
+          sp(
+            B.main,
+            P,
+            t * w + u,
+            1.78,
+            -0.75,
+            0.13,
+            FEUILLU[(Math.round(u * 10) + 3) % FEUILLU.length],
+          );
       }
     }
     /* le store rayé, une bande sur deux à la couleur de la boutique */
@@ -1617,7 +1672,21 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
           const a = r() * 6.28;
           buisson(ox + Math.cos(a) * 3.2, oz + Math.sin(a) * 3.0, YL, 1, r);
         }
-        put(B.main, G.cyl8, I4, cx + 2.7, YL + 0.17, cz - 3.0, 0.34, 1.5, 0.34, 0x7a5a3e, 0.5, 0, Math.PI / 2);
+        put(
+          B.main,
+          G.cyl8,
+          I4,
+          cx + 2.7,
+          YL + 0.17,
+          cz - 3.0,
+          0.34,
+          1.5,
+          0.34,
+          0x7a5a3e,
+          0.5,
+          0,
+          Math.PI / 2,
+        );
         for (let k = 0; k < 3; k++) caillou(cx + 2.0 + k * 0.5, cz - 2.2 + r() * 0.4, YL, 1.2, r);
       },
       /* un étang : deux lobes d'eau, une berge de sable, des roseaux, des nénuphars, un ponton */
@@ -1645,13 +1714,28 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
             const h = 0.45 + r() * 0.35,
               bx2 = x + (r() - 0.5) * 0.35,
               bz = z + (r() - 0.5) * 0.3;
-            put(B.main, G.brin, I4, bx2, YQ, bz, 0.06, h, 0.06, m % 2 ? 0x7f9f4f : 0x6b8e45, 0, (r() - 0.5) * 0.3, (r() - 0.5) * 0.3);
+            put(
+              B.main,
+              G.brin,
+              I4,
+              bx2,
+              YQ,
+              bz,
+              0.06,
+              h,
+              0.06,
+              m % 2 ? 0x7f9f4f : 0x6b8e45,
+              0,
+              (r() - 0.5) * 0.3,
+              (r() - 0.5) * 0.3,
+            );
             if (m === 0) bx(B.main, I4, bx2, YQ + h - 0.05, bz, 0.05, 0.14, 0.05, 0x7a5236);
           }
         }
         // le ponton : des planches posées sur deux pieux, jusqu'à l'eau
         bx(B.main, I4, X + 2.2, YQ + 0.06, Z - 1.1, 0.6, 0.06, 1.3, 0xb08a62, -0.5);
-        for (const t of [-0.45, 0.45]) cy(B.main, I4, X + 2.2 + t * 0.48, YQ, Z - 1.1 - t * 0.88, 0.05, 0.3, 0x7a5a3e, G.cyl8);
+        for (const t of [-0.45, 0.45])
+          cy(B.main, I4, X + 2.2 + t * 0.48, YQ, Z - 1.1 - t * 0.88, 0.05, 0.3, 0x7a5a3e, G.cyl8);
         for (let k = 0; k < 6; k++) {
           const a = r() * 6.28;
           caillou(X + Math.cos(a) * 3.0, Z + Math.sin(a) * 2.2, YQ, 1, r);
@@ -1668,12 +1752,35 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         pre(cx, cz, 0.6);
         // le blé, en sillons dorés
         bx(B.ground, I4, cx - 2.6, YQ, z0, 2.5, 0.03, L, 0xd9bb62);
-        for (let k = 0; k < 6; k++) bx(B.main, I4, cx - 3.6 + k * 0.4, YQ, z0, 0.2, 0.13, L - 0.2, k % 2 ? 0xe9cf7c : 0xd4b25a);
+        for (let k = 0; k < 6; k++)
+          bx(
+            B.main,
+            I4,
+            cx - 3.6 + k * 0.4,
+            YQ,
+            z0,
+            0.2,
+            0.13,
+            L - 0.2,
+            k % 2 ? 0xe9cf7c : 0xd4b25a,
+          );
         // les légumes, en rangs sur la terre
         bx(B.ground, I4, cx, YQ, z0, 2.5, 0.03, L, 0xa27f5a);
         for (let k = 0; k < 5; k++)
           for (let m = 0; m < 11; m++)
-            put(B.main, G.oct, I4, cx - 1.0 + k * 0.5, YQ + 0.09, z0 - 2.6 + m * 0.52, 0.26, 0.18, 0.26, k % 2 ? 0x5fa457 : 0x76b660, m);
+            put(
+              B.main,
+              G.oct,
+              I4,
+              cx - 1.0 + k * 0.5,
+              YQ + 0.09,
+              z0 - 2.6 + m * 0.52,
+              0.26,
+              0.18,
+              0.26,
+              k % 2 ? 0x5fa457 : 0x76b660,
+              m,
+            );
         // les tournesols
         bx(B.ground, I4, cx + 2.6, YQ, z0, 2.5, 0.03, L, 0x8e6c49);
         for (let k = 0; k < 4; k++)
@@ -1691,8 +1798,19 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         ]) {
           const n = 9;
           for (let k = 0; k <= n; k++)
-            bx(B.main, I4, ax + (lx ? -lx / 2 + (k * lx) / n : 0), YQ, az + (lz ? -lz / 2 + (k * lz) / n : 0), 0.08, 0.46, 0.08, 0x8a6a4a);
-          for (const y of [0.18, 0.36]) bx(B.main, I4, ax, YQ + y, az, lx || 0.05, 0.05, lz || 0.05, 0xb08a62);
+            bx(
+              B.main,
+              I4,
+              ax + (lx ? -lx / 2 + (k * lx) / n : 0),
+              YQ,
+              az + (lz ? -lz / 2 + (k * lz) / n : 0),
+              0.08,
+              0.46,
+              0.08,
+              0x8a6a4a,
+            );
+          for (const y of [0.18, 0.36])
+            bx(B.main, I4, ax, YQ + y, az, lx || 0.05, 0.05, lz || 0.05, 0xb08a62);
         }
         // les bottes de foin, dans l'herbe du bas du champ
         for (const [x, z, a] of [
@@ -1717,19 +1835,43 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
             tree(x, z, YL, s);
             for (let k = 0; k < 6; k++) {
               const a = k * 1.05 + r();
-              put(B.main, G.oct, I4, x + Math.cos(a) * 0.44 * s, YL + (0.82 + (k % 2) * 0.26) * s, z + Math.sin(a) * 0.44 * s, 0.13, 0.13, 0.13, c, a);
+              put(
+                B.main,
+                G.oct,
+                I4,
+                x + Math.cos(a) * 0.44 * s,
+                YL + (0.82 + (k % 2) * 0.26) * s,
+                z + Math.sin(a) * 0.44 * s,
+                0.13,
+                0.13,
+                0.13,
+                c,
+                a,
+              );
             }
           }
         // l'échelle appuyée contre un arbre
         const P = place(cx + 0.6, cz + 0.2, 0.4, YL);
-        for (const t of [-0.16, 0.16]) put(B.main, G.box, P, t, 0.5, 0, 0.05, 1.1, 0.05, 0xb08a62, 0, 0.32);
-        for (let k = 0; k < 4; k++) bx(B.main, P, 0, 0.18 + k * 0.24, -0.06 - k * 0.075, 0.32, 0.04, 0.04, 0xb08a62);
+        for (const t of [-0.16, 0.16])
+          put(B.main, G.box, P, t, 0.5, 0, 0.05, 1.1, 0.05, 0xb08a62, 0, 0.32);
+        for (let k = 0; k < 4; k++)
+          bx(B.main, P, 0, 0.18 + k * 0.24, -0.06 - k * 0.075, 0.32, 0.04, 0.04, 0xb08a62);
         for (const [x, z] of [
           [cx - 3.6, cz + 3.6],
           [cx - 3.0, cz + 3.7],
         ]) {
           bxc(B.main, I4, x, YL, z, 0.5, 0.3, 0.36, 0xc9a06e);
-          for (let k = 0; k < 4; k++) sp(B.main, I4, x - 0.12 + (k % 2) * 0.24, YL + 0.33, z - 0.08 + (k > 1 ? 0.16 : 0), 0.09, 0xe5484d, G.oct);
+          for (let k = 0; k < 4; k++)
+            sp(
+              B.main,
+              I4,
+              x - 0.12 + (k % 2) * 0.24,
+              YL + 0.33,
+              z - 0.08 + (k > 1 ? 0.16 : 0),
+              0.09,
+              0xe5484d,
+              G.oct,
+            );
         }
       },
       /* les jardins familiaux : quatre parcelles autour d'allées de gravier, une cabane à outils */
@@ -1747,7 +1889,20 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         // salades
         let [x, z] = parcelle(-1, -1);
         for (let i = 0; i < 5; i++)
-          for (let j = 0; j < 5; j++) put(B.main, G.caillou, I4, x - 1.2 + i * 0.6, YQ + 0.1, z - 1.2 + j * 0.6, 0.32, 0.2, 0.32, j % 2 ? 0x8fd16f : 0x7cc062, r() * 6);
+          for (let j = 0; j < 5; j++)
+            put(
+              B.main,
+              G.caillou,
+              I4,
+              x - 1.2 + i * 0.6,
+              YQ + 0.1,
+              z - 1.2 + j * 0.6,
+              0.32,
+              0.2,
+              0.32,
+              j % 2 ? 0x8fd16f : 0x7cc062,
+              r() * 6,
+            );
         // tomates, sur leurs tuteurs
         [x, z] = parcelle(1, -1);
         for (let i = 0; i < 3; i++)
@@ -1756,11 +1911,24 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
               tz = z - 1.1 + j * 0.74;
             bx(B.main, I4, tx, YQ, tz, 0.04, 0.62, 0.04, 0xb08a62);
             put(B.main, G.caillou, I4, tx, YQ + 0.36, tz, 0.3, 0.4, 0.3, 0x5f9f52, r() * 6);
-            for (let k = 0; k < 2; k++) put(B.main, G.oct, I4, tx + (k ? 0.1 : -0.09), YQ + 0.3 + k * 0.12, tz + 0.1, 0.1, 0.1, 0.1, 0xe5484d);
+            for (let k = 0; k < 2; k++)
+              put(
+                B.main,
+                G.oct,
+                I4,
+                tx + (k ? 0.1 : -0.09),
+                YQ + 0.3 + k * 0.12,
+                tz + 0.1,
+                0.1,
+                0.1,
+                0.1,
+                0xe5484d,
+              );
           }
         // fleurs à couper
         [x, z] = parcelle(-1, 1);
-        for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) fleurs3(x - 1.1 + i * 0.73, z - 1.1 + j * 0.73, YQ + 0.02, r);
+        for (let i = 0; i < 4; i++)
+          for (let j = 0; j < 4; j++) fleurs3(x - 1.1 + i * 0.73, z - 1.1 + j * 0.73, YQ + 0.02, r);
         // la cabane à outils, les potirons et le récupérateur d'eau
         [x, z] = parcelle(1, 1);
         const P = place(x + 0.6, z + 0.55, Math.PI, YQ);
@@ -1769,7 +1937,19 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
         bx(B.main, P, -0.25, 0, 0.51, 0.4, 0.72, 0.04, 0x7a5a3e);
         cy(B.main, I4, x - 0.2, YQ, z + 1.05, 0.22, 0.55, 0x4f7a5c, G.cyl8);
         for (let k = 0; k < 5; k++)
-          put(B.main, G.caillou, I4, x - 1.1 + (k % 3) * 0.55, YQ + 0.13, z - 1.0 + Math.floor(k / 3) * 0.6, 0.38, 0.28, 0.38, 0xf08a2c, r() * 6);
+          put(
+            B.main,
+            G.caillou,
+            I4,
+            x - 1.1 + (k % 3) * 0.55,
+            YQ + 0.13,
+            z - 1.0 + Math.floor(k / 3) * 0.6,
+            0.38,
+            0.28,
+            0.38,
+            0xf08a2c,
+            r() * 6,
+          );
       },
     };
     const friche = (cx, cz, voulue) => {
@@ -1781,7 +1961,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
             : voulue;
       campagne[sorte](cx, cz);
     };
-    const immeubles = (cx, cz, fl, voulue) => (PV.decor >= 3 ? towers(cx, cz, fl) : friche(cx, cz, voulue));
+    const immeubles = (cx, cz, fl, voulue) =>
+      PV.decor >= 3 ? towers(cx, cz, fl) : friche(cx, cz, voulue);
     immeubles(BC[1], BC[0], [6, 9, 4, 5], "bosquet");
     immeubles(BC[2], BC[0], [10, 7, 6, 4], "champ");
     immeubles(BC[3], BC[0], [5, 7, 3, 4], "verger");
@@ -1839,7 +2020,13 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       }
     }
     ringTrees.forEach((p, i) =>
-      arbre(p[0] + (h01(p[0], p[1], 14) - 0.5) * 0.6, p[1] + (h01(p[0], p[1], 15) - 0.5) * 0.5, YL, rr(0.75, 1.05), i % 3 === 0),
+      arbre(
+        p[0] + (h01(p[0], p[1], 14) - 0.5) * 0.6,
+        p[1] + (h01(p[0], p[1], 15) - 0.5) * 0.5,
+        YL,
+        rr(0.75, 1.05),
+        i % 3 === 0,
+      ),
     );
     // les pelouses de la couronne, à semer comme les prés
     const r0 = RING + 0.45,
@@ -2355,7 +2542,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
   */
   (function semer() {
     suivi = false;
-    for (const [x, z] of dinerSlots.concat(lecteurSlots)) marquer(x - 0.4, z - 0.4, x + 0.4, z + 0.4);
+    for (const [x, z] of dinerSlots.concat(lecteurSlots))
+      marquer(x - 0.4, z - 0.4, x + 0.4, z + 0.4);
     for (let a = 0; a < 5; a++)
       for (let b2 = 0; b2 < 2; b2++) {
         const p = uniPt(-1.5 + a * 0.75, 0, 1.1 + b2 * 1.4);
@@ -2413,7 +2601,16 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
       // les nuances d'herbe : à plat, elles peuvent passer sous un objet, pas sous une allée
       for (let k = Math.round(aire * 0.1 * zn.k * part); k > 0; k--) {
         const [x, z] = tirer();
-        if (libre(x, z, 0)) tache(x, z, YQ, 0.5 + RN() * 0.7, 0.4 + RN() * 0.6, RN() < 0.5 ? 0xc3dfae : 0xd9ecc6, RN() * 3);
+        if (libre(x, z, 0))
+          tache(
+            x,
+            z,
+            YQ,
+            0.5 + RN() * 0.7,
+            0.4 + RN() * 0.6,
+            RN() < 0.5 ? 0xc3dfae : 0xd9ecc6,
+            RN() * 3,
+          );
       }
       // les gros d'abord (ils retiennent leur place), puis fleurs et touffes, qui peuvent se serrer
       const semis = [
@@ -2425,7 +2622,8 @@ export function creerVille(host, pinEls, onPick, progression, reglages) {
           0.1,
           false,
           (x, z) => {
-            for (let m = 0; m < 3; m++) touffe(x + (RN() - 0.5) * 0.4, z + (RN() - 0.5) * 0.4, YQ, 0.85 + RN() * 0.5, RN);
+            for (let m = 0; m < 3; m++)
+              touffe(x + (RN() - 0.5) * 0.4, z + (RN() - 0.5) * 0.4, YQ, 0.85 + RN() * 0.5, RN);
           },
         ],
       ];
