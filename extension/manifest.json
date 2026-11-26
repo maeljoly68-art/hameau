@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Hameau · concentration",
-  "version": "1.2.1",
-  "description": "Pendant un chrono Hameau : te demande « tu es sûr ? » avant de changer de page, bloque les sites ou les adresses que tu choisis (YouTube, LinkedIn, Instagram…), et retient les sites sur lesquels tu travailles pour que Hameau te les montre. Tout se relâche à l'arrêt du chrono.",
+  "version": "1.3.0",
+  "description": "Pendant un chrono Hameau : te demande « tu es sûr ? » avant de changer de page, bloque les sites ou les adresses que tu choisis (YouTube, LinkedIn, Instagram, Snapchat, Vinted, leboncoin, Beebs…), et retient les sites sur lesquels tu travailles pour que Hameau te les montre. Tout se relâche à l'arrêt du chrono.",
   "minimum_chrome_version": "120",
   "permissions": [
     "declarativeNetRequest",
@@ -16,7 +16,11 @@
     "https://nisjysdlyryyrsgwmcaa.supabase.co/*",
     "*://*.youtube.com/*",
     "*://*.linkedin.com/*",
-    "*://*.instagram.com/*"
+    "*://*.instagram.com/*",
+    "*://*.snapchat.com/*",
+    "*://*.vinted.fr/*",
+    "*://*.leboncoin.fr/*",
+    "*://*.beebs.app/*"
   ],
   "background": {
     "service_worker": "background.js",

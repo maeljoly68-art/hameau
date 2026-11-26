@@ -1,6 +1,23 @@
 // La logique de l'extension, sans rien de propre à Chrome : testable à part (tests/extension.test.ts).
 
-export const SITES_PAR_DEFAUT = ['youtube.com', 'linkedin.com', 'instagram.com'];
+export const SITES_PAR_DEFAUT = ['youtube.com', 'linkedin.com', 'instagram.com', 'snapchat.com', 'vinted.fr', 'leboncoin.fr', 'beebs.app'];
+/** Arrivés dans les défauts après la première version (1.3.0) : Snapchat, Vinted, leboncoin et Beebs. */
+export const DEFAUTS_AJOUTES = ['snapchat.com', 'vinted.fr', 'leboncoin.fr', 'beebs.app'];
+
+/**
+ * Une liste déjà enregistrée ne prend pas d'elle-même les défauts arrivés depuis : sans cette reprise, Snapchat ou
+ * Vinted resteraient ouverts chez qui a un jour réglé sa liste. On les ajoute une seule fois, à la mise à jour, et on
+ * retient qu'ils ont été proposés : retirés ensuite par la personne, ils ne reviennent jamais. Une liste jamais
+ * enregistrée (sites absent) n'a rien à reprendre : les défauts, nouveaux compris, s'y appliquent déjà.
+ */
+export function ajouterNouveauxDefauts(sites, proposes) {
+  const deja = new Set(Array.isArray(proposes) ? proposes : []);
+  const tous = [...new Set([...deja, ...DEFAUTS_AJOUTES])];
+  if (!Array.isArray(sites)) return { sites: null, proposes: tous };
+  const liste = sites.slice();
+  for (const s of DEFAUTS_AJOUTES) if (!deja.has(s) && !liste.includes(s) && liste.length < SITES_MAX) liste.push(s);
+  return { sites: liste, proposes: tous };
+}
 export const SITES_MAX = 50;
 /** Une session ouverte depuis plus longtemps est un chrono oublié : l'application le dit, nous n'enfermons personne pour autant. */
 export const FRAICHEUR_MAX_MS = 60 * 60 * 1000;

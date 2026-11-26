@@ -1,4 +1,6 @@
 export const SITES_PAR_DEFAUT: string[];
+export const DEFAUTS_AJOUTES: string[];
+export function ajouterNouveauxDefauts(sites: unknown, proposes: unknown): { sites: string[] | null; proposes: string[] };
 export const SITES_MAX: number;
 export const FRAICHEUR_MAX_MS: number;
 export const DOMAINES_PROTEGES: string[];

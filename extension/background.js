@@ -2,7 +2,7 @@
 // session ouverte sur le compte de la personne ; si oui, il redirige les sites de la liste vers la page de blocage ;
 // sinon, il retire les règles. Aucun état ne vit en mémoire : le service s'endort et se réveille quand Chrome le décide.
 import { CLE_PUBLIQUE, URL_SUPABASE } from './config.js';
-import { CONFIRMATION_DEFAUT, SEUIL_INACTIVITE_S, SITES_DE_TRAVAIL_DEFAUT, SITES_PAR_DEFAUT, SUIVI_DEFAUT, SUIVI_VIDE, ajouterPasse, apresEnvoi, avancer, cloturer, compter, confirmationValide, doitConfirmer, etatDepuisSession, garderBlocage, lignesAEnvoyer, lireSites, reglesBlocage, siteDe, siteEnregistre, suiviValide, titreEnregistre, urlBloquee } from './logique.js';
+import { CONFIRMATION_DEFAUT, SEUIL_INACTIVITE_S, SITES_DE_TRAVAIL_DEFAUT, SITES_PAR_DEFAUT, SUIVI_DEFAUT, SUIVI_VIDE, ajouterNouveauxDefauts, ajouterPasse, apresEnvoi, avancer, cloturer, compter, confirmationValide, doitConfirmer, etatDepuisSession, garderBlocage, lignesAEnvoyer, lireSites, reglesBlocage, siteDe, siteEnregistre, suiviValide, titreEnregistre, urlBloquee } from './logique.js';
 
 const ALARME = 'hameau-verifier';
 /** On renouvelle le jeton un peu avant son expiration plutôt que d'essuyer un refus. */
@@ -356,7 +356,14 @@ chrome.runtime.onInstalled.addListener((d) => {
   // À l'installation, la fenêtre de connexion s'ouvre dans un onglet : sans compte, rien ne peut être bloqué, et l'icône
   // d'une extension fraîchement chargée est cachée dans le menu « puzzle ».
   if (d.reason === 'install') void chrome.tabs.create({ url: chrome.runtime.getURL('popup.html?page=1') });
-  void verifier();
+  // Les défauts arrivés depuis (Snapchat, Vinted, leboncoin, Beebs) rejoignent une fois la liste déjà réglée.
+  void (async () => {
+    const r = await chrome.storage.sync.get(['sites', 'defautsProposes']);
+    const m = ajouterNouveauxDefauts(r.sites, r.defautsProposes);
+    await chrome.storage.sync.set(m.sites ? { sites: m.sites, defautsProposes: m.proposes } : { defautsProposes: m.proposes });
+  })()
+    .catch(() => undefined)
+    .finally(() => void verifier());
 });
 chrome.runtime.onStartup.addListener(() => void verifier());
 // La liste ou l'option de pause changent : les règles se recalculent aussitôt.

@@ -226,6 +226,9 @@ export default function Reglages({
                 <li>
                   En dernier, <strong>Démarrer le minuteur</strong> (<em>Start Timer</em>) sur la même durée : c’est lui qui s’affiche sur l’écran verrouillé et dans la Dynamic Island.
                 </li>
+                <li>
+                  Pour « Ne pas déranger » dès le départ : <strong>Définir la concentration</strong> (<em>Set Focus</em>) → <strong>Hameau</strong>, <strong>Activer</strong> (voir « Pendant le chrono » plus bas).
+                </li>
               </ul>
             </details>
             <details>
@@ -237,7 +240,47 @@ export default function Reglages({
                 <li>
                   <code>p_action</code> = <code>arreter</code>, et <code>p_description</code> = la variable <em>Provided Input</em>.
                 </li>
+                <li>
+                  En dernier, <strong>Définir la concentration</strong> → <strong>Hameau</strong>, <strong>Désactiver</strong>.
+                </li>
               </ul>
+            </details>
+            <details>
+              <summary>Pendant le chrono : « Ne pas déranger », et Snapchat, Vinted, leboncoin, Beebs fermés</summary>
+              <p>
+                Une automatisation de l’iPhone : chaque fois que tu ouvres une de ces apps, elle demande à Hameau si un chrono tourne — lancé ici, sur l’ordinateur ou par un raccourci. Si oui, elle met « Ne pas déranger » et te renvoie à l’écran d’accueil. Sinon, l’app s’ouvre normalement. En pause, elles restent permises.
+              </p>
+              <ol>
+                <li>
+                  <strong>Une concentration pour le chrono.</strong> Réglages de l’iPhone → <strong>Concentration</strong> → <strong>+</strong> → <strong>Personnalisé</strong>, nom <strong>Hameau</strong>. Notifications : aucune personne, aucune app. C’est un « Ne pas déranger » réservé au chrono : l’éteindre à la fin ne coupe jamais celui de ta nuit.
+                </li>
+                <li>
+                  <strong>Le raccourci « Hameau · Garde »</strong> (app Raccourcis → <strong>+</strong>) :
+                  <ol>
+                    <li>
+                      <strong>Obtenir le contenu de l’URL</strong> : les réglages communs ci-dessus, avec <code>p_action</code> = <code>etat</code>.
+                    </li>
+                    <li>
+                      <strong>Obtenir la valeur du dictionnaire</strong>, clé <code>etat</code>.
+                    </li>
+                    <li>
+                      <strong>Si</strong> (<em>If</em>) la valeur <strong>est</strong> <code>en_cours</code> : <strong>Définir la concentration</strong> → <strong>Hameau</strong>, <strong>Activer</strong> (jusqu’à désactivation) ; <strong>Afficher la notification</strong> « Chrono en cours : ce sera après. » ; <strong>Aller à l’écran d’accueil</strong> (<em>Go to Home Screen</em>).
+                    </li>
+                    <li>
+                      <strong>Sinon</strong> : <strong>Définir la concentration</strong> → <strong>Hameau</strong>, <strong>Désactiver</strong>. Un chrono arrêté ailleurs (sur l’ordinateur) range ainsi « Ne pas déranger » à la prochaine ouverture.
+                    </li>
+                  </ol>
+                </li>
+                <li>
+                  <strong>L’automatisation.</strong> Onglet <strong>Automatisation</strong> → <strong>+</strong> → <strong>App</strong> → <strong>Choisir</strong> : Snapchat, Vinted, leboncoin, Beebs → <strong>Est ouverte</strong> → <strong>Exécuter immédiatement</strong>, et désactive « Avertir lors de l’exécution ». Action : <strong>Exécuter le raccourci</strong> → « Hameau · Garde ».
+                </li>
+                <li>
+                  <strong>Au lancement.</strong> Ajoute la concentration Hameau à « Focus — démarrer » et à « Fin » (ci-dessus). Un chrono lancé dans l’app ou sur l’ordinateur met « Ne pas déranger » en place dès que tu ouvres une de ces apps.
+                </li>
+              </ol>
+              <p className="aide">
+                Sans réseau, Hameau ne peut pas répondre : l’app s’ouvre. Un chrono oublié garde les apps fermées : arrête-le dans Hameau. Sur l’ordinateur, l’extension Chrome ferme aussi ces sites pendant le chrono.
+              </p>
             </details>
             <details>
               <summary>« Pause » et « Reprise »</summary>

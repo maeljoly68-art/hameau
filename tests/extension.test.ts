@@ -36,6 +36,8 @@ import {
   FRAICHEUR_MAX_MS,
   SITES_MAX,
   SITES_PAR_DEFAUT,
+  DEFAUTS_AJOUTES,
+  ajouterNouveauxDefauts,
   domaineDe,
   estProtege,
   etatDepuisSession,
@@ -104,7 +106,7 @@ test('la liste est bornée', () => {
 });
 
 test('les sites par défaut sont ceux demandés, et aucun n’est protégé', () => {
-  assert.deepEqual(SITES_PAR_DEFAUT, ['youtube.com', 'linkedin.com', 'instagram.com']);
+  assert.deepEqual(SITES_PAR_DEFAUT, ['youtube.com', 'linkedin.com', 'instagram.com', 'snapchat.com', 'vinted.fr', 'leboncoin.fr', 'beebs.app']);
   assert.ok(SITES_PAR_DEFAUT.every((s) => domaineDe(s) === s && !estProtege(s)));
 });
 
@@ -542,4 +544,26 @@ test('parSite : trois sites par défaut', () => {
   const s = { ...SUIVI_VIDE, totaux: { [cleActivite('a.fr', '')]: 40, [cleActivite('b.fr', '')]: 30, [cleActivite('c.fr', '')]: 20, [cleActivite('d.fr', '')]: 10 } };
   assert.deepEqual(parSite(s).map((x) => x.site), ['a.fr', 'b.fr', 'c.fr']);
   assert.equal(parSite(s, 4).length, 4);
+});
+
+test('les défauts arrivés depuis rejoignent une fois une liste déjà réglée, et jamais plus si on les retire', () => {
+  assert.deepEqual(DEFAUTS_AJOUTES, ['snapchat.com', 'vinted.fr', 'leboncoin.fr', 'beebs.app']);
+  const reglee = ['youtube.com', 'reddit.com'];
+  const m = ajouterNouveauxDefauts(reglee, undefined);
+  assert.deepEqual(m.sites, ['youtube.com', 'reddit.com', 'snapchat.com', 'vinted.fr', 'leboncoin.fr', 'beebs.app']);
+  assert.deepEqual(reglee, ['youtube.com', 'reddit.com'], 'la liste reçue n’est pas modifiée en place');
+  // LinkedIn et Instagram, retirés avant : ils ne reviennent pas (ce ne sont pas des défauts « arrivés depuis »)
+  assert.ok(!m.sites?.includes('instagram.com') && !m.sites?.includes('linkedin.com'));
+  // la personne retire Vinted ensuite : une mise à jour suivante ne le remet pas
+  const retire = (m.sites ?? []).filter((x) => x !== 'vinted.fr');
+  assert.deepEqual(ajouterNouveauxDefauts(retire, m.proposes).sites, retire);
+  // déjà présent (ajouté à la main) : pas de doublon
+  assert.deepEqual(ajouterNouveauxDefauts(['vinted.fr'], []).sites, ['vinted.fr', 'snapchat.com', 'leboncoin.fr', 'beebs.app']);
+  // jamais enregistrée : rien à écrire, les défauts s'appliquent déjà ; ils sont notés comme proposés
+  const neuve = ajouterNouveauxDefauts(undefined, undefined);
+  assert.equal(neuve.sites, null);
+  assert.deepEqual(neuve.proposes, DEFAUTS_AJOUTES);
+  // une liste pleine ne déborde pas
+  const pleine = Array.from({ length: 50 }, (_, i) => `site${i}.com`);
+  assert.equal(ajouterNouveauxDefauts(pleine, []).sites?.length, 50);
 });
