@@ -3,3 +3,5 @@ export function fichiersDe(dossier: string, prefixe?: string): { nom: string; do
 export function construireZip(fichiers: { nom: string; donnees: Uint8Array }[], racine: string): Buffer;
 export const RACINE_ZIP: string;
 export const SORTIE_ZIP: string;
+export const RACINE_WIDGET: string;
+export const SORTIE_WIDGET: string;

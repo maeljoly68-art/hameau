@@ -7,3 +7,4 @@ dist
 
 # Engendré au build (scripts/zipper-extension.mjs) depuis extension/
 public/hameau-bloqueur.zip
+public/hameau-widget-windows.zip

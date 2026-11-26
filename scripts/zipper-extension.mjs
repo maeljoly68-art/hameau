@@ -82,6 +82,9 @@ export function construireZip(fichiers, racine) {
 
 export const RACINE_ZIP = 'hameau-bloqueur';
 export const SORTIE_ZIP = 'public/hameau-bloqueur.zip';
+/** Le widget du bureau Windows (windows/) : un script PowerShell et son lanceur, rangés de la même façon. */
+export const RACINE_WIDGET = 'hameau-widget-windows';
+export const SORTIE_WIDGET = 'public/hameau-widget-windows.zip';
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const racine = fileURLToPath(new URL('..', import.meta.url));
@@ -89,4 +92,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   mkdirSync(posix.dirname(join(racine, SORTIE_ZIP)), { recursive: true });
   writeFileSync(join(racine, SORTIE_ZIP), zip);
   console.log(`Extension rangée : ${SORTIE_ZIP} (${zip.length} octets)`);
+  const widget = construireZip(fichiersDe(join(racine, 'windows')), RACINE_WIDGET);
+  writeFileSync(join(racine, SORTIE_WIDGET), widget);
+  console.log(`Widget Windows rangé : ${SORTIE_WIDGET} (${widget.length} octets)`);
 }

@@ -180,7 +180,7 @@ export default function Reglages({
       <BloquerSites />
 
       <section className="carte">
-        <h2>Raccourcis iPhone / iPad</h2>
+        <h2>Raccourcis et widgets</h2>
         {!synchronise ? (
           <p className="aide">Les raccourcis demandent un compte : ils parlent au serveur, pas à cet appareil.</p>
         ) : (
@@ -268,6 +268,29 @@ export default function Reglages({
               </ol>
               <p className="aide">
                 Le temps défile tout seul ; un démarrage, une pause ou un arrêt s’y voient quand iOS rafraîchit le widget, en général en quelques minutes. Toucher le widget ouvre Hameau.
+              </p>
+            </details>
+            <details>
+              <summary>Widget sur le bureau Windows</summary>
+              <p>
+                Une petite fenêtre flottante, sans rien à installer (PowerShell est fourni avec Windows) : le temps de travail défile à la seconde, avec ton objectif, quel que soit l’appareil où le chrono a été lancé.
+              </p>
+              <ol>
+                <li>
+                  <a className="bouton petit" href={`${import.meta.env.BASE_URL}hameau-widget-windows.zip`} download="hameau-widget-windows.zip">
+                    Télécharger le widget
+                  </a>
+                </li>
+                <li>
+                  Clic droit sur le zip → <strong>Extraire tout…</strong>, et range le dossier où tu veux (Documents, par exemple).
+                </li>
+                <li>
+                  Double-clique <strong>Lancer le widget Hameau</strong>. Si Windows avertit : <strong>Informations complémentaires</strong> → <strong>Exécuter quand même</strong> (ou <strong>Exécuter</strong>).
+                </li>
+                <li>Au premier lancement, colle ton jeton (ci-dessus).</li>
+              </ol>
+              <p className="aide">
+                Glisse-le où tu veux : il reste à sa place. Double-clic : ouvre Hameau. Clic droit : démarrer, mettre en pause ou reprendre le chrono, toujours au premier plan, <strong>lancer avec Windows</strong>, changer le jeton, fermer. Il suit le thème clair ou sombre de Windows.
               </p>
             </details>
             <details>
