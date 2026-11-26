@@ -132,6 +132,7 @@ L'extension `extension/` (Manifest V3, sans dépendance) fait trois choses tant 
 | **Windows** | Edge ou Chrome → *Installer l’application*. Pendant une session, **⧉ Mini-chrono** ouvre une petite fenêtre toujours au premier plan. Le chrono s’affiche aussi dans le titre de la fenêtre / barre des tâches. |
 | **iPhone / iPad** | Safari → Partager → *Sur l’écran d’accueil*. L’app s’ouvre en plein écran. |
 | **Écran verrouillé iOS** | Une app web ne peut pas créer d’« activité en direct » (réservé à l’App Store). Le **raccourci Apple** contourne ça : il démarre la session *et* le minuteur de l’Horloge, qui, lui, s’affiche sur l’écran verrouillé et dans la Dynamic Island. Guide pas à pas dans l’app, onglet Réglages. |
+| **Widget iPhone** | Écran d’accueil et écran verrouillé, par l’app gratuite Scriptable : `scriptable/hameau-widget.js` (copié depuis Réglages → Raccourcis iPhone / iPad → « Widget »), paramètre = le jeton des raccourcis. Il appelle `hameau_raccourci` (action `etat`, qui donne aussi `secondes` et `depuis`, l’heure de départ sans les pauses, migration `20261126`) et laisse l’iPhone faire défiler le temps à la seconde ; en pause il se fige. Testé dans un faux Scriptable (`tests/widget.test.ts`). La Dynamic Island reste réservée aux apps de l’App Store : le minuteur de l’Horloge lancé par le raccourci « Focus » y va. |
 
 Les sessions sont synchronisées en temps réel : lancée sur l’iPhone, elle
 apparaît sur le PC ; on peut l’arrêter depuis n’importe quel appareil. Une

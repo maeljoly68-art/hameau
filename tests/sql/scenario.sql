@@ -232,6 +232,11 @@ select :'e' = 'en_pause' as ok \gset
 select public.hameau_raccourci(current_setting('test.jeton'), 'reprendre')->>'etat' as e \gset
 select :'e' = 'en_cours' as ok \gset
 \if :ok \else \echo 'ÉCHEC : reprise par raccourci' \quit 3 \endif
+-- Le widget : le temps de travail à la seconde (60 min - 10 min de pause), et l'heure de départ sans les pauses.
+select (public.hameau_raccourci(current_setting('test.jeton'), 'etat')->>'secondes')::int between 3000 and 3005 as ok \gset
+\if :ok \else \echo 'ÉCHEC : secondes de travail du raccourci' \quit 3 \endif
+select abs(extract(epoch from now() - (public.hameau_raccourci(current_setting('test.jeton'), 'etat')->>'depuis')::timestamptz) - 3000) < 6 as ok \gset
+\if :ok \else \echo 'ÉCHEC : départ sans les pauses (depuis)' \quit 3 \endif
 select public.hameau_raccourci(current_setting('test.jeton'), 'arreter')->>'minutes' as mn \gset
 select :'mn' = '50' as ok \gset
 \if :ok \else \echo 'ÉCHEC : durée effective du raccourci' :'mn' \quit 3 \endif

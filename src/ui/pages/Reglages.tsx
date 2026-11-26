@@ -7,6 +7,8 @@ import { carillon } from '../alertes.ts';
 import { appliquerTheme, lireTheme, type Theme } from '../theme.ts';
 import { BloquerSites } from './BloquerSites.tsx';
 import { RappelPush } from './RappelPush.tsx';
+// Le script du widget (app Scriptable), copié tel quel par la personne : la même source que celle que testent les tests.
+import scriptWidget from '../../../scriptable/hameau-widget.js?raw';
 
 function telecharger(nom: string, contenu: string, type: string) {
   const a = document.createElement('a');
@@ -244,6 +246,35 @@ export default function Reglages({
                   En dernier, <strong>Définir la concentration</strong> → <strong>Hameau</strong>, <strong>Désactiver</strong>.
                 </li>
               </ul>
+            </details>
+            <details>
+              <summary>Widget : le chrono sur l’écran d’accueil et l’écran verrouillé</summary>
+              <p>
+                Une app web ne peut pas créer de widget : l’app gratuite <strong>Scriptable</strong> le fait à sa place. Le temps de travail défile à la seconde (pauses déduites), se fige pendant une pause, et le widget dit quand aucun chrono ne tourne.
+              </p>
+              <ol>
+                <li>
+                  Installe <strong>Scriptable</strong> (App Store, gratuit).
+                </li>
+                <li>
+                  Copie le script <Copier texte={scriptWidget} />, puis dans Scriptable : <strong>+</strong>, colle, et nomme-le <strong>Hameau</strong> (touche le titre en haut).
+                </li>
+                <li>
+                  <strong>Écran d’accueil</strong> : appui long sur l’écran → <strong>Modifier</strong> (<em>Edit</em>) → <strong>Ajouter un widget</strong> (<em>Add Widget</em>) → Scriptable → petit ou moyen. Puis appui long sur le widget → <strong>Modifier le widget</strong> (<em>Edit Widget</em>) : <em>Script</em> = Hameau, <em>Parameter</em> = ton jeton.
+                </li>
+                <li>
+                  <strong>Écran verrouillé</strong> : appui long → <strong>Personnaliser</strong> (<em>Customize</em>) → écran verrouillé → la zone des widgets → Scriptable (rectangle, rond, ou la ligne au-dessus de l’heure) → touche-le : <em>Script</em> = Hameau, <em>Parameter</em> = ton jeton.
+                </li>
+              </ol>
+              <p className="aide">
+                Le temps défile tout seul ; un démarrage, une pause ou un arrêt s’y voient quand iOS rafraîchit le widget, en général en quelques minutes. Toucher le widget ouvre Hameau.
+              </p>
+            </details>
+            <details>
+              <summary>Dynamic Island</summary>
+              <p>
+                Seules les apps de l’App Store peuvent s’y afficher, pas une app web ni un widget Scriptable. Le minuteur de l’Horloge, lui, y va : c’est la dernière action de « Focus — démarrer » (<strong>Démarrer le minuteur</strong>, sur la durée de ton objectif). Il compte à rebours jusqu’à ton objectif, dans la Dynamic Island et sur l’écran verrouillé.
+              </p>
             </details>
             <details>
               <summary>Pendant le chrono : « Ne pas déranger », et Snapchat, Vinted, leboncoin, Beebs fermés</summary>
