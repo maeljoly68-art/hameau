@@ -250,7 +250,7 @@ export default function Reglages({
             <details>
               <summary>Widget : le chrono sur l’écran d’accueil et l’écran verrouillé</summary>
               <p>
-                Une app web ne peut pas créer de widget : l’app gratuite <strong>Scriptable</strong> le fait à sa place. Le temps de travail défile à la seconde (pauses déduites), se fige pendant une pause, et le widget dit quand aucun chrono ne tourne.
+                Une app web ne peut pas créer de widget : l’app gratuite <strong>Scriptable</strong> le fait à sa place. Le temps de travail défile à la seconde (pauses déduites), se fige pendant une pause, et le widget dit quand aucun chrono ne tourne. Il sert aussi de bouton : lancer, pause, reprise, fin.
               </p>
               <ol>
                 <li>
@@ -266,14 +266,22 @@ export default function Reglages({
                   <strong>Écran verrouillé</strong> : appui long → <strong>Personnaliser</strong> (<em>Customize</em>) → écran verrouillé → la zone des widgets → Scriptable (rectangle, rond, ou la ligne au-dessus de l’heure) → touche-le : <em>Script</em> = Hameau, <em>Parameter</em> = ton jeton.
                 </li>
               </ol>
+              <ul>
+                <li>
+                  <strong>Moyen</strong> : deux boutons. <strong>⏸ Pause</strong> (ou <strong>▶ Lancer</strong>, <strong>▶ Reprendre</strong>) : un toucher, il n’arrête jamais, la session reste ouverte et le temps se fige. <strong>■ Fin</strong> : il demande ce que tu as fait, puis enregistre — c’est la confirmation, une session terminée ne se rouvre pas.
+                </li>
+                <li>
+                  <strong>Petit</strong> et écran verrouillé : un toucher lance s’il n’y a pas de chrono ; sinon il propose pause (ou reprise) et terminer.
+                </li>
+              </ul>
               <p className="aide">
-                Le temps défile tout seul ; un démarrage, une pause ou un arrêt s’y voient quand iOS rafraîchit le widget, en général en quelques minutes. Toucher le widget ouvre Hameau.
+                Pour agir, iOS ouvre Scriptable une seconde, puis une notification confirme (« Pause après 32 min ») : remonte ensuite à l’écran d’accueil. Le temps défile tout seul ; un changement s’y voit quand iOS rafraîchit le widget, en général en quelques minutes. Déjà installé ? Recopie le script : c’est la nouvelle version qui a les boutons. Une session lancée par le widget vise 50 min (la ligne <code>OBJECTIF</code> en haut du script).
               </p>
             </details>
             <details>
-              <summary>Widget à toucher : lancer, pause, terminer (iPhone)</summary>
+              <summary>Sans ouvrir d’app : les tuiles du widget Raccourcis (iPhone)</summary>
               <p>
-                Sur iPhone, seul le widget de l’app <strong>Raccourcis</strong> fait une action sans ouvrir d’app (toucher le widget Scriptable, lui, ouvre Hameau). Deux tuiles, à poser à côté du widget du temps :
+                Le widget Scriptable ci-dessus fait déjà lancer, pause et fin, mais il ouvre Scriptable une seconde. Seul le widget de l’app <strong>Raccourcis</strong> agit sans rien ouvrir ; il demande de faire un raccourci de plus, une fois. Deux tuiles, à poser à côté du widget du temps :
               </p>
               <ul>
                 <li>
@@ -285,7 +293,7 @@ export default function Reglages({
               </ul>
               <ol>
                 <li>
-                  Le raccourci <strong>Hameau · Chrono</strong> (app Raccourcis → <strong>+</strong>) : <strong>Obtenir le contenu de l’URL</strong> avec les réglages communs ci-dessus et <code>p_action</code> = <code>alterner</code> (facultatif : <code>p_objectif</code>, <strong>Nombre</strong> = <code>50</code>, pris au lancement), puis <strong>Obtenir la valeur du dictionnaire</strong> (clé <code>message</code>) et <strong>Afficher la notification</strong>.
+                  Le raccourci <strong>Hameau · Chrono</strong> : le plus simple est de dupliquer « Focus » (appui long → <strong>Dupliquer</strong>), de le renommer, de changer <code>p_action</code> en <code>alterner</code> et de supprimer le minuteur et la concentration. Sinon (app Raccourcis → <strong>+</strong>) : <strong>Obtenir le contenu de l’URL</strong> avec les réglages communs ci-dessus et <code>p_action</code> = <code>alterner</code> (facultatif : <code>p_objectif</code>, <strong>Nombre</strong> = <code>50</code>, pris au lancement), puis <strong>Obtenir la valeur du dictionnaire</strong> (clé <code>message</code>) et <strong>Afficher la notification</strong>.
                 </li>
                 <li>
                   « Fin » est celui d’au-dessus (<code>arreter</code>). Pour les reconnaître d’un coup d’œil : appui long sur chaque raccourci → <strong>Détails</strong> → l’icône. Chrono : orange, le symbole pause. Fin : rouge, le carré.
