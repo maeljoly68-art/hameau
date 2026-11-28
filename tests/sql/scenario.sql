@@ -256,6 +256,25 @@ select :'e' = 'en_cours' as ok \gset
 select public.hameau_raccourci(current_setting('test.jeton'), 'arreter')->>'etat' as e \gset
 select :'e' = 'terminee' as ok \gset
 \if :ok \else \echo 'ÉCHEC : arrêt après alterner' :'e' \quit 3 \endif
+-- Le grand widget : les sessions closes des 150 derniers jours, en durée effective, et l'objectif du jour.
+reset role;
+insert into public.sessions (user_id, debut, fin) values ('11111111-1111-1111-1111-111111111111', now() - interval '200 days', now() - interval '200 days' + interval '30 minutes');
+-- Compté ici, hors du rôle anon (la sécurité par ligne lui cache les sessions).
+select count(*) as attendu from public.sessions where user_id = '11111111-1111-1111-1111-111111111111' and fin is not null and debut >= now() - interval '150 days' \gset
+set role anon;
+select public.hameau_raccourci(current_setting('test.jeton'), 'alterner') \gset ignore_
+select public.hameau_raccourci(current_setting('test.jeton'), 'stats')::jsonb as s \gset
+select ((:'s'::jsonb)->>'objectif_jour')::int = 90 as ok \gset
+\if :ok \else \echo 'ÉCHEC : stats, objectif du jour du profil' :'s' \quit 3 \endif
+select exists (select 1 from jsonb_array_elements((:'s'::jsonb)->'sessions') x where (x->>'secondes')::int between 3000 and 3010) as ok \gset
+\if :ok \else \echo 'ÉCHEC : stats, la session de 60 min moins 10 min de pause vaut 3000 s' \quit 3 \endif
+select not exists (select 1 from jsonb_array_elements((:'s'::jsonb)->'sessions') x where (x->>'debut')::timestamptz < now() - interval '151 days') as ok \gset
+\if :ok \else \echo 'ÉCHEC : stats, rien d’au-delà de 150 jours' \quit 3 \endif
+select not exists (select 1 from jsonb_array_elements((:'s'::jsonb)->'sessions') x where x->>'secondes' is null) as ok \gset
+\if :ok \else \echo 'ÉCHEC : stats, la session en cours n’y est pas (pas de durée nulle)' \quit 3 \endif
+select jsonb_array_length((:'s'::jsonb)->'sessions') = :attendu as ok \gset
+\if :ok \else \echo 'ÉCHEC : stats, toutes les sessions closes récentes et seulement elles' \quit 3 \endif
+select public.hameau_raccourci(current_setting('test.jeton'), 'arreter') \gset ignore_
 reset role;
 
 -- Migration 4 : niveaux des bâtiments.

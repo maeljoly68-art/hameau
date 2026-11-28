@@ -9,6 +9,8 @@
 // Le temps compte à la seconde tout seul (c'est l'iPhone qui fait tourner le minuteur à partir de l'heure de départ) ;
 // l'état lui-même (en cours, en pause, arrêté) se relit quand iOS rafraîchit le widget, toutes les quelques minutes.
 //
+// Le grand widget montre aussi la régularité des 20 dernières semaines et les 14 derniers jours, comme la page Stats.
+//
 // Toucher le widget agit sur le chrono : iOS ouvre Scriptable une seconde, le temps de le faire, et une notification
 // confirme. Widget moyen : deux boutons, « ⏸ Pause » (ou « ▶ Lancer », « ▶ Reprendre ») et « ■ Fin ». Petit widget et
 // écran verrouillé : un toucher lance s'il n'y a pas de chrono, sinon propose pause ou reprise, et terminer.
@@ -18,8 +20,8 @@
 const URL_RPC = 'https://nisjysdlyryyrsgwmcaa.supabase.co/rest/v1/rpc/hameau_raccourci';
 const CLE_PUBLIQUE = 'sb_publishable_06uV9QEJP7WmyV31tKe9pQ_yvGjTp-c';
 const ADRESSE_HAMEAU = 'https://maeljoly68-art.github.io/hameau/';
-// L'objectif, en minutes, d'une session lancée depuis le widget. Mets null pour une session libre.
-const OBJECTIF = 50;
+// Une session lancée depuis le widget est libre. Pour lui donner un objectif, mets ici un nombre de minutes (ex. 50).
+const OBJECTIF = null;
 
 const COULEURS = {
   fond: Color.dynamic(new Color('#f5efe3'), new Color('#13201c')),
@@ -53,6 +55,126 @@ const lancement = () => (OBJECTIF ? { p_objectif: OBJECTIF } : {});
 
 /** « 37 min », « 1 h 06 ». */
 const duree = (m) => (m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min`);
+
+// ── Les statistiques du grand widget (mêmes règles que la page Stats de Hameau) ──
+
+/** Le jour local (« 2026-11-28 ») : les sessions se groupent dans le fuseau du téléphone, pas celui du serveur. */
+const cleJour = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** n jours plus tard, à midi : un changement d'heure ne fait jamais sauter ni doubler un jour. */
+const decaler = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, 12);
+const lundi = (d) => decaler(d, -((d.getDay() + 6) % 7));
+
+/** Minutes de travail par jour : une session compte au jour de son début, pour sa durée effective. */
+function minutesParJour(sessions) {
+  const m = new Map();
+  for (const s of Array.isArray(sessions) ? sessions : []) {
+    if (typeof s.secondes !== 'number' || !s.debut) continue;
+    const k = cleJour(new Date(s.debut));
+    m.set(k, (m.get(k) || 0) + s.secondes / 60);
+  }
+  return m;
+}
+
+/** 0 : rien ; 1 : un peu ; 2 : un quart ; 3 : la moitié ; 4 : objectif atteint. */
+function intensite(minutes, objectifJour) {
+  if (minutes <= 0) return 0;
+  const r = minutes / Math.max(1, objectifJour);
+  return r >= 1 ? 4 : r >= 0.5 ? 3 : r >= 0.25 ? 2 : 1;
+}
+
+/** Les couleurs des dessins : une image ne suit pas seule le thème, on la peint pour celui du moment. */
+function palette() {
+  const sombre = Device.isUsingDarkAppearance();
+  const v = '#6fd39a';
+  return {
+    cases: [sombre ? new Color('#ffffff', 0.1) : new Color('#3b2a17', 0.1), new Color(v, 0.25), new Color(v, 0.48), new Color(v, 0.72), new Color(v)],
+    vide: sombre ? new Color('#ffffff', 0.14) : new Color('#3b2a17', 0.16),
+    atteint: new Color(sombre ? '#61dd97' : '#00713e'),
+    pasAtteint: new Color(sombre ? '#fcb036' : '#aa4000'),
+    ligne: new Color(v, 0.55),
+    deborde: new Color(sombre ? '#efe9dc' : '#2b2620'),
+    etiquette: new Color(sombre ? '#979e91' : '#6e6151'),
+  };
+}
+
+const SEMAINES = 20;
+const LARGEUR_DESSIN = 296;
+
+/** La régularité : une colonne par semaine (lundi en haut), la dernière contient aujourd'hui. */
+function imageRegularite(parJour, objectifJour, maintenant, largeur = LARGEUR_DESSIN) {
+  const P = palette();
+  const marge = 14;
+  const ecart = 3;
+  const c = (largeur - marge - ecart * (SEMAINES - 1)) / SEMAINES;
+  const ctx = new DrawContext();
+  ctx.size = new Size(largeur, 7 * c + 6 * ecart);
+  ctx.opaque = false;
+  ctx.respectScreenScale = true;
+  ctx.setFont(Font.systemFont(9));
+  ctx.setTextColor(P.etiquette);
+  ['L', '', 'M', '', 'V', '', 'D'].forEach((t, j) => t && ctx.drawTextInRect(t, new Rect(0, j * (c + ecart) + (c - 11) / 2, marge, 12)));
+  const aujourdhui = cleJour(maintenant);
+  const premier = decaler(lundi(maintenant), -7 * (SEMAINES - 1));
+  for (let s = 0; s < SEMAINES; s++) {
+    for (let j = 0; j < 7; j++) {
+      const k = cleJour(decaler(premier, s * 7 + j));
+      const chemin = new Path();
+      chemin.addRoundedRect(new Rect(marge + s * (c + ecart), j * (c + ecart), c, c), c * 0.28, c * 0.28);
+      ctx.addPath(chemin);
+      if (k > aujourdhui) {
+        // Les jours à venir de la semaine : un contour, pas une case vide qu'on lirait comme « rien fait ».
+        ctx.setStrokeColor(P.vide);
+        ctx.setLineWidth(1);
+        ctx.strokePath();
+      } else {
+        ctx.setFillColor(P.cases[intensite(parJour.get(k) || 0, objectifJour)]);
+        ctx.fillPath();
+      }
+    }
+  }
+  return ctx.getImage();
+}
+
+/** Les 14 derniers jours : vert quand l'objectif du jour est atteint, orange sinon, et la ligne de l'objectif. */
+function imageJours(parJour, objectifJour, maintenant, largeur = LARGEUR_DESSIN) {
+  const P = palette();
+  const N = 14;
+  const ecart = 5;
+  const haut = 56;
+  const b = (largeur - ecart * (N - 1)) / N;
+  // L'échelle suit l'objectif, pas le plus gros jour : un marathon isolé écraserait sinon toutes les autres barres.
+  const echelle = Math.max(objectifJour * 1.5, 30);
+  const ctx = new DrawContext();
+  ctx.size = new Size(largeur, haut + 16);
+  ctx.opaque = false;
+  ctx.respectScreenScale = true;
+  ctx.setFillColor(P.ligne);
+  const yObjectif = haut - haut * Math.min(1, objectifJour / echelle);
+  for (let x = 0; x < largeur; x += 6) ctx.fillRect(new Rect(x, yObjectif, 3, 1));
+  ctx.setFont(Font.systemFont(9));
+  ctx.setTextColor(P.etiquette);
+  ctx.setTextAlignedCenter();
+  for (let i = 0; i < N; i++) {
+    const jour = decaler(maintenant, i - (N - 1));
+    const m = parJour.get(cleJour(jour)) || 0;
+    const deborde = m > echelle;
+    // 3 points au moins : un jour vide se voit, au lieu de disparaître.
+    const h = Math.max(3, (haut - (deborde ? 3 : 0)) * Math.min(1, m / echelle));
+    const x = i * (b + ecart);
+    const chemin = new Path();
+    chemin.addRoundedRect(new Rect(x, haut - h, b, h), Math.min(4, b / 3), Math.min(4, b / 3));
+    ctx.addPath(chemin);
+    ctx.setFillColor(m >= objectifJour ? P.atteint : P.pasAtteint);
+    ctx.fillPath();
+    if (deborde) {
+      // Au-delà de l'échelle : un liseré clair au sommet dit « plus que ça ».
+      ctx.setFillColor(P.deborde);
+      ctx.fillRect(new Rect(x, 0, b, 2));
+    }
+    ctx.drawTextInRect(['D', 'L', 'M', 'M', 'J', 'V', 'S'][jour.getDay()], new Rect(x, haut + 4, b, 12));
+  }
+  return ctx.getImage();
+}
 
 // ── Dans l'app : ce que fait un toucher sur le widget ──
 
@@ -120,7 +242,9 @@ async function agir(demande, jeton) {
 async function dessiner() {
   const jeton = String(args.widgetParameter || '').trim();
   const famille = config.widgetFamily || 'small';
-  const e = await appeler(jeton, 'etat');
+  const grand = famille === 'systemLarge' || famille === 'systemExtraLarge';
+  // Le grand widget demande aussi les statistiques, en même temps que l'état.
+  const [e, stats] = await Promise.all([appeler(jeton, 'etat'), grand ? appeler(jeton, 'stats') : Promise.resolve(null)]);
   const enCours = e.etat === 'en_cours' && typeof e.depuis === 'string';
   const enPause = e.etat === 'en_pause';
   const ouverte = enCours || enPause;
@@ -198,14 +322,15 @@ async function dessiner() {
     w.backgroundColor = COULEURS.fond;
     w.setPadding(14, 16, 14, 16);
     texte('HAMEAU', Font.semiboldSystemFont(11), COULEURS.accent);
-    w.addSpacer();
+    if (grand) w.addSpacer(4);
+    else w.addSpacer();
     const ligne = w.addStack();
     ligne.layoutHorizontally();
     ligne.centerAlignContent();
     const gauche = ligne.addStack();
     gauche.layoutVertically();
-    if (enCours) minuteur(Font.boldRoundedSystemFont(40), COULEURS.encre, gauche);
-    else texte(enPause ? tempsFige() : '—', Font.boldRoundedSystemFont(34), COULEURS.encre, gauche);
+    if (enCours) minuteur(Font.boldRoundedSystemFont(grand ? 32 : 40), COULEURS.encre, gauche);
+    else texte(enPause ? tempsFige() : '—', Font.boldRoundedSystemFont(grand ? 28 : 34), COULEURS.encre, gauche);
     texte(statut, Font.semiboldSystemFont(13), enCours ? COULEURS.accent : COULEURS.doux, gauche);
     if (objectif !== null && ouverte) texte(`objectif ${duree(objectif)}`, Font.systemFont(12), COULEURS.doux, gauche);
     if (e.erreur === 'jeton') texte('Modifier le widget → Parameter', Font.systemFont(11), COULEURS.doux, gauche);
@@ -222,7 +347,31 @@ async function dessiner() {
         bouton(droite, '■ Fin', 'terminer', COULEURS.piste, COULEURS.encre);
       }
     }
+    if (grand && stats && !stats.erreur && Array.isArray(stats.sessions)) statistiques(w, stats, famille === 'systemExtraLarge');
     w.addSpacer();
+  }
+
+  /** La régularité et les 14 derniers jours, l'un sous l'autre (côte à côte sur le très grand widget de l'iPad). */
+  function statistiques(dans, st, coteACote) {
+    const parJour = minutesParJour(st.sessions);
+    const objectifJour = typeof st.objectif_jour === 'number' && st.objectif_jour > 0 ? st.objectif_jour : 120;
+    const maintenant = new Date();
+    dans.addSpacer(10);
+    const bloc = dans.addStack();
+    if (coteACote) bloc.layoutHorizontally();
+    else bloc.layoutVertically();
+    const partie = (titre, image) => {
+      const p = bloc.addStack();
+      p.layoutVertically();
+      texte(titre, Font.boldSystemFont(13), COULEURS.encre, p);
+      p.addSpacer(4);
+      const i = p.addImage(image);
+      i.imageSize = image.size;
+      return p;
+    };
+    partie(`Régularité · ${SEMAINES} semaines`, imageRegularite(parJour, objectifJour, maintenant));
+    bloc.addSpacer(coteACote ? 24 : 10);
+    partie('14 derniers jours', imageJours(parJour, objectifJour, maintenant));
   }
 
   if (config.runsInWidget) Script.setWidget(w);

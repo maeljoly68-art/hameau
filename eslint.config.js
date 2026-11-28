@@ -19,6 +19,6 @@ export default tseslint.config(
   // Le widget de l'iPhone tourne dans l'app Scriptable, qui fournit ces objets.
   {
     files: ['scriptable/**/*.js'],
-    languageOptions: { globals: { ListWidget: 'readonly', Request: 'readonly', Color: 'readonly', Font: 'readonly', config: 'readonly', args: 'readonly', Script: 'readonly' } },
+    languageOptions: { globals: { ListWidget: 'readonly', Request: 'readonly', Color: 'readonly', Font: 'readonly', config: 'readonly', args: 'readonly', Script: 'readonly', Alert: 'readonly', Notification: 'readonly', Safari: 'readonly', DrawContext: 'readonly', Path: 'readonly', Rect: 'readonly', Size: 'readonly', Device: 'readonly' } },
   },
 );

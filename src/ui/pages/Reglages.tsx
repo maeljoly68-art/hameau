@@ -273,9 +273,12 @@ export default function Reglages({
                 <li>
                   <strong>Petit</strong> et écran verrouillé : un toucher lance s’il n’y a pas de chrono ; sinon il propose pause (ou reprise) et terminer.
                 </li>
+                <li>
+                  <strong>Grand</strong> : les deux boutons, et en dessous la régularité des 20 dernières semaines et les 14 derniers jours, comme dans Stats (même objectif du jour, mêmes couleurs).
+                </li>
               </ul>
               <p className="aide">
-                Pour agir, iOS ouvre Scriptable une seconde, puis une notification confirme (« Pause après 32 min ») : remonte ensuite à l’écran d’accueil. Le temps défile tout seul ; un changement s’y voit quand iOS rafraîchit le widget, en général en quelques minutes. Déjà installé ? Recopie le script : c’est la nouvelle version qui a les boutons. Une session lancée par le widget vise 50 min (la ligne <code>OBJECTIF</code> en haut du script).
+                Pour agir, iOS ouvre Scriptable une seconde, puis une notification confirme (« Pause après 32 min ») : remonte ensuite à l’écran d’accueil. Le temps défile tout seul ; un changement s’y voit quand iOS rafraîchit le widget, en général en quelques minutes. Déjà installé ? Recopie le script : c’est la nouvelle version qui a les boutons. Une session lancée par le widget est libre, sans objectif (pour en donner un : la ligne <code>OBJECTIF</code> en haut du script).
               </p>
             </details>
             <details>

@@ -8,8 +8,18 @@ import vm from 'node:vm';
 
 const SCRIPT = readFileSync(new URL('../scriptable/hameau-widget.js', import.meta.url), 'utf8');
 
+interface Trace {
+  genre: 'plein' | 'contour' | 'rectangle' | 'texte';
+  rect: { x: number; y: number; width: number; height: number };
+  couleur?: { hex: string; alpha: number };
+  texte?: string;
+}
+interface Dessin {
+  traces: Trace[];
+}
 interface Element {
-  genre: 'texte' | 'date';
+  genre: 'texte' | 'date' | 'image';
+  image?: { dessin: Dessin };
   texte?: string;
   date?: Date;
   minuteur?: boolean;
@@ -34,6 +44,7 @@ interface Rendu {
   alertes: AlerteVue[];
   notifications: string[];
   ouvertes: string[];
+  dessins: Dessin[];
   url: string;
   presente: boolean;
 }
@@ -55,7 +66,7 @@ interface Options {
 
 /** Lance le script comme Scriptable le ferait, avec une réponse de Hameau (ou une panne réseau). */
 async function rendre({ famille = 'small', parametre = 'jeton-de-test', reponse = {}, code = 200, panne = false, dansWidget = true, touche, choix = [], saisie = '' }: Options = {}): Promise<Rendu> {
-  const rendu: Rendu = { elements: [], requetes: [], alertes: [], notifications: [], ouvertes: [], url: '', presente: false };
+  const rendu: Rendu = { elements: [], requetes: [], alertes: [], notifications: [], ouvertes: [], dessins: [], url: '', presente: false };
   class Conteneur {
     url = '';
     backgroundColor: unknown = null;
@@ -72,6 +83,11 @@ async function rendre({ famille = 'small', parametre = 'jeton-de-test', reponse 
     }
     addStack() {
       return new Conteneur();
+    }
+    addImage(image: { dessin: Dessin }) {
+      const o: Element & { imageSize?: unknown } = { genre: 'image', image, dans: this };
+      rendu.elements.push(o);
+      return o;
     }
     addSpacer() {}
     setPadding() {}
@@ -146,15 +162,84 @@ async function rendre({ famille = 'small', parametre = 'jeton-de-test', reponse 
   }
   class Color {
     hex: string;
-    constructor(hex: string) {
+    alpha: number;
+    constructor(hex: string, alpha = 1) {
       this.hex = hex;
+      this.alpha = alpha;
     }
     static dynamic(clair: Color) {
       return clair;
     }
   }
   const police = () => ({});
-  const Font = { systemFont: police, semiboldSystemFont: police, boldRoundedSystemFont: police };
+  const Font = { systemFont: police, semiboldSystemFont: police, boldSystemFont: police, boldRoundedSystemFont: police };
+  class Rect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    constructor(x: number, y: number, width: number, height: number) {
+      this.x = x;
+      this.y = y;
+      this.width = width;
+      this.height = height;
+    }
+  }
+  class Size {
+    width: number;
+    height: number;
+    constructor(width: number, height: number) {
+      this.width = width;
+      this.height = height;
+    }
+  }
+  class Path {
+    rect: Rect | null = null;
+    addRoundedRect(r: Rect) {
+      this.rect = r;
+    }
+  }
+  /** Un faux DrawContext : il note ce qu'on y peint, dans l'ordre, avec la couleur. */
+  class DrawContext {
+    size: Size | null = null;
+    opaque = true;
+    respectScreenScale = false;
+    dessin: Dessin = { traces: [] };
+    chemin: Path | null = null;
+    fond: Color | null = null;
+    trait: Color | null = null;
+    constructor() {
+      rendu.dessins.push(this.dessin);
+    }
+    addPath(p: Path) {
+      this.chemin = p;
+    }
+    setFillColor(c: Color) {
+      this.fond = c;
+    }
+    setStrokeColor(c: Color) {
+      this.trait = c;
+    }
+    setLineWidth() {}
+    setFont() {}
+    setTextColor() {}
+    setTextAlignedCenter() {}
+    fillPath() {
+      this.dessin.traces.push({ genre: 'plein', rect: this.chemin!.rect!, couleur: this.fond! });
+    }
+    strokePath() {
+      this.dessin.traces.push({ genre: 'contour', rect: this.chemin!.rect!, couleur: this.trait! });
+    }
+    fillRect(r: Rect) {
+      this.dessin.traces.push({ genre: 'rectangle', rect: r, couleur: this.fond! });
+    }
+    drawTextInRect(t: string, r: Rect) {
+      this.dessin.traces.push({ genre: 'texte', rect: r, texte: t });
+    }
+    getImage() {
+      return { dessin: this.dessin, size: this.size };
+    }
+  }
   let fini = false;
   const contexte = vm.createContext({
     ListWidget,
@@ -163,6 +248,11 @@ async function rendre({ famille = 'small', parametre = 'jeton-de-test', reponse 
     Notification,
     Color,
     Font,
+    Rect,
+    Size,
+    Path,
+    DrawContext,
+    Device: { isUsingDarkAppearance: () => true },
     Safari: { open: (u: string) => rendu.ouvertes.push(u) },
     config: { widgetFamily: famille, runsInWidget: dansWidget && !touche },
     args: { widgetParameter: parametre, queryParameters: touche ?? {} },
@@ -261,8 +351,9 @@ test('toucher « Pause » : l’action part avec le jeton du lien, et une notifi
   const r = await rendre({ touche: { action: 'pause', jeton: 'jeton-du-lien' }, reponse: { etat: 'en_pause', message: 'Pause après 32 min. Reprends quand tu veux.' } });
   assert.deepEqual(r.requetes.map((q) => q.corps), [{ p_jeton: 'jeton-du-lien', p_action: 'pause' }]);
   assert.deepEqual(r.notifications, ['Pause après 32 min. Reprends quand tu veux.']);
+  // lancée sans objectif : une session libre, comme demandé (pas de 50 min imposées)
   const lance = await rendre({ touche: { action: 'demarrer', jeton: 'j' }, reponse: { etat: 'en_cours', message: 'Session lancée.' } });
-  assert.deepEqual(lance.requetes[0].corps, { p_jeton: 'j', p_action: 'demarrer', p_objectif: 50 });
+  assert.deepEqual(lance.requetes[0].corps, { p_jeton: 'j', p_action: 'demarrer' });
 });
 
 test('toucher « Fin » : il demande ce qui a été fait ; annuler n’enregistre rien, confirmer arrête avec la description', async () => {
@@ -300,6 +391,99 @@ test('jeton refusé ou réseau coupé pendant un toucher : une alerte le dit, ri
   assert.match(refuse.alertes[0].message, /Jeton absent ou refusé/);
   const coupe = await rendre({ touche: { action: 'pause', jeton: 'j' }, panne: true });
   assert.match(coupe.alertes[0].message, /ne répond pas/);
+});
+
+// ── Le grand widget : la régularité et les 14 derniers jours ──
+
+/** Un instant local (10 h par défaut), n jours avant aujourd'hui. */
+const ilYa = (n: number, heure = 10, minute = 0) => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - n, heure, minute).toISOString();
+};
+const VERT_ATTEINT = '#61dd97';
+const ORANGE = '#fcb036';
+/** Le grand widget : l'état « en cours », et les sessions des stats. */
+const grandWidget = (sessions: unknown[], objectif_jour: unknown = 90, extra: Options = {}) =>
+  rendre({ famille: 'systemLarge', reponse: (c: Record<string, unknown>) => (c.p_action === 'stats' ? { etat: 'stats', objectif_jour, sessions } : EN_COURS), ...extra });
+const cases = (r: Rendu) => r.dessins[0].traces.filter((t) => t.genre === 'plein' || t.genre === 'contour');
+const barres = (r: Rendu) => r.dessins[1].traces.filter((t) => t.genre === 'plein');
+/** La place d'aujourd'hui dans le calendrier : dernière colonne (semaine 20), ligne du jour (lundi = 0). */
+const indexAujourdhui = () => 19 * 7 + ((new Date().getDay() + 6) % 7);
+
+test('grand widget : il demande aussi les stats ; le moyen, non', async () => {
+  const g = await grandWidget([]);
+  assert.deepEqual(g.requetes.map((q) => q.corps.p_action).sort(), ['etat', 'stats']);
+  assert.match(textes(g), /Régularité · 20 semaines/);
+  assert.match(textes(g), /14 derniers jours/);
+  assert.equal(g.elements.filter((e) => e.genre === 'image').length, 2);
+  const m = await rendre({ famille: 'systemMedium', reponse: EN_COURS });
+  assert.deepEqual(m.requetes.map((q) => q.corps.p_action), ['etat']);
+  assert.equal(m.dessins.length, 0);
+});
+
+test('régularité : 20 semaines de 7 jours, l’intensité selon l’objectif du jour, les jours à venir en contour', async () => {
+  // aujourd'hui pile 90 min (objectif 90 : atteint), hier 30 min (un tiers : niveau 2), avant-hier 50 min (plus de la moitié : 3)
+  const r = await grandWidget([
+    { debut: ilYa(0), secondes: 90 * 60 },
+    { debut: ilYa(1), secondes: 30 * 60 },
+    { debut: ilYa(2), secondes: 20 * 60 },
+    { debut: ilYa(2, 15), secondes: 30 * 60 },
+  ]);
+  const c = cases(r);
+  assert.equal(c.length, 140);
+  const i = indexAujourdhui();
+  assert.deepEqual({ ...c[i].couleur }, { hex: '#6fd39a', alpha: 1 }, 'objectif atteint : le vert plein');
+  if (i - 1 >= 0) assert.equal(c[i - 1].couleur?.alpha, 0.48, 'un tiers de l’objectif : niveau 2');
+  if (i - 2 >= 0) assert.equal(c[i - 2].couleur?.alpha, 0.72, 'deux sessions le même jour s’additionnent : 50 min, niveau 3');
+  // les jours qui restent dans la semaine : des contours, aucun après aujourd'hui n'est peint
+  assert.ok(c.slice(i + 1).every((t) => t.genre === 'contour'));
+  assert.ok(c.slice(0, i + 1).every((t) => t.genre === 'plein'));
+  // une ligne par jour, de haut en bas : lundi en haut de chaque colonne
+  assert.ok(c[7].rect.x > c[6].rect.x && c[7].rect.y === c[0].rect.y);
+});
+
+test('14 derniers jours : vert si l’objectif est atteint, orange sinon, un jour vide se voit, au-delà de l’échelle un liseré', async () => {
+  const r = await grandWidget([
+    { debut: ilYa(0), secondes: 200 * 60 }, // au-delà de 1,5 × 90 = 135 min : liseré
+    { debut: ilYa(1), secondes: 40 * 60 },
+    { debut: ilYa(13), secondes: 90 * 60 },
+    { debut: ilYa(14), secondes: 999 * 60 }, // hors des 14 jours
+  ]);
+  const b = barres(r);
+  assert.equal(b.length, 14);
+  assert.equal(b[13].couleur?.hex, VERT_ATTEINT, 'aujourd’hui, objectif atteint');
+  assert.equal(b[12].couleur?.hex, ORANGE, 'hier, pas atteint');
+  assert.equal(b[0].couleur?.hex, VERT_ATTEINT, 'il y a 13 jours, juste l’objectif : atteint');
+  assert.equal(b[5].rect.height, 3, 'un jour vide garde un trait de 3 points');
+  assert.ok(b[12].rect.height > 3 && b[12].rect.height < b[0].rect.height, 'la hauteur suit les minutes');
+  const liseres = r.dessins[1].traces.filter((t) => t.genre === 'rectangle' && t.rect.height === 2);
+  assert.equal(liseres.length, 1, 'un seul jour dépasse l’échelle');
+  assert.equal(liseres[0].rect.x, b[13].rect.x);
+  // la lettre du jour sous chaque barre, la dernière étant aujourd'hui
+  const lettres = r.dessins[1].traces.filter((t) => t.genre === 'texte').map((t) => t.texte);
+  assert.equal(lettres.length, 14);
+  assert.equal(lettres[13], ['D', 'L', 'M', 'M', 'J', 'V', 'S'][new Date().getDay()]);
+});
+
+test('une session compte au jour LOCAL de son début, pour sa durée effective', async () => {
+  // 0 h 30 aujourd'hui, heure de l'iPhone : c'est aujourd'hui, même si en temps universel (à Paris) c'est encore hier
+  const r = await grandWidget([{ debut: ilYa(0, 0, 30), secondes: 95 * 60 }]);
+  const b = barres(r);
+  assert.equal(b[13].couleur?.hex, VERT_ATTEINT);
+  assert.equal(b[12].rect.height, 3, 'hier reste vide');
+});
+
+test('sans stats lisibles (panne, réponse vide), le grand widget garde le chrono et ne dessine rien de faux', async () => {
+  const r = await rendre({ famille: 'systemLarge', reponse: (c: Record<string, unknown>) => (c.p_action === 'stats' ? { etat: 'stats' } : EN_COURS) });
+  assert.equal(r.dessins.length, 0);
+  assert.equal(minuteurs(r).length, 1);
+  const sansObjectif = await grandWidget([{ debut: ilYa(0), secondes: 130 * 60 }], null);
+  assert.equal(barres(sansObjectif)[13].couleur?.hex, VERT_ATTEINT, 'objectif du jour absent : 120 min par défaut, 130 l’atteint');
+});
+
+test('le très grand widget (iPad) met les deux côte à côte', async () => {
+  const r = await rendre({ famille: 'systemExtraLarge', reponse: (c: Record<string, unknown>) => (c.p_action === 'stats' ? { etat: 'stats', objectif_jour: 60, sessions: [] } : EN_COURS) });
+  assert.equal(r.dessins.length, 2);
 });
 
 test('le widget parle au même projet que l’application, et ne contient aucun secret', () => {
