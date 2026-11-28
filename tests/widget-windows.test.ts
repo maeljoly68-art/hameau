@@ -40,6 +40,14 @@ test('le zip du widget contient le script et son lanceur, sous un dossier', () =
   assert.ok(zip.includes(Buffer.from(`${RACINE_WIDGET}/hameau-widget.ps1`)));
 });
 
+test('le bouton rond ne termine jamais une session : seul le carré le fait, en deux clics', () => {
+  const rond = /\$geste\.Add_Click\(\{([\s\S]*?)\n\}\)/.exec(SCRIPT)?.[1] ?? '';
+  const carre = /\$fin\.Add_Click\(\{([\s\S]*?)\n\}\)/.exec(SCRIPT)?.[1] ?? '';
+  assert.ok(rond.includes('Send-Hameau'), 'le rond envoie bien une action');
+  assert.ok(!rond.includes('arreter'), 'le rond n’arrête pas');
+  assert.match(carre, /Step-Terminer[\s\S]*if \(\$pas\.Arreter\) \{ Send-Hameau 'arreter' \}/);
+});
+
 const pwsh = process.env.PWSH || 'pwsh';
 const disponible = spawnSync(pwsh, ['-NoProfile', '-Command', '1'], { encoding: 'utf8' }).status === 0;
 
@@ -68,8 +76,33 @@ $j = '{"etat":"en_cours","depuis":"2026-11-26T16:52:30.5+00:00","secondes":4049,
 Verifier 'réponse JSON réelle' (Get-Affichage $j $t).Temps '1:07:29'
 $p = Get-Affichage ([pscustomobject]@{ etat = 'en_pause'; secondes = 3990; minutes = 66 }) $t
 Verifier 'pause figée' $p.Temps '1:06:30'
-Verifier 'pause' $p.Statut 'En pause'
+Verifier 'pause' $p.Statut 'En pause · temps figé'
 Verifier 'action pause' $p.Action 'reprendre'
+# Le carré « terminer » : seulement quand une session est ouverte, qu'elle tourne ou soit en pause.
+Verifier 'terminer en cours' $a.Fin $true
+Verifier 'terminer en pause' $p.Fin $true
+Verifier 'rien à terminer' (Get-Affichage ([pscustomobject]@{ etat = 'aucune' }) $t).Fin $false
+Verifier 'rien à terminer hors ligne' (Get-Affichage ([pscustomobject]@{ erreur = 'reseau' }) $t).Fin $false
+# Terminer en deux clics : le premier arme, le second (dans les 4 s) arrête ; trop tard, il ne fait que réarmer.
+$h = [datetime]'2026-11-28T10:00:00'
+$un = Step-Terminer $null $h
+# (pas d’apostrophe courbe ici : PowerShell la lit comme un guillemet simple)
+Verifier 'le premier clic arme seulement' $un.Arreter $false
+$deux = Step-Terminer $un.ArmeJusqua $h.AddSeconds(2)
+Verifier 'second clic arrête' $deux.Arreter $true
+Verifier 'désarmé après' $deux.ArmeJusqua $null
+$tard = Step-Terminer $un.ArmeJusqua $h.AddSeconds(5)
+Verifier 'trop tard : réarme' $tard.Arreter $false
+Verifier 'note de fin' (Get-Note ([pscustomobject]@{ etat = 'terminee'; minutes = 52 })) 'Enregistrée · 52 min'
+# Permanent : lancé avec Windows tant qu'on n'a pas dit non, posé sur le bureau sauf choix « premier plan ».
+Verifier 'démarrage par défaut' (Test-DemarrageVoulu $null) $true
+Verifier 'non retenu' (Test-DemarrageVoulu $false) $false
+Verifier 'oui retenu' (Test-DemarrageVoulu $true) $true
+Verifier 'bureau par défaut' (Get-Mode $null) 'bureau'
+Verifier 'valeur inconnue' (Get-Mode 'nimporte') 'bureau'
+Verifier 'premier plan choisi' (Get-Mode 'dessus') 'dessus'
+Verifier 'raccourci de démarrage' (Get-ArgumentsDemarrage 'C:\Users\Moi\Mes documents\hameau-widget.ps1') '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -STA -File "C:\Users\Moi\Mes documents\hameau-widget.ps1"'
+Verifier 'rien à terminer (note)' (Get-Note ([pscustomobject]@{ etat = 'aucune' })) 'Aucune session à terminer'
 Verifier 'aucune' (Get-Affichage ([pscustomobject]@{ etat = 'aucune' }) $t).Statut 'Pas de chrono'
 Verifier 'démarrer' (Get-Affichage ([pscustomobject]@{ etat = 'aucune' }) $t).Action 'demarrer'
 Verifier 'attente' (Get-Affichage $null $t).Statut 'Connexion…'

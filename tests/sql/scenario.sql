@@ -240,6 +240,22 @@ select abs(extract(epoch from now() - (public.hameau_raccourci(current_setting('
 select public.hameau_raccourci(current_setting('test.jeton'), 'arreter')->>'minutes' as mn \gset
 select :'mn' = '50' as ok \gset
 \if :ok \else \echo 'ÉCHEC : durée effective du raccourci' :'mn' \quit 3 \endif
+-- Le bouton unique des widgets : « alterner » lance (avec l'objectif), met en pause, reprend… et n'arrête jamais.
+select public.hameau_raccourci(current_setting('test.jeton'), 'alterner', '', 'Code', 25)::jsonb as r \gset
+select (:'r'::jsonb)->>'etat' = 'en_cours' and ((:'r'::jsonb)->>'objectif')::int = 25 as ok \gset
+\if :ok \else \echo 'ÉCHEC : alterner sans session lance une session' :'r' \quit 3 \endif
+select public.hameau_raccourci(current_setting('test.jeton'), 'alterner')->>'etat' as e \gset
+select :'e' = 'en_pause' as ok \gset
+\if :ok \else \echo 'ÉCHEC : alterner met en pause la session qui tourne' :'e' \quit 3 \endif
+select public.hameau_raccourci(current_setting('test.jeton'), 'alterner')->>'etat' as e \gset
+select :'e' = 'en_cours' as ok \gset
+\if :ok \else \echo 'ÉCHEC : alterner reprend la session en pause' :'e' \quit 3 \endif
+select public.hameau_raccourci(current_setting('test.jeton'), 'etat')->>'etat' as e \gset
+select :'e' = 'en_cours' as ok \gset
+\if :ok \else \echo 'ÉCHEC : alterner n’arrête jamais la session' :'e' \quit 3 \endif
+select public.hameau_raccourci(current_setting('test.jeton'), 'arreter')->>'etat' as e \gset
+select :'e' = 'terminee' as ok \gset
+\if :ok \else \echo 'ÉCHEC : arrêt après alterner' :'e' \quit 3 \endif
 reset role;
 
 -- Migration 4 : niveaux des bâtiments.

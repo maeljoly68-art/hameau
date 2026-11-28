@@ -271,9 +271,40 @@ export default function Reglages({
               </p>
             </details>
             <details>
+              <summary>Widget à toucher : lancer, pause, terminer (iPhone)</summary>
+              <p>
+                Sur iPhone, seul le widget de l’app <strong>Raccourcis</strong> fait une action sans ouvrir d’app (toucher le widget Scriptable, lui, ouvre Hameau). Deux tuiles, à poser à côté du widget du temps :
+              </p>
+              <ul>
+                <li>
+                  <strong>⏸ Chrono</strong>, un toucher : lance une session s’il n’y en a pas, met en pause celle qui tourne, reprend celle qui est en pause. Il n’arrête jamais : une pause garde la session ouverte et fige le temps.
+                </li>
+                <li>
+                  <strong>■ Fin</strong> : termine et enregistre la session. Il te demande d’abord ce que tu as fait : c’est la confirmation, un toucher de trop ne coupe rien.
+                </li>
+              </ul>
+              <ol>
+                <li>
+                  Le raccourci <strong>Hameau · Chrono</strong> (app Raccourcis → <strong>+</strong>) : <strong>Obtenir le contenu de l’URL</strong> avec les réglages communs ci-dessus et <code>p_action</code> = <code>alterner</code> (facultatif : <code>p_objectif</code>, <strong>Nombre</strong> = <code>50</code>, pris au lancement), puis <strong>Obtenir la valeur du dictionnaire</strong> (clé <code>message</code>) et <strong>Afficher la notification</strong>.
+                </li>
+                <li>
+                  « Fin » est celui d’au-dessus (<code>arreter</code>). Pour les reconnaître d’un coup d’œil : appui long sur chaque raccourci → <strong>Détails</strong> → l’icône. Chrono : orange, le symbole pause. Fin : rouge, le carré.
+                </li>
+                <li>
+                  Range-les dans un dossier <strong>Hameau</strong> (onglet Raccourcis → <strong>Dossiers</strong>, ou appui long → <strong>Déplacer</strong>).
+                </li>
+                <li>
+                  <strong>Écran d’accueil</strong> : appui long → <strong>Modifier</strong> → <strong>Ajouter un widget</strong> → <strong>Raccourcis</strong>. Le petit montre un raccourci (pose-en deux : Chrono et Fin) ; le moyen montre le dossier Hameau, jusqu’à quatre tuiles. Appui long sur le widget → <strong>Modifier le widget</strong> pour choisir.
+                </li>
+              </ol>
+              <p className="aide">
+                La notification répond tout de suite (« Pause après 32 min », « C’est reparti ! »). Le widget du temps suit au prochain rafraîchissement d’iOS, en quelques minutes. Pour la Dynamic Island et « Ne pas déranger », lance plutôt avec « Focus ».
+              </p>
+            </details>
+            <details>
               <summary>Widget sur le bureau Windows</summary>
               <p>
-                Une petite fenêtre flottante, sans rien à installer (PowerShell est fourni avec Windows) : le temps de travail défile à la seconde, avec ton objectif, quel que soit l’appareil où le chrono a été lancé.
+                Un gadget posé sur le bureau, sans rien à installer (PowerShell est fourni avec Windows) : le temps de travail défile à la seconde, avec ton objectif, quel que soit l’appareil où le chrono a été lancé. Une fois lancé, il est permanent : il revient tout seul à chaque démarrage de Windows, et reste sur le bureau, sous tes fenêtres (« Afficher le bureau », Win+D, le laisse en place).
               </p>
               <ol>
                 <li>
@@ -289,8 +320,11 @@ export default function Reglages({
                 </li>
                 <li>Au premier lancement, colle ton jeton (ci-dessus).</li>
               </ol>
+              <p>
+                Deux boutons, pour ne pas confondre la pause et l’arrêt. <strong>Le rond</strong> fait ce qu’il montre, en un clic : ▶ lancer ou reprendre, ⏸ mettre en pause (la session reste ouverte, le temps se fige). <strong>Le carré ■</strong> termine et enregistre la session, en deux clics : le premier le fait rougir, le second arrête.
+              </p>
               <p className="aide">
-                Glisse-le où tu veux : il reste à sa place. Double-clic : ouvre Hameau. Clic droit : démarrer, mettre en pause ou reprendre le chrono, toujours au premier plan, <strong>lancer avec Windows</strong>, changer le jeton, fermer. Il suit le thème clair ou sombre de Windows.
+                Glisse-le où tu veux : il reste à sa place. Double-clic : ouvre Hameau. Clic droit : terminer, <strong>toujours au premier plan</strong> (par-dessus tes fenêtres, au lieu du bureau), <strong>lancer avec Windows</strong> (décoche pour qu’il ne revienne plus), changer le jeton, fermer. Il suit le thème clair ou sombre de Windows. Déjà installé ? Ferme-le (clic droit → Fermer le widget), télécharge-le à nouveau et remplace les deux fichiers du dossier.
               </p>
             </details>
             <details>
@@ -339,7 +373,7 @@ export default function Reglages({
             <details>
               <summary>« Pause » et « Reprise »</summary>
               <p>
-                <code>p_action</code> = <code>pause</code> ou <code>reprendre</code>. Le temps de pause est déduit de la session, et donc des points. Arrêter pendant une pause est permis : la pause s’arrête avec la session.
+                <code>p_action</code> = <code>pause</code> ou <code>reprendre</code> ; <code>alterner</code> fait les deux selon l’état, et lance une session s’il n’y en a pas. Le temps de pause est déduit de la session, et donc des points. Arrêter pendant une pause est permis : la pause s’arrête avec la session.
               </p>
             </details>
             <details>
